@@ -60,6 +60,7 @@ class Game {
   }
 
   async init() {
+    try {
     this._updateLoadingBar(10);
 
     // Setup renderer
@@ -198,6 +199,14 @@ class Game {
 
     // Start game loop
     this._gameLoop();
+    } catch (err) {
+      console.error('Game init failed:', err);
+      const loadingScreen = document.getElementById('loading-screen');
+      if (loadingScreen) {
+        const p = loadingScreen.querySelector('p');
+        if (p) p.textContent = `Error: ${err.message}`;
+      }
+    }
   }
 
   _updateLoadingBar(pct) {
