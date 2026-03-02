@@ -163,45 +163,50 @@ export class GolfCart {
       return;
     }
 
+    // Wake body in case it went to sleep
+    this.body.wakeUp();
+
     const forward = moveInput.y;
     const steer = moveInput.x;
 
     // Steering
     this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, -steer * 0.6, dt * 5);
 
-    // Get cart forward direction
+    // Get cart forward direction (-Z is front/headlights)
     const quat = this.body.quaternion;
     const fwd = new CANNON.Vec3(0, 0, -1);
     quat.vmult(fwd, fwd);
 
-    // Acceleration/braking
-    const speed = this.body.velocity.length();
+    // Current speed along forward axis
+    const fwdSpeed = this.body.velocity.x * fwd.x + this.body.velocity.z * fwd.z;
+
+    // Drive using direct velocity (applyForce gets eaten by box-plane friction)
     if (forward < -0.1) {
       // Accelerate forward
-      if (speed < SIZES.cartMaxSpeed) {
-        const force = fwd.scale(SIZES.cartAcceleration * 400 * -forward);
-        this.body.applyForce(force);
-      }
+      const targetSpeed = SIZES.cartMaxSpeed * Math.abs(forward);
+      const newSpeed = Math.min(fwdSpeed + SIZES.cartAcceleration * dt, targetSpeed);
+      this.body.velocity.x = fwd.x * newSpeed;
+      this.body.velocity.z = fwd.z * newSpeed;
     } else if (forward > 0.1) {
-      // Reverse/brake
-      if (speed < SIZES.cartMaxSpeed * 0.4) {
-        const force = fwd.scale(-SIZES.cartAcceleration * 200 * forward);
-        this.body.applyForce(force);
-      } else {
-        // Brake
-        this.body.velocity.x *= 0.95;
-        this.body.velocity.z *= 0.95;
-      }
+      // Reverse
+      const targetSpeed = -SIZES.cartMaxSpeed * 0.4 * Math.abs(forward);
+      const newSpeed = Math.max(fwdSpeed - SIZES.cartAcceleration * dt * 0.5, targetSpeed);
+      this.body.velocity.x = fwd.x * newSpeed;
+      this.body.velocity.z = fwd.z * newSpeed;
     } else {
       // Coast deceleration
-      this.body.velocity.x *= 0.99;
-      this.body.velocity.z *= 0.99;
+      const decay = 1 - 2 * dt;
+      this.body.velocity.x *= decay;
+      this.body.velocity.z *= decay;
     }
 
     // Turn (only when moving)
-    if (speed > 0.5) {
-      const turnForce = this.steerAngle * Math.min(speed, 8) * 0.5;
+    const absSpeed = this.body.velocity.length();
+    if (absSpeed > 0.5) {
+      const turnForce = this.steerAngle * Math.min(absSpeed, 8) * 0.5;
       this.body.angularVelocity.y = turnForce;
+    } else {
+      this.body.angularVelocity.y = 0;
     }
 
     // Keep cart upright
