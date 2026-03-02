@@ -1,0 +1,319 @@
+{
+  "taskTypes": {
+    "reservation": {
+      "label": "Reservation Issue",
+      "icon": "clipboard",
+      "baseReward": 10,
+      "estimatedTime": 120
+    },
+    "conflict": {
+      "label": "Member Conflict",
+      "icon": "alert",
+      "baseReward": 15,
+      "estimatedTime": 90
+    },
+    "errand": {
+      "label": "Errand",
+      "icon": "package",
+      "baseReward": 5,
+      "estimatedTime": 60
+    }
+  },
+
+  "missions": [
+    {
+      "id": "reservation_court3_conflict",
+      "type": "reservation",
+      "title": "Double Booking on Court 3",
+      "description": "Two members both claim they have Court 3 reserved. Sort it out.",
+      "source": "taskBoard",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "court3",
+          "prompt": "Head to Court 3 to check on the situation."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "mrs_wellington",
+          "prompt": "Talk to Mrs. Wellington about the reservation.",
+          "dialogueKey": "reservation_dispute_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "kevin_park",
+          "prompt": "Talk to Kevin about his booking.",
+          "dialogueKey": "reservation_dispute_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "Decide how to resolve the double booking.",
+          "choices": [
+            {
+              "label": "Check the schedule",
+              "result": "Mrs. Wellington had the earlier booking. Kevin understands.",
+              "reactions": { "mrs_wellington": "satisfied", "kevin_park": "neutral" }
+            },
+            {
+              "label": "Offer Kevin Court 4",
+              "result": "Kevin is happy with Court 4. Mrs. Wellington is pleased you sided with her.",
+              "reactions": { "mrs_wellington": "satisfied", "kevin_park": "satisfied" }
+            },
+            {
+              "label": "Suggest they share the court",
+              "result": "They awkwardly agree. Neither is thrilled but it works.",
+              "reactions": { "mrs_wellington": "unsatisfied", "kevin_park": "neutral" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errand_towels_court4",
+      "type": "errand",
+      "title": "Towel Delivery",
+      "description": "Fresh towels need to go to Court 4.",
+      "source": "taskBoard",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "proShop",
+          "item": "towels",
+          "prompt": "Pick up towels from the pro shop."
+        },
+        {
+          "action": "deliver",
+          "location": "court4",
+          "item": "towels",
+          "prompt": "Deliver the towels to Court 4."
+        }
+      ]
+    },
+    {
+      "id": "errand_ball_hopper",
+      "type": "errand",
+      "title": "Ball Hopper Retrieval",
+      "description": "Pick up the ball hopper from the garden shed and bring it to Court 2.",
+      "source": "radio",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "garden",
+          "item": "ball_hopper",
+          "prompt": "Pick up the ball hopper from the garden area."
+        },
+        {
+          "action": "deliver",
+          "location": "court2",
+          "item": "ball_hopper",
+          "prompt": "Deliver the ball hopper to Court 2."
+        }
+      ]
+    },
+    {
+      "id": "conflict_patio_argument",
+      "type": "conflict",
+      "title": "Patio Dispute",
+      "description": "Two members are arguing over a table at the patio. De-escalate the situation.",
+      "source": "radio",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "patio",
+          "prompt": "Head to the clubhouse patio."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "chad_blake",
+          "prompt": "Talk to Chad about what happened.",
+          "dialogueKey": "patio_argument_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "diane_ross",
+          "prompt": "Get Diane's side of the story.",
+          "dialogueKey": "patio_argument_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you handle this?",
+          "choices": [
+            {
+              "label": "Find a compromise",
+              "result": "You suggest they share the large table. Both reluctantly agree.",
+              "reactions": { "chad_blake": "neutral", "diane_ross": "neutral" }
+            },
+            {
+              "label": "Side with the longer member",
+              "result": "Diane gets the table. Chad storms off but gets over it.",
+              "reactions": { "chad_blake": "unsatisfied", "diane_ross": "satisfied" }
+            },
+            {
+              "label": "Distract them both",
+              "result": "You mention the pro shop has new gear. They both forget the argument.",
+              "reactions": { "chad_blake": "satisfied", "diane_ross": "satisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errand_water_bottles",
+      "type": "errand",
+      "title": "Water Delivery",
+      "description": "Bring water bottles to the patio area.",
+      "source": "taskBoard",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "proShop",
+          "item": "water_bottles",
+          "prompt": "Grab water bottles from the pro shop."
+        },
+        {
+          "action": "deliver",
+          "location": "patio",
+          "item": "water_bottles",
+          "prompt": "Deliver water bottles to the patio."
+        }
+      ]
+    },
+    {
+      "id": "reservation_wrong_court",
+      "type": "reservation",
+      "title": "Wrong Court Mix-up",
+      "description": "A member is playing on the wrong court. Redirect them politely.",
+      "source": "random",
+      "triggerNpc": "priya_sharma",
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "priya_sharma",
+          "prompt": "Talk to Priya about which court she's on.",
+          "dialogueKey": "wrong_court_1"
+        },
+        {
+          "action": "choose",
+          "prompt": "Help Priya find the right court.",
+          "choices": [
+            {
+              "label": "Walk her to the correct court",
+              "result": "You escort Priya to Court 1. She's grateful for the help.",
+              "reactions": { "priya_sharma": "satisfied" }
+            },
+            {
+              "label": "Give directions",
+              "result": "You point her the right way. She thanks you and heads off.",
+              "reactions": { "priya_sharma": "satisfied" }
+            },
+            {
+              "label": "Let her stay where she is",
+              "result": "The court's free anyway, so why not? Priya is relieved.",
+              "reactions": { "priya_sharma": "satisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errand_racket_return",
+      "type": "errand",
+      "title": "Lost Racket",
+      "description": "Someone left a racket at Court 1. Return it to the pro shop.",
+      "source": "radio",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "court1",
+          "item": "racket",
+          "prompt": "Pick up the forgotten racket at Court 1."
+        },
+        {
+          "action": "deliver",
+          "location": "proShop",
+          "item": "racket",
+          "prompt": "Return the racket to the pro shop."
+        }
+      ]
+    },
+    {
+      "id": "conflict_noise_complaint",
+      "type": "conflict",
+      "title": "Noise Complaint",
+      "description": "A member is complaining about noise from the adjacent court.",
+      "source": "random",
+      "triggerNpc": "diane_ross",
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "diane_ross",
+          "prompt": "Listen to Diane's noise complaint.",
+          "dialogueKey": "noise_complaint_1"
+        },
+        {
+          "action": "goTo",
+          "target": "court2",
+          "prompt": "Check on the noise at Court 2."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "tommy_chen",
+          "prompt": "Ask Tommy to keep it down.",
+          "dialogueKey": "noise_complaint_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "Resolve the noise situation.",
+          "choices": [
+            {
+              "label": "Ask Tommy to tone it down",
+              "result": "Tommy apologizes and keeps it down. Diane is satisfied.",
+              "reactions": { "tommy_chen": "neutral", "diane_ross": "satisfied" }
+            },
+            {
+              "label": "Offer Diane a quieter court",
+              "result": "You move Diane to Court 4. Everyone's happy.",
+              "reactions": { "tommy_chen": "satisfied", "diane_ross": "satisfied" }
+            },
+            {
+              "label": "Explain it's a public space",
+              "result": "Diane grumbles but accepts it. Tommy feels vindicated.",
+              "reactions": { "tommy_chen": "satisfied", "diane_ross": "unsatisfied" }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+
+  "dialogues": {
+    "reservation_dispute_1": [
+      { "speaker": "Mrs. Wellington", "text": "I have had this court reserved for WEEKS. And now this person just walks on?" },
+      { "speaker": "Mrs. Wellington", "text": "Check the schedule. You'll see I'm right." }
+    ],
+    "reservation_dispute_2": [
+      { "speaker": "Kevin Park", "text": "Oh no, am I on the wrong court? The app said Court 3..." },
+      { "speaker": "Kevin Park", "text": "I'm so sorry, I'm still figuring out how this place works." }
+    ],
+    "patio_argument_1": [
+      { "speaker": "Chad Blake", "text": "Bro, I was literally sitting here first. I went to grab a drink for TWO seconds." },
+      { "speaker": "Chad Blake", "text": "Tell her this is my table." }
+    ],
+    "patio_argument_2": [
+      { "speaker": "Diane Ross", "text": "This young man abandoned his table. I sat down. That's how it works." },
+      { "speaker": "Diane Ross", "text": "I've been a member here since before he was born." }
+    ],
+    "wrong_court_1": [
+      { "speaker": "Priya Sharma", "text": "Hey! So I signed up for Court 1 but... I think I'm on Court 3?" },
+      { "speaker": "Priya Sharma", "text": "All these courts look the same to me! Is this the clay one? What's clay?" }
+    ],
+    "noise_complaint_1": [
+      { "speaker": "Diane Ross", "text": "Do you HEAR that racket? No pun intended." },
+      { "speaker": "Diane Ross", "text": "That person on Court 2 is grunting like a wild animal. Handle it." }
+    ],
+    "noise_complaint_2": [
+      { "speaker": "Tommy Chen", "text": "Oh man, was I being loud? I get into the zone sometimes!" },
+      { "speaker": "Tommy Chen", "text": "My bad, my bad. What do you think I should do?" }
+    ]
+  }
+}
