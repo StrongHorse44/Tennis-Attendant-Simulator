@@ -12,7 +12,7 @@ Court Call is a 3D browser-based sandbox game where the player works as a tennis
 - **Cannon.js** (`cannon-es`) — physics engine (rigid bodies, collisions)
 - **Vite** — dev server and production bundler
 - **Vanilla JavaScript** (ES modules, no React/Vue/etc.)
-- All game data lives in **JSON config files** under `data/`
+- All game data lives in **JSON config files** under `public/data/` (served as static assets)
 
 ## Commands
 
@@ -28,10 +28,8 @@ There are no tests, linters, or formatters configured yet.
 ├── index.html              # Entry point (loading screen + canvas + UI root)
 ├── vite.config.js           # Vite config (port 3000, public dir)
 ├── package.json
-├── data/
-│   ├── map.json             # Club layout: areas, courts, paths, waypoints
-│   ├── npcs.json            # NPC definitions: names, archetypes, dialogue pools
-│   └── missions.json        # Mission templates, dialogue scripts, branching choices
+├── .github/workflows/
+│   └── deploy.yml           # GitHub Pages auto-deploy on push to main
 ├── src/
 │   ├── main.js              # Game class: init, game loop, camera, interaction logic
 │   ├── world/
@@ -57,6 +55,10 @@ There are no tests, linters, or formatters configured yet.
 │       ├── Constants.js     # Colors, sizes, game tuning values, area enums
 │       └── AssetLoader.js   # JSON data loader with cache
 └── public/
+    ├── data/
+    │   ├── map.json         # Club layout: areas, courts, paths, waypoints
+    │   ├── npcs.json        # NPC definitions: names, archetypes, dialogue pools
+    │   └── missions.json    # Mission templates, dialogue scripts, branching choices
     └── assets/              # Future: models, textures, audio files
 ```
 
@@ -64,10 +66,10 @@ There are no tests, linters, or formatters configured yet.
 
 - **Game loop** is in `src/main.js` — the `Game` class owns the scene, physics world, all systems, and entities. The `_gameLoop()` method runs via `requestAnimationFrame`.
 - **Physics** uses Cannon.js. The ground is a `CANNON.Plane`, buildings/walls are static `CANNON.Box` bodies, player/NPCs are `CANNON.Sphere` bodies, and the cart is a dynamic `CANNON.Box`.
-- **World building** is data-driven. `World.js` reads `data/map.json` and instantiates courts, buildings, paths, etc. To add or move areas, edit `map.json`.
-- **NPCs** are defined in `data/npcs.json`. Each has an archetype (`entitled`/`friendly`/`clueless`), preferred areas, greeting pools, and dialogue lines. NPC wandering uses waypoints from `map.json`.
-- **Missions** are defined in `data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`). The `MissionSystem` manages active missions, the task board, and radio dispatch.
-- **Dialogue** flows through `DialogueSystem` which controls `DialogueBox` (the UI overlay). Dialogues are keyed in `missions.json` under the `dialogues` object.
+- **World building** is data-driven. `World.js` reads `data/map.json` and instantiates courts, buildings, paths, etc. To add or move areas, edit `public/data/map.json`.
+- **NPCs** are defined in `public/data/npcs.json`. Each has an archetype (`entitled`/`friendly`/`clueless`), preferred areas, greeting pools, and dialogue lines. NPC wandering uses waypoints from `map.json`.
+- **Missions** are defined in `public/data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`). The `MissionSystem` manages active missions, the task board, and radio dispatch.
+- **Dialogue** flows through `DialogueSystem` which controls `DialogueBox` (the UI overlay). Dialogues are keyed in `public/data/missions.json` under the `dialogues` object.
 - **Camera** follows the player/cart in third-person with lerp smoothing. Transitions between on-foot and cart mode are handled in `_updateCamera()`.
 
 ## Key Conventions
@@ -85,6 +87,6 @@ There are no tests, linters, or formatters configured yet.
 
 **Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`), and steps array. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`.
 
-**Changing the map layout:** Edit `data/map.json`. Court positions, building locations, path routes, and waypoints are all defined there. The world rebuilds from this data on load.
+**Changing the map layout:** Edit `public/data/map.json`. Court positions, building locations, path routes, and waypoints are all defined there. The world rebuilds from this data on load.
 
 **Tuning game feel:** Adjust values in `src/utils/Constants.js` — cart speed (`SIZES.cartMaxSpeed`), player speed (`SIZES.playerSpeed`), camera distance (`SIZES.cameraDistance`), day length (`GAME.dayDurationSeconds`), etc.
