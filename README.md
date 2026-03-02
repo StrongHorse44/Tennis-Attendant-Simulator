@@ -4,6 +4,8 @@ A relaxed 3D sandbox game where you play as a tennis attendant at an upscale pri
 
 Built with Three.js + Cannon.js, playable in any modern browser.
 
+**[Play it now](https://StrongHorse44.github.io/Tennis-Attendant-Simulator/)**
+
 ## Quick Start
 
 ```bash
@@ -89,10 +91,8 @@ Weather changes randomly between sunny, cloudy, rainy, and windy — each with v
 ├── index.html               # Entry point
 ├── vite.config.js            # Vite configuration
 ├── package.json
-├── data/
-│   ├── map.json              # Club layout, courts, paths, waypoints
-│   ├── npcs.json             # NPC definitions and dialogue pools
-│   └── missions.json         # Mission templates and dialogue scripts
+├── .github/workflows/
+│   └── deploy.yml            # GitHub Pages auto-deploy on push to main
 ├── src/
 │   ├── main.js               # Game initialization and loop
 │   ├── world/                # Environment (World, Court, Building, Garden)
@@ -100,16 +100,21 @@ Weather changes randomly between sunny, cloudy, rainy, and windy — each with v
 │   ├── systems/              # Input, Weather, Dialogue, Missions, Inventory
 │   ├── ui/                   # Joystick, DialogueBox, HUD
 │   └── utils/                # Constants, AssetLoader
-└── public/assets/            # Future: models, textures, audio
+└── public/
+    ├── data/
+    │   ├── map.json          # Club layout, courts, paths, waypoints
+    │   ├── npcs.json         # NPC definitions and dialogue pools
+    │   └── missions.json     # Mission templates and dialogue scripts
+    └── assets/               # Future: models, textures, audio
 ```
 
 ## Adding Content
 
-The game is data-driven. To add content, edit the JSON files in `data/`:
+The game is data-driven. To add content, edit the JSON files in `public/data/`:
 
 ### Add an NPC
 
-Add an entry to `data/npcs.json`:
+Add an entry to `public/data/npcs.json`:
 
 ```json
 {
@@ -130,7 +135,7 @@ Add an entry to `data/npcs.json`:
 
 ### Add a Mission
 
-Add an entry to `data/missions.json`:
+Add an entry to `public/data/missions.json`:
 
 ```json
 {
@@ -151,7 +156,7 @@ Add an entry to `data/missions.json`:
 
 ### Modify the Map
 
-Edit `data/map.json` to change court positions, add buildings, adjust path routes, or create new waypoints. The world rebuilds from this data on load.
+Edit `public/data/map.json` to change court positions, add buildings, adjust path routes, or create new waypoints. The world rebuilds from this data on load.
 
 ## Tech Stack
 

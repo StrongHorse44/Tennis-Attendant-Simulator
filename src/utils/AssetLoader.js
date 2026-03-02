@@ -17,10 +17,11 @@ export class AssetLoader {
   }
 
   async loadAllData() {
+    const base = import.meta.env.BASE_URL;
     const [mapData, npcData, missionData] = await Promise.all([
-      this.loadJSON('/data/map.json'),
-      this.loadJSON('/data/npcs.json'),
-      this.loadJSON('/data/missions.json'),
+      this.loadJSON(`${base}data/map.json`),
+      this.loadJSON(`${base}data/npcs.json`),
+      this.loadJSON(`${base}data/missions.json`),
     ]);
     return { mapData, npcData, missionData };
   }
