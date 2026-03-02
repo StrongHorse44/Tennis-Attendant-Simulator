@@ -94,11 +94,15 @@ export class HUD {
       textTransform: 'uppercase',
       letterSpacing: '0.5px',
     });
-    this.actionButton.addEventListener('click', () => {
-      if (this.actionCallback) this.actionCallback();
-    });
+    // Use a flag to prevent double-firing from touchend + click on mobile
+    let touchHandled = false;
     this.actionButton.addEventListener('touchend', (e) => {
       e.preventDefault();
+      touchHandled = true;
+      if (this.actionCallback) this.actionCallback();
+    });
+    this.actionButton.addEventListener('click', () => {
+      if (touchHandled) { touchHandled = false; return; }
       if (this.actionCallback) this.actionCallback();
     });
     ui.appendChild(this.actionButton);
