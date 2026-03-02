@@ -46,7 +46,7 @@ export class World {
       mass: 0,
       shape: groundShape,
     });
-    groundBody.quaternion.setFromEulerAngles(-Math.PI / 2, 0, 0);
+    groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
     this.physicsWorld.addBody(groundBody);
   }
 
