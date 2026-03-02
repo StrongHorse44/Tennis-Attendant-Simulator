@@ -531,6 +531,7 @@ class Game {
   _gameLoop() {
     requestAnimationFrame(() => this._gameLoop());
 
+    try {
     const dt = Math.min(this.clock.getDelta(), 0.05);
 
     // Update input
@@ -590,6 +591,9 @@ class Game {
 
     // Render
     this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      console.error('Game loop error:', err);
+    }
   }
 
   _onResize() {
