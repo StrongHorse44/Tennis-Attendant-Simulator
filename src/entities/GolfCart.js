@@ -142,8 +142,8 @@ export class GolfCart {
       mass: 400,
       position: new CANNON.Vec3(pos.x, pos.y + 0.6, pos.z),
       shape,
-      linearDamping: 0.5,
-      angularDamping: 0.9,
+      linearDamping: 0.3,
+      angularDamping: 0.85,
     });
     this.body.material = new CANNON.Material({ friction: GAME.cartFriction });
 

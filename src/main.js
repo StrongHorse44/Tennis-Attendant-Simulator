@@ -7,6 +7,7 @@ import { WeatherSystem } from './systems/WeatherSystem.js';
 import { DialogueSystem } from './systems/DialogueSystem.js';
 import { MissionSystem } from './systems/MissionSystem.js';
 import { InventorySystem } from './systems/InventorySystem.js';
+import { SoundSystem } from './systems/SoundSystem.js';
 import { World } from './world/World.js';
 import { Player } from './entities/Player.js';
 import { GolfCart } from './entities/GolfCart.js';
@@ -29,6 +30,7 @@ class Game {
     this.dialogueSystem = null;
     this.missionSystem = null;
     this.inventory = null;
+    this.sound = null;
 
     // Entities
     this.player = null;
@@ -55,6 +57,10 @@ class Game {
     this.nearCart = false;
     this.nearTaskBoard = false;
     this.currentArea = null;
+
+    // Sound state
+    this.footstepTimer = 0;
+    this.wasInCart = false;
 
     this.init();
   }
@@ -116,6 +122,9 @@ class Game {
     // Setup input
     this.input = new InputSystem();
 
+    // Setup sound
+    this.sound = new SoundSystem();
+
     // Build world
     this.world = new World(this.scene, this.physicsWorld, this.mapData);
 
@@ -167,12 +176,16 @@ class Game {
 
     this._updateLoadingBar(90);
 
-    // Setup interaction tap handling
+    // Setup interaction tap handling (from touch taps on right side of screen)
     this.input.onTap((x, y) => this._handleTap(x, y));
 
-    // Handle canvas taps for interaction
+    // Handle canvas clicks for interaction (desktop — suppress if was a drag)
     const gameCanvas = document.getElementById('game-canvas');
     gameCanvas.addEventListener('click', (e) => {
+      if (this.input.wasDragging) {
+        this.input.wasDragging = false;
+        return;
+      }
       this._handleTap(e.clientX, e.clientY);
     });
 
@@ -195,6 +208,7 @@ class Game {
     // Show welcome notification
     setTimeout(() => {
       this.hud.showNotification('Welcome to Greenbriar Tennis Club! Check the Pro Shop task board.', 5);
+      this.sound.playNotification();
     }, 1000);
 
     // Start game loop
@@ -251,6 +265,7 @@ class Game {
     for (const npc of this.npcs) {
       const intersects = raycaster.intersectObjects(npc.mesh.children, true);
       if (intersects.length > 0 && npc.distanceTo(this._getPlayerWorldPos()) < GAME.interactionRange) {
+        this.sound.playUIClick();
         this.missionSystem.handleInteraction(npc, this._getPlayerWorldPos(), () => {
           this.hud.updateTaskList();
         });
@@ -285,12 +300,18 @@ class Game {
         actionLabel = 'Enter\nCart';
         actionCb = () => {
           this.player.enterCart(this.cart);
+          this.sound.playCartEnter();
+          this.sound.startCartEngine();
+          this.wasInCart = true;
         };
       }
     } else {
       actionLabel = 'Exit\nCart';
       actionCb = () => {
         this.player.exitCart();
+        this.sound.playCartEnter();
+        this.sound.stopCartEngine();
+        this.wasInCart = false;
       };
     }
 
@@ -311,6 +332,7 @@ class Game {
         this.nearestInteractable = closestNPC;
         actionLabel = closestNPC.hasRequest ? 'Help' : 'Talk';
         actionCb = () => {
+          this.sound.playUIClick();
           this.missionSystem.handleInteraction(closestNPC, playerPos, () => {
             this.hud.updateTaskList();
           });
@@ -327,7 +349,10 @@ class Game {
 
       if (dist < 3) {
         actionLabel = 'Task\nBoard';
-        actionCb = () => this._openTaskBoard();
+        actionCb = () => {
+          this.sound.playUIClick();
+          this._openTaskBoard();
+        };
       }
     }
 
@@ -341,6 +366,7 @@ class Game {
         actionCb = () => {
           const item = this.missionSystem.handlePickup(this.currentArea, playerPos);
           if (item) {
+            this.sound.playPickup();
             this.hud.showNotification(`Picked up: ${item.name}`);
             this.hud.updateTaskList();
           }
@@ -354,6 +380,7 @@ class Game {
         actionCb = () => {
           const result = this.missionSystem.handleDelivery(this.currentArea);
           if (result) {
+            this.sound.playPickup();
             this.hud.showNotification(`Delivered: ${result.item.name}`);
             this.hud.updateTaskList();
           }
@@ -446,6 +473,7 @@ class Game {
     this.dialogueSystem.showChoices(choices, (index, choice) => {
       const mission = missions[index];
       if (this.missionSystem.acceptTaskBoardMission(mission)) {
+        this.sound.playNotification();
         this.hud.showNotification(`Accepted: ${mission.title}`);
         this.hud.updateTaskList();
       }
@@ -455,19 +483,19 @@ class Game {
   _updateCamera(dt) {
     const target = this.player.isInCart ? this.cart.getPosition() : this.player.getPosition();
 
+    // Apply manual camera rotation from touch drag / mouse drag
+    const cameraDelta = this.input.cameraRotationDelta * -0.004;
+    this.input.cameraRotationDelta = 0;
+
     if (this.player.isInCart) {
-      // Follow cart direction
+      // Follow cart heading (front of cart is local -Z)
       const cartQuat = this.cart.mesh.quaternion;
-      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(cartQuat);
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cartQuat);
       const targetYaw = Math.atan2(forward.x, forward.z);
       this.cameraTargetYaw = targetYaw;
     } else {
-      // Follow player facing direction
-      const moveDir = this.input.getMoveDirection();
-      if (Math.abs(moveDir.x) > 0.1 || Math.abs(moveDir.y) > 0.1) {
-        const moveAngle = Math.atan2(moveDir.x, moveDir.y);
-        this.cameraTargetYaw = this.cameraYaw + moveAngle * 0.02;
-      }
+      // Manual camera rotation (touch/mouse drag)
+      this.cameraTargetYaw += cameraDelta;
     }
 
     // Smooth camera yaw
@@ -475,7 +503,8 @@ class Game {
     // Wrap angle
     while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
     while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
-    this.cameraYaw += yawDiff * dt * SIZES.cameraLerpSpeed;
+    const yawLerpSpeed = this.player.isInCart ? 4 : 8;
+    this.cameraYaw += yawDiff * dt * yawLerpSpeed;
 
     // Camera position
     const dist = this.player.isInCart ? SIZES.cameraDistance + 2 : SIZES.cameraDistance;
@@ -510,14 +539,27 @@ class Game {
     // Update physics
     this.physicsWorld.step(1 / 60, dt, 3);
 
-    // Update player
+    // Update player / cart
     const moveDir = this.input.getMoveDirection();
 
     if (this.player.isInCart) {
       this.cart.update(dt, moveDir, true);
+      this.sound.updateCartEngine(this.cart.currentSpeed);
     } else {
       this.player.update(dt, moveDir, this.cameraYaw);
       this.cart.update(dt, { x: 0, y: 0 }, false);
+
+      // Footstep sounds while walking
+      const inputLen = Math.sqrt(moveDir.x * moveDir.x + moveDir.y * moveDir.y);
+      if (inputLen > 0.1) {
+        this.footstepTimer -= dt;
+        if (this.footstepTimer <= 0) {
+          this.sound.playFootstep();
+          this.footstepTimer = 0.35;
+        }
+      } else {
+        this.footstepTimer = 0;
+      }
     }
 
     // Update camera

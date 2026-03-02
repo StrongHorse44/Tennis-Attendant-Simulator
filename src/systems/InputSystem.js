@@ -1,7 +1,7 @@
 import { GAME } from '../utils/Constants.js';
 
 /**
- * InputSystem - handles touch joystick, tap interactions, keyboard fallback
+ * InputSystem - handles touch joystick, tap interactions, camera rotation, keyboard fallback
  */
 export class InputSystem {
   constructor() {
@@ -21,7 +21,23 @@ export class InputSystem {
     // Keyboard state (desktop fallback)
     this.keys = {};
 
+    // Camera rotation (accumulated delta from touch/mouse drag)
+    this.cameraRotationDelta = 0;
+    this._cameraTouchId = null;
+    this._cameraTouchLastX = 0;
+    this._cameraTouchStartX = 0;
+    this._cameraTouchStartY = 0;
+    this._cameraDragDist = 0;
+
+    // Mouse camera drag
+    this._mouseDown = false;
+    this._mouseLastX = 0;
+    this._mouseDragDist = 0;
+    this.wasDragging = false;
+
     this._setupKeyboard();
+    this._setupCameraTouch();
+    this._setupMouseCamera();
   }
 
   _setupKeyboard() {
@@ -35,6 +51,76 @@ export class InputSystem {
       this.keys[e.code] = false;
       if (e.code === 'Space' || e.code === 'KeyE') {
         this.actionPressed = false;
+      }
+    });
+  }
+
+  _setupCameraTouch() {
+    const canvas = document.getElementById('game-canvas');
+
+    canvas.addEventListener('touchstart', (e) => {
+      for (const touch of e.changedTouches) {
+        // Right side of screen → camera rotation
+        if (this._cameraTouchId === null && touch.clientX > window.innerWidth * 0.35) {
+          this._cameraTouchId = touch.identifier;
+          this._cameraTouchLastX = touch.clientX;
+          this._cameraTouchStartX = touch.clientX;
+          this._cameraTouchStartY = touch.clientY;
+          this._cameraDragDist = 0;
+          break;
+        }
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === this._cameraTouchId) {
+          const dx = touch.clientX - this._cameraTouchLastX;
+          this.cameraRotationDelta += dx;
+          this._cameraTouchLastX = touch.clientX;
+          this._cameraDragDist += Math.abs(dx);
+          break;
+        }
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', (e) => {
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === this._cameraTouchId) {
+          // Short tap with no significant drag → treat as interaction tap
+          if (this._cameraDragDist < 10) {
+            this._fireTap(this._cameraTouchStartX, this._cameraTouchStartY);
+          }
+          this._cameraTouchId = null;
+          break;
+        }
+      }
+    });
+  }
+
+  _setupMouseCamera() {
+    const canvas = document.getElementById('game-canvas');
+
+    canvas.addEventListener('mousedown', (e) => {
+      this._mouseDown = true;
+      this._mouseLastX = e.clientX;
+      this._mouseDragDist = 0;
+      this.wasDragging = false;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!this._mouseDown) return;
+      const dx = e.clientX - this._mouseLastX;
+      this.cameraRotationDelta += dx;
+      this._mouseLastX = e.clientX;
+      this._mouseDragDist += Math.abs(dx);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!this._mouseDown) return;
+      this._mouseDown = false;
+      if (this._mouseDragDist > 5) {
+        this.wasDragging = true;
       }
     });
   }
@@ -69,6 +155,14 @@ export class InputSystem {
         this.moveInput.x = 0;
         this.moveInput.y = 0;
       }
+    }
+
+    // Keyboard camera rotation (Q / E)
+    if (this.keys['KeyQ']) {
+      this.cameraRotationDelta -= 4;
+    }
+    if (this.keys['KeyR']) {
+      this.cameraRotationDelta += 4;
     }
   }
 
