@@ -161,8 +161,8 @@ export class Player {
     const inputLen = Math.sqrt(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
 
     if (inputLen > 0.1) {
-      // Compute world-space direction based on camera
-      const moveAngle = Math.atan2(moveInput.x, moveInput.y);
+      // Compute world-space direction based on camera (negate Y: screen-up is negative Y, but forward is positive angle)
+      const moveAngle = Math.atan2(moveInput.x, -moveInput.y);
       const worldAngle = cameraYaw + moveAngle;
 
       const moveX = Math.sin(worldAngle) * this.speed * inputLen;

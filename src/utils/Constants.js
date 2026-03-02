@@ -80,8 +80,8 @@ export const SIZES = {
   // Player
   playerHeight: 1.8,
   playerRadius: 0.35,
-  playerSpeed: 5,
-  playerRunSpeed: 8,
+  playerSpeed: 8,
+  playerRunSpeed: 14,
 
   // Golf Cart
   cartLength: 2.8,
