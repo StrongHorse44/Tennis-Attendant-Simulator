@@ -1,0 +1,216 @@
+{
+  "name": "Greenbriar Tennis & Social Club",
+  "bounds": { "width": 120, "depth": 100 },
+  "spawnPoint": { "x": -35, "y": 0, "z": 30 },
+  "cartSpawnPoint": { "x": -33, "y": 0, "z": 28 },
+
+  "areas": {
+    "entrance": {
+      "label": "Main Entrance",
+      "center": { "x": -35, "y": 0, "z": 35 },
+      "bounds": { "width": 20, "depth": 15 }
+    },
+    "parking": {
+      "label": "Parking Area",
+      "center": { "x": -35, "y": 0, "z": 40 },
+      "bounds": { "width": 25, "depth": 12 },
+      "cars": [
+        { "x": -42, "z": 42, "rotation": 0, "color": 0 },
+        { "x": -38, "z": 42, "rotation": 0, "color": 1 },
+        { "x": -34, "z": 42, "rotation": 0, "color": 2 },
+        { "x": -28, "z": 42, "rotation": 0.1, "color": 3 }
+      ]
+    },
+    "proShop": {
+      "label": "Pro Shop",
+      "center": { "x": -20, "y": 0, "z": 25 },
+      "bounds": { "width": 14, "depth": 10 },
+      "hasInterior": true,
+      "doorPosition": { "x": -20, "z": 30 },
+      "taskBoard": { "x": -24, "y": 1.5, "z": 26 }
+    },
+    "courts": [
+      {
+        "id": "court1",
+        "label": "Court 1",
+        "type": "hard",
+        "center": { "x": 5, "y": 0, "z": 5 },
+        "rotation": 0
+      },
+      {
+        "id": "court2",
+        "label": "Court 2",
+        "type": "hard",
+        "center": { "x": 25, "y": 0, "z": 5 },
+        "rotation": 0
+      },
+      {
+        "id": "court3",
+        "label": "Court 3",
+        "type": "clay",
+        "center": { "x": 5, "y": 0, "z": -25 },
+        "rotation": 0
+      },
+      {
+        "id": "court4",
+        "label": "Court 4",
+        "type": "clay",
+        "center": { "x": 25, "y": 0, "z": -25 },
+        "rotation": 0
+      }
+    ],
+    "garden": {
+      "label": "Garden",
+      "center": { "x": -15, "y": 0, "z": -10 },
+      "bounds": { "width": 18, "depth": 18 },
+      "fountain": { "x": -15, "y": 0, "z": -10 },
+      "hedges": [
+        { "x": -22, "z": -4, "width": 1, "depth": 8 },
+        { "x": -8, "z": -4, "width": 1, "depth": 8 },
+        { "x": -15, "z": -18, "width": 14, "depth": 1 }
+      ],
+      "flowerBeds": [
+        { "x": -19, "z": -7, "width": 3, "depth": 3, "color": 0 },
+        { "x": -11, "z": -7, "width": 3, "depth": 3, "color": 1 },
+        { "x": -19, "z": -13, "width": 3, "depth": 3, "color": 2 },
+        { "x": -11, "z": -13, "width": 3, "depth": 3, "color": 3 }
+      ]
+    },
+    "patio": {
+      "label": "Clubhouse Patio",
+      "center": { "x": -20, "y": 0, "z": 5 },
+      "bounds": { "width": 18, "depth": 8 },
+      "seating": [
+        { "x": -26, "z": 4, "type": "table" },
+        { "x": -20, "z": 4, "type": "table" },
+        { "x": -14, "z": 4, "type": "table" },
+        { "x": -26, "z": 8, "type": "bench" },
+        { "x": -14, "z": 8, "type": "bench" }
+      ],
+      "clubhouse": {
+        "center": { "x": -20, "y": 0, "z": 0 },
+        "width": 18,
+        "depth": 8,
+        "height": 3.5
+      }
+    }
+  },
+
+  "paths": [
+    {
+      "id": "main_entrance_to_proshop",
+      "points": [
+        { "x": -35, "z": 35 },
+        { "x": -30, "z": 30 },
+        { "x": -20, "z": 30 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "proshop_to_patio",
+      "points": [
+        { "x": -20, "z": 25 },
+        { "x": -20, "z": 10 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "patio_to_courts",
+      "points": [
+        { "x": -12, "z": 5 },
+        { "x": -5, "z": 5 },
+        { "x": 0, "z": 5 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "courts_horizontal",
+      "points": [
+        { "x": -2, "z": 5 },
+        { "x": 15, "z": 5 },
+        { "x": 32, "z": 5 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "courts_vertical_left",
+      "points": [
+        { "x": -2, "z": 15 },
+        { "x": -2, "z": 5 },
+        { "x": -2, "z": -5 },
+        { "x": -2, "z": -15 },
+        { "x": -2, "z": -30 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "courts_vertical_right",
+      "points": [
+        { "x": 32, "z": 15 },
+        { "x": 32, "z": 5 },
+        { "x": 32, "z": -5 },
+        { "x": 32, "z": -15 },
+        { "x": 32, "z": -30 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "courts_south",
+      "points": [
+        { "x": -2, "z": -25 },
+        { "x": 15, "z": -25 },
+        { "x": 32, "z": -25 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "patio_to_garden",
+      "points": [
+        { "x": -20, "z": 5 },
+        { "x": -20, "z": -2 },
+        { "x": -15, "z": -4 }
+      ],
+      "width": 2.5
+    },
+    {
+      "id": "garden_to_courts",
+      "points": [
+        { "x": -8, "z": -10 },
+        { "x": -2, "z": -10 }
+      ],
+      "width": 2
+    },
+    {
+      "id": "entrance_loop",
+      "points": [
+        { "x": -40, "z": 35 },
+        { "x": -40, "z": 15 },
+        { "x": -30, "z": 5 },
+        { "x": -28, "z": 5 }
+      ],
+      "width": 3
+    }
+  ],
+
+  "waypoints": {
+    "entrance": { "x": -35, "y": 0, "z": 35 },
+    "parking": { "x": -35, "y": 0, "z": 42 },
+    "proShopDoor": { "x": -20, "y": 0, "z": 30 },
+    "proShopInside": { "x": -20, "y": 0, "z": 26 },
+    "taskBoard": { "x": -24, "y": 0, "z": 26 },
+    "patio1": { "x": -26, "y": 0, "z": 6 },
+    "patio2": { "x": -20, "y": 0, "z": 6 },
+    "patio3": { "x": -14, "y": 0, "z": 6 },
+    "court1_bench": { "x": -2, "y": 0, "z": 5 },
+    "court2_bench": { "x": 32, "y": 0, "z": 5 },
+    "court3_bench": { "x": -2, "y": 0, "z": -25 },
+    "court4_bench": { "x": 32, "y": 0, "z": -25 },
+    "court1_center": { "x": 5, "y": 0, "z": 5 },
+    "court2_center": { "x": 25, "y": 0, "z": 5 },
+    "court3_center": { "x": 5, "y": 0, "z": -25 },
+    "court4_center": { "x": 25, "y": 0, "z": -25 },
+    "garden_fountain": { "x": -15, "y": 0, "z": -10 },
+    "garden_north": { "x": -15, "y": 0, "z": -4 },
+    "garden_south": { "x": -15, "y": 0, "z": -17 }
+  }
+}

@@ -1,0 +1,207 @@
+{
+  "archetypes": {
+    "entitled": {
+      "label": "Entitled Member",
+      "color": "npcEntitled",
+      "nameTagColor": "#E74C3C",
+      "defaultMood": "impatient",
+      "tipChance": 0.1,
+      "tipRange": [1, 5]
+    },
+    "friendly": {
+      "label": "Friendly Regular",
+      "color": "npcFriendly",
+      "nameTagColor": "#27AE60",
+      "defaultMood": "happy",
+      "tipChance": 0.7,
+      "tipRange": [5, 20]
+    },
+    "clueless": {
+      "label": "New Member",
+      "color": "npcClueless",
+      "nameTagColor": "#3498DB",
+      "defaultMood": "confused",
+      "tipChance": 0.4,
+      "tipRange": [2, 10]
+    }
+  },
+
+  "npcs": [
+    {
+      "id": "mrs_wellington",
+      "name": "Mrs. Wellington",
+      "archetype": "entitled",
+      "shirtColor": "#8E44AD",
+      "preferredAreas": ["patio", "court1"],
+      "greetings": [
+        "Finally! I've been waiting forever.",
+        "You there! Attendant!",
+        "I shouldn't have to ask twice."
+      ],
+      "requests": [
+        "My usual court isn't ready. This is unacceptable.",
+        "Bring me fresh towels immediately.",
+        "Someone left balls all over Court 1. Clean it up."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Hmph. I suppose that'll do.", "About time."],
+        "unsatisfied": ["I'll be speaking to the manager about this.", "Unbelievable."],
+        "idle": ["The service here used to be much better.", "Is that what passes for court maintenance?"]
+      }
+    },
+    {
+      "id": "chad_blake",
+      "name": "Chad Blake",
+      "archetype": "entitled",
+      "shirtColor": "#E74C3C",
+      "preferredAreas": ["court2", "court1"],
+      "greetings": [
+        "Bro, bro, BRO.",
+        "Hey! Cart boy!",
+        "Yo, I need something."
+      ],
+      "requests": [
+        "Someone took my reserved court. Handle it.",
+        "I need a ball hopper at Court 2, like NOW.",
+        "My racket got scuffed. The pro shop better have a replacement."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Solid. Respect.", "That's what I'm talking about."],
+        "unsatisfied": ["Weak. Seriously weak.", "My dad's gonna hear about this."],
+        "idle": ["Check out this serve. Watch. WATCH.", "I could've gone pro, you know."]
+      }
+    },
+    {
+      "id": "maria_santos",
+      "name": "Maria Santos",
+      "archetype": "friendly",
+      "shirtColor": "#F39C12",
+      "preferredAreas": ["garden", "patio"],
+      "greetings": [
+        "Oh hi there! Beautiful day, isn't it?",
+        "Hey! How's your shift going?",
+        "Good to see you!"
+      ],
+      "requests": [
+        "Would you mind checking if Court 3 is free at 3pm?",
+        "Could you bring some water bottles to the patio when you get a chance?",
+        "I think I left my visor at Court 4. Could you check?"
+      ],
+      "dialoguePool": {
+        "satisfied": ["You're the best! Here, take this.", "Thank you so much!"],
+        "unsatisfied": ["Oh no worries, I'll figure it out!", "That's okay, thanks for trying!"],
+        "idle": ["The garden looks lovely today.", "I just love this club."]
+      }
+    },
+    {
+      "id": "bob_hendricks",
+      "name": "Bob Hendricks",
+      "archetype": "friendly",
+      "shirtColor": "#27AE60",
+      "preferredAreas": ["patio", "proShop"],
+      "greetings": [
+        "Hey kiddo! How goes it?",
+        "There's my favorite attendant!",
+        "Good morning! Or is it afternoon? Ha!"
+      ],
+      "requests": [
+        "Any chance you could grab me a cold drink from the pro shop?",
+        "My doubles partner hasn't shown up. Know anyone looking for a game?",
+        "Could you check the schedule for me? My eyes aren't what they used to be."
+      ],
+      "dialoguePool": {
+        "satisfied": ["You're a gem. Here's a little something for ya.", "Fantastic, thanks a million!"],
+        "unsatisfied": ["Ah well, no big deal!", "Don't worry about it at all."],
+        "idle": ["Back in my day, we didn't have fancy clay courts...", "Gorgeous weather for tennis."]
+      }
+    },
+    {
+      "id": "kevin_park",
+      "name": "Kevin Park",
+      "archetype": "clueless",
+      "shirtColor": "#3498DB",
+      "preferredAreas": ["entrance", "proShop"],
+      "greetings": [
+        "Excuse me, um, hi...",
+        "Hey, sorry to bother you...",
+        "Is this... am I in the right place?"
+      ],
+      "requests": [
+        "Where exactly are the courts? I can't find them.",
+        "Do I need to sign in somewhere? I'm new.",
+        "My membership card isn't working at the gate. Can you help?"
+      ],
+      "dialoguePool": {
+        "satisfied": ["Oh awesome, thank you! This place is so confusing.", "You're a lifesaver!"],
+        "unsatisfied": ["Oh... okay. I'll just... wander around I guess.", "Sorry, was that a dumb question?"],
+        "idle": ["This club is way bigger than I expected.", "Everyone seems to know each other here..."]
+      }
+    },
+    {
+      "id": "priya_sharma",
+      "name": "Priya Sharma",
+      "archetype": "clueless",
+      "shirtColor": "#1ABC9C",
+      "preferredAreas": ["court3", "garden"],
+      "greetings": [
+        "Hi! Quick question...",
+        "Hey there, I'm a bit lost...",
+        "Sorry, one more thing..."
+      ],
+      "requests": [
+        "Which courts are clay and which are hard? Does it matter?",
+        "I signed up for a lesson but I don't know where to go.",
+        "Is there a dress code? Someone gave me a weird look."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Oh that makes sense! Thank you!", "Great, I feel so much better now."],
+        "unsatisfied": ["Oh no... I hope I didn't mess anything up.", "This is all so overwhelming."],
+        "idle": ["I should probably actually learn the rules of tennis...", "The garden here is so peaceful."]
+      }
+    },
+    {
+      "id": "diane_ross",
+      "name": "Diane Ross",
+      "archetype": "entitled",
+      "shirtColor": "#9B59B6",
+      "preferredAreas": ["patio", "court4"],
+      "greetings": [
+        "Excuse me. EXCUSE me.",
+        "I've been a member here for 15 years.",
+        "Where is the attendant? Oh, there you are."
+      ],
+      "requests": [
+        "The patio umbrella is at the wrong angle. Fix it.",
+        "Those people on Court 4 are being entirely too loud.",
+        "I need the court swept before my 4 o'clock match."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Acceptable.", "See? Was that so hard?"],
+        "unsatisfied": ["This club is going downhill.", "I'm writing a letter to the board."],
+        "idle": ["When I was club president, things were different.", "The new members have no etiquette."]
+      }
+    },
+    {
+      "id": "tommy_chen",
+      "name": "Tommy Chen",
+      "archetype": "friendly",
+      "shirtColor": "#E67E22",
+      "preferredAreas": ["court2", "court3"],
+      "greetings": [
+        "Hey! Great to see you!",
+        "What's good, my friend?",
+        "Perfect timing!"
+      ],
+      "requests": [
+        "Got any extra balls? I'm hitting serves and running out fast.",
+        "My water bottle is in the cart. Could you grab it for me?",
+        "Want to rally for a bit when you're on break? Ha, just kidding. Unless..."
+      ],
+      "dialoguePool": {
+        "satisfied": ["You rock! Seriously.", "Here, grab yourself a snack on me."],
+        "unsatisfied": ["All good, no stress!", "Haha, don't worry about it!"],
+        "idle": ["Just trying to nail my backhand.", "Tennis is therapy, am I right?"]
+      }
+    }
+  ]
+}
