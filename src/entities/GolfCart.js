@@ -177,31 +177,28 @@ export class GolfCart {
     const fwd = new CANNON.Vec3(0, 0, -1);
     quat.vmult(fwd, fwd);
 
-    // Current speed along forward axis
-    const fwdSpeed = this.body.velocity.x * fwd.x + this.body.velocity.z * fwd.z;
-
-    // Drive using direct velocity (applyForce gets eaten by box-plane friction)
+    // Drive: track speed internally so ground friction can't eat our velocity
     if (forward < -0.1) {
       // Accelerate forward
       const targetSpeed = SIZES.cartMaxSpeed * Math.abs(forward);
-      const newSpeed = Math.min(fwdSpeed + SIZES.cartAcceleration * dt, targetSpeed);
-      this.body.velocity.x = fwd.x * newSpeed;
-      this.body.velocity.z = fwd.z * newSpeed;
+      this.currentSpeed = Math.min(this.currentSpeed + SIZES.cartAcceleration * dt, targetSpeed);
     } else if (forward > 0.1) {
       // Reverse
-      const targetSpeed = -SIZES.cartMaxSpeed * 0.4 * Math.abs(forward);
-      const newSpeed = Math.max(fwdSpeed - SIZES.cartAcceleration * dt * 0.5, targetSpeed);
-      this.body.velocity.x = fwd.x * newSpeed;
-      this.body.velocity.z = fwd.z * newSpeed;
+      const targetSpeed = SIZES.cartMaxSpeed * 0.4 * Math.abs(forward);
+      this.currentSpeed = Math.max(this.currentSpeed - SIZES.cartAcceleration * dt * 0.5, -targetSpeed);
     } else {
       // Coast deceleration
       const decay = 1 - 2 * dt;
-      this.body.velocity.x *= decay;
-      this.body.velocity.z *= decay;
+      this.currentSpeed *= decay;
+      if (Math.abs(this.currentSpeed) < 0.01) this.currentSpeed = 0;
     }
 
+    // Apply velocity to physics body
+    this.body.velocity.x = fwd.x * this.currentSpeed;
+    this.body.velocity.z = fwd.z * this.currentSpeed;
+
     // Turn (only when moving)
-    const absSpeed = this.body.velocity.length();
+    const absSpeed = Math.abs(this.currentSpeed);
     if (absSpeed > 0.5) {
       const turnForce = this.steerAngle * Math.min(absSpeed, 8) * 0.5;
       this.body.angularVelocity.y = turnForce;
@@ -223,7 +220,6 @@ export class GolfCart {
     // Steering wheel animation
     this.steeringWheel.rotation.z = this.steerAngle * 2;
 
-    this.currentSpeed = absSpeed;
     this._syncMesh();
   }
 
