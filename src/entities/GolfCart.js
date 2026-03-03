@@ -215,7 +215,7 @@ export class GolfCart {
     this.body.quaternion.normalize();
 
     // Wheel spin animation
-    const wheelSpin = speed * dt * 2;
+    const wheelSpin = absSpeed * dt * 2;
     for (const w of this.wheels) {
       w.rotation.x += wheelSpin;
     }
@@ -223,7 +223,7 @@ export class GolfCart {
     // Steering wheel animation
     this.steeringWheel.rotation.z = this.steerAngle * 2;
 
-    this.currentSpeed = speed;
+    this.currentSpeed = absSpeed;
     this._syncMesh();
   }
 
