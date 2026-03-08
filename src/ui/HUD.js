@@ -27,6 +27,8 @@ export class HUD {
     this.groomCoverageText = null;
     this.groomSpeedIndicator = null;
     this.groomTimerText = null;
+    this.groomProximityEl = null;
+    this.groomTaskListEl = null;
 
     this._create();
     this._setupTaskListSwipe();
@@ -281,8 +283,23 @@ export class HUD {
 
     // Timer
     this.groomTimerText = document.createElement('div');
-    this.groomTimerText.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.5); text-align: center;';
+    this.groomTimerText.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-bottom: 8px;';
     this.groomingOverlay.appendChild(this.groomTimerText);
+
+    // Proximity indicators
+    this.groomProximityEl = document.createElement('div');
+    this.groomProximityEl.style.cssText = 'margin-bottom: 8px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;';
+    this.groomingOverlay.appendChild(this.groomProximityEl);
+
+    // Courtside task checklist
+    const taskLabel = document.createElement('div');
+    taskLabel.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 4px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;';
+    taskLabel.textContent = 'Courtside Tasks';
+    this.groomingOverlay.appendChild(taskLabel);
+
+    this.groomTaskListEl = document.createElement('div');
+    this.groomTaskListEl.style.cssText = 'font-size: 11px;';
+    this.groomingOverlay.appendChild(this.groomTaskListEl);
 
     ui.appendChild(this.groomingOverlay);
 
@@ -598,6 +615,68 @@ export class HUD {
     const mins = Math.floor(progress.time / 60);
     const secs = Math.floor(progress.time % 60);
     this.groomTimerText.textContent = `Time: ${mins}:${secs.toString().padStart(2, '0')}`;
+
+    // Proximity indicators
+    if (progress.proximity) {
+      this._updateProximityDisplay(progress.proximity);
+    }
+
+    // Courtside tasks
+    if (progress.courtsideTasks) {
+      this._updateCourtsideTaskDisplay(progress.courtsideTasks);
+    }
+  }
+
+  _updateProximityDisplay(proximity) {
+    let html = '';
+
+    if (proximity.nearestFenceDist !== null && proximity.fenceStatus !== 'none') {
+      const dist = proximity.nearestFenceDist.toFixed(1);
+      const { color, label } = this._getProximityVisual(proximity.fenceStatus, 'Fence');
+      html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:rgba(255,255,255,0.6)">Fence:</span><span style="color:${color};font-weight:bold">${dist}m ${label}</span></div>`;
+    }
+
+    if (proximity.nearestNetDist !== null && proximity.netStatus !== 'none') {
+      const dist = proximity.nearestNetDist.toFixed(1);
+      const { color, label } = this._getProximityVisual(proximity.netStatus, 'Net');
+      html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:rgba(255,255,255,0.6)">Net:</span><span style="color:${color};font-weight:bold">${dist}m ${label}</span></div>`;
+    }
+
+    if (!html) {
+      html = '<div style="color:rgba(255,255,255,0.3);font-size:10px;text-align:center">Drive near fence or net</div>';
+    }
+
+    this.groomProximityEl.innerHTML = html;
+  }
+
+  _getProximityVisual(status, type) {
+    switch (status) {
+      case 'optimal':
+        return { color: '#27AE60', label: '(Good)' };
+      case 'warn':
+        return { color: '#F39C12', label: type === 'Fence' ? '(Get closer)' : '(Get closer)' };
+      case 'far':
+        return { color: '#E74C3C', label: '(Too far!)' };
+      case 'danger':
+        return { color: '#E74C3C', label: '(Too close!)' };
+      default:
+        return { color: 'rgba(255,255,255,0.4)', label: '' };
+    }
+  }
+
+  _updateCourtsideTaskDisplay(tasks) {
+    if (tasks.length === 0) {
+      this.groomTaskListEl.innerHTML = '<div style="color:rgba(255,255,255,0.3)">None</div>';
+      return;
+    }
+
+    let html = '';
+    for (const task of tasks) {
+      const icon = task.completed ? '\u2705' : '\u2B1C';
+      const textStyle = task.completed ? 'color:rgba(255,255,255,0.4);text-decoration:line-through' : 'color:rgba(255,255,255,0.8)';
+      html += `<div style="margin-bottom:2px;${textStyle}">${icon} ${task.label}</div>`;
+    }
+    this.groomTaskListEl.innerHTML = html;
   }
 
   update(dt) {

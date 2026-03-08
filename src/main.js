@@ -166,13 +166,15 @@ class Game {
       this.world.courts,
       this.cart,
       this.dialogueSystem,
-      this.sound
+      this.sound,
+      this.mapData
     );
 
     // Wire up grooming callbacks
-    this.courtMaintenance.onGroomStart = (court) => {
+    this.courtMaintenance.onGroomStart = (courts) => {
       this.hud.showGroomingHUD();
-      this.hud.showNotification(`Grooming ${court.config.label}... Drive slowly in a spiral pattern!`);
+      const courtNames = courts.map(c => c.config.label).join(', ');
+      this.hud.showNotification(`Grooming ${courtNames}... Start at the fence perimeter, then work toward the nets!`);
     };
 
     this.courtMaintenance.onGroomEnd = (score, message) => {
@@ -181,9 +183,10 @@ class Game {
       this.hud.showNotification(message, 5);
 
       // Check if any active groom mission step matches
+      const courtIds = score.courtId.split(',');
       for (const mission of this.missionSystem.getActiveMissions()) {
         const step = this.missionSystem.getCurrentStep(mission.id);
-        if (step && step.action === 'groom' && step.target === score.courtId) {
+        if (step && step.action === 'groom' && courtIds.includes(step.target)) {
           this.missionSystem.advanceMissionStep(mission.id);
           this.hud.updateTaskList();
           break;
@@ -193,6 +196,15 @@ class Game {
 
     this.courtMaintenance.onGroomUpdate = (progress) => {
       this.hud.updateGroomingHUD(progress);
+    };
+
+    this.courtMaintenance.onCourtsideTaskComplete = (task) => {
+      const soundMap = { cooler: 'playCoolerSwap', cups: 'playCoolerSwap', trash: 'playTrashPickup' };
+      const soundMethod = soundMap[task.type];
+      if (soundMethod && this.sound[soundMethod]) {
+        this.sound[soundMethod]();
+      }
+      this.hud.showNotification(`${task.label} - Done!`, 2);
     };
 
     this._updateLoadingBar(80);
@@ -405,11 +417,21 @@ class Game {
     // Check clay court grooming - start/stop grooming (must be in cart with brush)
     if (this.player.isInCart && this.cart.hasBrush) {
       if (this.courtMaintenance.isGrooming()) {
-        // Allow stopping mid-groom
-        actionLabel = 'Stop\nGroom';
-        actionCb = () => {
-          this.courtMaintenance.stopGrooming();
-        };
+        // Check for nearby courtside tasks first
+        const nearbyTask = this.courtMaintenance.getNearbyCourtTask(playerPos);
+        if (nearbyTask) {
+          const taskLabels = { cooler: 'Swap\nCooler', cups: 'Add\nCups', trash: 'Empty\nTrash' };
+          actionLabel = taskLabels[nearbyTask.type] || 'Do\nTask';
+          actionCb = () => {
+            this.courtMaintenance.completeCourtTask(nearbyTask.id);
+          };
+        } else {
+          // Allow stopping mid-groom
+          actionLabel = 'Stop\nGroom';
+          actionCb = () => {
+            this.courtMaintenance.stopGrooming();
+          };
+        }
       } else {
         const nearbyCourt = this.courtMaintenance.getNearbyClayCourtForGrooming(playerPos);
         if (nearbyCourt) {

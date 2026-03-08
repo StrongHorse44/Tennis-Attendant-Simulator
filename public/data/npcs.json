@@ -208,15 +208,15 @@
       "name": "Hank Morris",
       "archetype": "friendly",
       "shirtColor": "#5D6D3F",
-      "preferredAreas": ["court3", "court4", "equipmentShed"],
+      "preferredAreas": ["court3", "court4", "court5", "equipmentShed"],
       "greetings": [
         "Morning! Those clay courts won't groom themselves.",
         "Hey there! How are the courts looking today?",
         "Good to see ya. Ready to put in some work?"
       ],
       "requests": [
-        "Court 3 is looking rough after the morning matches. Time for a sweep.",
-        "The clay on Court 4 needs attention before the afternoon lesson.",
+        "The clay courts are looking rough after the morning matches. Time for a sweep.",
+        "All three clay courts need attention before the afternoon lesson.",
         "Those courts need grooming. Grab the brush from the equipment shed."
       ],
       "dialoguePool": {
