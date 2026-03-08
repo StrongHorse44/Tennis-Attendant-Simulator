@@ -34,13 +34,13 @@ There are no tests, linters, or formatters configured yet.
 ├── src/
 │   ├── main.js             # Game class: init, game loop, camera, interaction logic
 │   ├── world/
-│   │   ├── World.js        # Assembles ground, paths, courts, buildings, garden, parking
-│   │   ├── Court.js        # Tennis court with surface, lines, net, fencing, benches
+│   │   ├── World.js        # Assembles ground, paths, courts, buildings, garden, equipment shed, parking
+│   │   ├── Court.js        # Tennis court with surface, lines, net, fencing, benches, dirt grid (clay)
 │   │   ├── Building.js     # Pro shop (interior) and clubhouse structures
 │   │   └── Garden.js       # Garden with hedges, flower beds, fountain, trees
 │   ├── entities/
 │   │   ├── Player.js       # Player character: mesh, physics body, walk animation
-│   │   ├── GolfCart.js     # Drivable cart: physics, steering, wheel animation
+│   │   ├── GolfCart.js     # Drivable cart: physics, steering, wheel animation, brush attachment
 │   │   └── NPC.js          # NPC: wandering AI, name tags, exclamation marks, reactions
 │   ├── systems/
 │   │   ├── InputSystem.js  # Keyboard (WASD/arrows/Space/E/Q/R) + touch + camera drag
@@ -48,11 +48,12 @@ There are no tests, linters, or formatters configured yet.
 │   │   ├── DialogueSystem.js# Dialogue queue, branching choices, NPC conversation flow
 │   │   ├── MissionSystem.js# Task board, radio dispatch, random encounters, step logic
 │   │   ├── InventorySystem.js # Carry up to 3 items for errands
+│   │   ├── CourtMaintenanceSystem.js # Clay court grooming minigame
 │   │   └── SoundSystem.js  # Procedural Web Audio API sounds (no audio files)
 │   ├── ui/
 │   │   ├── Joystick.js     # Virtual joystick (touch + mouse fallback)
 │   │   ├── DialogueBox.js  # Bottom-center dialogue overlay with choices
-│   │   └── HUD.js          # Mini-map, task list, time/weather, inventory, action button
+│   │   └── HUD.js          # Mini-map, task list, time/weather, inventory, action button, grooming overlay
 │   └── utils/
 │       ├── Constants.js    # Colors, sizes, game tuning values, area enums
 │       └── AssetLoader.js  # JSON data loader with cache
@@ -70,10 +71,11 @@ There are no tests, linters, or formatters configured yet.
 - **Physics** uses Cannon.js. The ground is a `CANNON.Plane`, buildings/walls are static `CANNON.Box` bodies, player/NPCs are `CANNON.Sphere` bodies, and the cart is a dynamic `CANNON.Box` (400 kg, Y-axis angular lock to prevent flipping).
 - **World building** is data-driven. `World.js` reads `data/map.json` and instantiates courts, buildings, paths, etc. To add or move areas, edit `public/data/map.json`.
 - **NPCs** are defined in `public/data/npcs.json`. Each has an archetype (`entitled`/`friendly`/`clueless`), preferred areas, greeting pools, and dialogue lines. NPC wandering uses waypoints from `map.json`. NPCs have a state machine: `idle` → `wandering` → `talking` → `playing`.
-- **Missions** are defined in `public/data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`). The `MissionSystem` manages active missions (max 3), the task board, and radio dispatch.
+- **Missions** are defined in `public/data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`). The `MissionSystem` manages active missions (max 3), the task board, and radio dispatch.
 - **Dialogue** flows through `DialogueSystem` which controls `DialogueBox` (the UI overlay). Dialogues are keyed in `public/data/missions.json` under the `dialogues` object. Speaker names are color-coded by archetype.
 - **Camera** follows the player/cart in third-person with lerp smoothing. In cart mode, the camera auto-follows cart heading. On foot, the player can rotate the camera with Q/R keys or by dragging on the right side of the screen (>35% width).
-- **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. All sounds (footsteps, cart engine, UI clicks, pickups, notifications, bird chirps) are synthesized at runtime — there are no audio files. The system auto-initializes on first user interaction to comply with browser autoplay policies.
+- **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. All sounds (footsteps, cart engine, UI clicks, pickups, notifications, bird chirps, brush scraping, brush attach, groom complete) are synthesized at runtime — there are no audio files. The system auto-initializes on first user interaction to comply with browser autoplay policies.
+- **Court Maintenance** is managed by `CourtMaintenanceSystem.js`. Clay courts (3 & 4) have a grid-based dirt system. Players attach a drag brush to the golf cart at the equipment shed, then drive onto clay courts to groom them. The system tracks coverage, speed, and cleanliness, and rates performance. A first-time tutorial teaches the proper outside-in spiral technique. Courts degrade over time. Grooming can be done freely or as part of maintenance missions from the task board/radio. Rain blocks grooming (wet clay). The `groom` mission step type integrates with `MissionSystem` — completing a groom session auto-advances the matching mission step.
 - **Player/Cart interaction**: `Player.enterCart()` hides the player mesh, disables collision, and delegates movement to the cart. `Player.exitCart()` positions the player beside the cart and re-enables collision. The cart uses velocity-based driving (not force-based) since box-on-plane friction eats applied forces.
 
 ## Key Conventions
@@ -92,8 +94,8 @@ There are no tests, linters, or formatters configured yet.
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `SIZES.playerSpeed` | 8 | Walk speed (units/s) |
-| `SIZES.cartMaxSpeed` | 15 | Cart top speed (units/s) |
-| `SIZES.cartAcceleration` | 8 | Cart acceleration (units/s^2) |
+| `SIZES.cartMaxSpeed` | 10 | Cart top speed (units/s) |
+| `SIZES.cartAcceleration` | 5 | Cart acceleration (units/s^2) |
 | `SIZES.cameraDistance` | 8 | Camera follow distance |
 | `SIZES.cameraHeight` | 5 | Camera height above target |
 | `GAME.dayDurationSeconds` | 600 | Real seconds per in-game day (10 min) |
@@ -101,12 +103,18 @@ There are no tests, linters, or formatters configured yet.
 | `GAME.interactionRange` | 3 | Distance to interact with NPCs/objects |
 | `GAME.radioDispatchInterval` | 90 | Seconds between radio dispatches |
 | `GAME.gravity` | -9.82 | Physics gravity |
+| `GAME.groomCellSize` | 2 | Grid cell size for court dirt (world units) |
+| `GAME.groomSpeedLimit` | 5 | Max speed for quality grooming (units/s) |
+| `GAME.groomSpeedPenalty` | 8 | Above this speed, no grooming happens |
+| `GAME.courtDegradeInterval` | 120 | Seconds between court degradation ticks |
+| `GAME.groomBrushWidth` | 3 | Brush sweep radius (world units) |
+| `GAME.groomScoreThreshold` | 0.85 | Cleanliness needed for "excellent" rating |
 
 ## Common Tasks
 
 **Adding a new NPC:** Add an entry to `data/npcs.json` under `npcs[]` with id, name, archetype, shirtColor, preferredAreas, greetings, requests, and dialoguePool. The NPC will automatically spawn and wander.
 
-**Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`), and steps array. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`.
+**Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`), and steps array. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`. For maintenance missions, use type `maintenance` and the `groom` step action with a `target` matching a clay court id (e.g., `court3`, `court4`).
 
 **Changing the map layout:** Edit `public/data/map.json`. Court positions, building locations, path routes, and waypoints are all defined there. The world rebuilds from this data on load.
 
@@ -115,3 +123,5 @@ There are no tests, linters, or formatters configured yet.
 **Adding inventory items:** Add a new entry to the `ITEMS` object in `src/systems/InventorySystem.js` with a name and emoji. Current items: `towels`, `ball_hopper`, `water_bottles`, `racket`.
 
 **Adding sounds:** All sounds are procedural in `src/systems/SoundSystem.js` using Web Audio API oscillators and noise buffers. Add new methods following the existing patterns (create oscillator/gain, schedule ramps, connect to master gain).
+
+**Tuning court maintenance:** Adjust values in `Constants.js` under the `GAME` object — `groomCellSize` (grid resolution), `groomSpeedLimit` (max effective speed), `groomSpeedPenalty` (speed cutoff), `courtDegradeInterval` (how fast courts get dirty), `groomBrushWidth` (sweep area), `groomScoreThreshold` (rating threshold). Court dirt colors are in `COLORS` under `clayCourtDirty` and `clayCourtClean`.

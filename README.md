@@ -43,6 +43,7 @@ You're the attendant at **Greenbriar Tennis & Social Club**. Your day involves:
 - **Helping club members** with reservations, complaints, and requests
 - **Running errands** — delivering towels, retrieving ball hoppers, restocking water bottles
 - **Mediating conflicts** between members with different personalities
+- **Grooming the clay courts** — attach a drag brush to your cart and sweep Courts 3 & 4
 - **Checking the task board** in the Pro Shop for new assignments
 - **Responding to radio dispatch** for urgent requests
 
@@ -53,6 +54,7 @@ You're the attendant at **Greenbriar Tennis & Social Club**. Your day involves:
 - **4 Tennis Courts** — 2 hard courts (blue), 2 clay courts (orange) in a 2x2 grid
 - **Garden** — hedges, flower beds, and an animated fountain
 - **Clubhouse Patio** — where members hang out and flag you down
+- **Equipment Shed** — near the garden, pick up the drag brush for court grooming
 
 ### NPCs
 
@@ -63,6 +65,26 @@ Club members come in three archetypes:
 - **New Members** (blue ring) — confused, need directions, ask lots of questions
 
 Members wander the club, play tennis, sit at the patio, and approach you with requests (look for the floating **!** icon). Reactions appear as floating emoji above their heads.
+
+### Court Maintenance Minigame
+
+The two clay courts (Courts 3 & 4) need regular grooming to stay in playing condition. Here's how it works:
+
+1. **Get in the golf cart** and drive to the **Equipment Shed** (near the garden)
+2. Press **"Attach Brush"** — a 6-foot drag brush hooks onto the cart's rear
+3. **Drive to a clay court** (Courts 3 or 4, the orange ones in the back)
+4. Press **"Start Groom"** to begin the grooming session
+5. **Drive slowly in a spiral pattern** — start from the outside edges and work inward
+6. Watch the **Grooming HUD** (top-right) for cleanliness %, coverage, and speed
+7. Keep your speed under 5 for effective grooming (the indicator turns red if too fast)
+8. Press **"Stop Groom"** when satisfied — you'll get a performance rating
+
+**Tips:**
+- Your first time triggers a tutorial from **Hank Morris**, the Head Groundskeeper
+- Courts get dirty over time from play — darker overlay patches show where dirt has accumulated
+- You can groom anytime for fun, or accept maintenance missions from the task board
+- Don't try grooming in the rain — wet clay can't be brushed!
+- Hank will assign you court grooming tasks via the task board and radio dispatch
 
 ### Missions
 
@@ -76,6 +98,7 @@ Mission types:
 - **Reservation Management** — resolve double bookings and scheduling mix-ups
 - **Conflict Resolution** — mediate arguments between members
 - **Errands** — pick up and deliver items (towels, ball hoppers, water bottles, rackets)
+- **Court Maintenance** — groom clay courts with the drag brush attached to your cart
 
 You can have up to 3 active missions at a time. All missions resolve regardless of your choices — NPC satisfaction varies based on your decisions.
 
@@ -106,6 +129,9 @@ All audio is procedurally generated using the Web Audio API — no sound files a
 - UI click and pickup sounds
 - Notification chimes for new tasks
 - Ambient bird chirps
+- Brush scraping on clay during court grooming
+- Metallic clank when attaching/detaching the drag brush
+- Completion chime when finishing a grooming session
 
 ## Project Structure
 
@@ -119,7 +145,7 @@ All audio is procedurally generated using the Web Audio API — no sound files a
 │   ├── main.js              # Game initialization, loop, camera, interactions
 │   ├── world/               # Environment (World, Court, Building, Garden)
 │   ├── entities/            # Player, GolfCart, NPC
-│   ├── systems/             # Input, Weather, Dialogue, Missions, Inventory, Sound
+│   ├── systems/             # Input, Weather, Dialogue, Missions, Inventory, Sound, CourtMaintenance
 │   ├── ui/                  # Joystick, DialogueBox, HUD
 │   └── utils/               # Constants, AssetLoader
 └── public/
@@ -162,7 +188,7 @@ Add an entry to `public/data/missions.json`:
 ```json
 {
   "id": "unique_mission_id",
-  "type": "reservation|conflict|errand",
+  "type": "reservation|conflict|errand|maintenance",
   "title": "Mission Title",
   "description": "Short description",
   "source": "taskBoard|radio|random",
@@ -171,7 +197,8 @@ Add an entry to `public/data/missions.json`:
     { "action": "dialogue", "npcId": "npc_id", "dialogueKey": "key" },
     { "action": "pickup", "location": "proShop", "item": "towels" },
     { "action": "deliver", "location": "court4", "item": "towels" },
-    { "action": "choose", "prompt": "What do you do?", "choices": [...] }
+    { "action": "choose", "prompt": "What do you do?", "choices": [...] },
+    { "action": "groom", "target": "court3", "prompt": "Groom Court 3." }
   ]
 }
 ```
