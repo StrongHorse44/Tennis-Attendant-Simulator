@@ -21,6 +21,13 @@ export class HUD {
     this.notificationEl = null;
     this.notificationTimer = 0;
 
+    // Grooming HUD
+    this.groomingOverlay = null;
+    this.groomCoverageBar = null;
+    this.groomCoverageText = null;
+    this.groomSpeedIndicator = null;
+    this.groomTimerText = null;
+
     this._create();
     this._setupTaskListSwipe();
   }
@@ -224,6 +231,60 @@ export class HUD {
       backdropFilter: 'blur(4px)',
     });
     ui.appendChild(this.notificationEl);
+
+    // Grooming overlay (hidden by default)
+    this.groomingOverlay = document.createElement('div');
+    Object.assign(this.groomingOverlay.style, {
+      position: 'fixed',
+      top: '50px',
+      right: '12px',
+      width: '180px',
+      background: 'rgba(20,20,20,0.85)',
+      borderRadius: '12px',
+      padding: '12px',
+      color: '#fff',
+      fontFamily: "'Segoe UI', system-ui, sans-serif",
+      fontSize: '12px',
+      zIndex: '95',
+      display: 'none',
+      backdropFilter: 'blur(4px)',
+      border: '2px solid rgba(204, 119, 68, 0.6)',
+    });
+
+    // Title
+    const groomTitle = document.createElement('div');
+    groomTitle.style.cssText = 'font-weight: bold; font-size: 13px; color: #f4e8c1; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;';
+    groomTitle.textContent = 'Court Grooming';
+    this.groomingOverlay.appendChild(groomTitle);
+
+    // Coverage label + bar
+    const coverageLabel = document.createElement('div');
+    coverageLabel.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 4px;';
+    coverageLabel.textContent = 'Cleanliness';
+    this.groomingOverlay.appendChild(coverageLabel);
+
+    const coverageBarBg = document.createElement('div');
+    coverageBarBg.style.cssText = 'width: 100%; height: 14px; background: rgba(255,255,255,0.1); border-radius: 7px; overflow: hidden; margin-bottom: 8px;';
+    this.groomCoverageBar = document.createElement('div');
+    this.groomCoverageBar.style.cssText = 'width: 0%; height: 100%; background: linear-gradient(90deg, #CC7744, #27AE60); border-radius: 7px; transition: width 0.2s ease;';
+    coverageBarBg.appendChild(this.groomCoverageBar);
+    this.groomingOverlay.appendChild(coverageBarBg);
+
+    this.groomCoverageText = document.createElement('div');
+    this.groomCoverageText.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.7); margin-bottom: 8px;';
+    this.groomingOverlay.appendChild(this.groomCoverageText);
+
+    // Speed indicator
+    this.groomSpeedIndicator = document.createElement('div');
+    this.groomSpeedIndicator.style.cssText = 'font-size: 12px; font-weight: bold; margin-bottom: 6px; padding: 4px 8px; border-radius: 6px; text-align: center;';
+    this.groomingOverlay.appendChild(this.groomSpeedIndicator);
+
+    // Timer
+    this.groomTimerText = document.createElement('div');
+    this.groomTimerText.style.cssText = 'font-size: 11px; color: rgba(255,255,255,0.5); text-align: center;';
+    this.groomingOverlay.appendChild(this.groomTimerText);
+
+    ui.appendChild(this.groomingOverlay);
 
     // CSS animation
     const style = document.createElement('style');
@@ -503,6 +564,40 @@ export class HUD {
       });
       this.inventoryEl.appendChild(slot);
     }
+  }
+
+  showGroomingHUD() {
+    this.groomingOverlay.style.display = 'block';
+  }
+
+  hideGroomingHUD() {
+    this.groomingOverlay.style.display = 'none';
+  }
+
+  updateGroomingHUD(progress) {
+    if (!progress) return;
+
+    const cleanPct = Math.round(progress.cleanliness * 100);
+    const coverPct = Math.round(progress.coverage * 100);
+    this.groomCoverageBar.style.width = cleanPct + '%';
+    this.groomCoverageText.textContent = `Coverage: ${coverPct}% | Clean: ${cleanPct}%`;
+
+    // Speed indicator
+    const speed = progress.speed.toFixed(1);
+    if (progress.speedOk) {
+      this.groomSpeedIndicator.style.background = 'rgba(39, 174, 96, 0.3)';
+      this.groomSpeedIndicator.style.color = '#27AE60';
+      this.groomSpeedIndicator.textContent = `Speed: ${speed} (Good)`;
+    } else {
+      this.groomSpeedIndicator.style.background = 'rgba(231, 76, 60, 0.3)';
+      this.groomSpeedIndicator.style.color = '#E74C3C';
+      this.groomSpeedIndicator.textContent = `Speed: ${speed} (Too Fast!)`;
+    }
+
+    // Timer
+    const mins = Math.floor(progress.time / 60);
+    const secs = Math.floor(progress.time % 60);
+    this.groomTimerText.textContent = `Time: ${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
   update(dt) {

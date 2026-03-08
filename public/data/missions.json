@@ -17,6 +17,12 @@
       "icon": "package",
       "baseReward": 5,
       "estimatedTime": 60
+    },
+    "maintenance": {
+      "label": "Court Maintenance",
+      "icon": "brush",
+      "baseReward": 20,
+      "estimatedTime": 180
     }
   },
 
@@ -283,6 +289,92 @@
           ]
         }
       ]
+    },
+    {
+      "id": "maintenance_court3_groom",
+      "type": "maintenance",
+      "title": "Groom Court 3",
+      "description": "Court 3 needs grooming before the afternoon matches. Grab the drag brush and sweep the clay.",
+      "source": "taskBoard",
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Talk to Hank about court grooming.",
+          "dialogueKey": "groom_intro_1"
+        },
+        {
+          "action": "goTo",
+          "target": "equipmentShed",
+          "prompt": "Go to the equipment shed to attach the drag brush."
+        },
+        {
+          "action": "groom",
+          "target": "court3",
+          "prompt": "Drive onto Court 3 with the brush attached and groom the surface."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Report back to Hank.",
+          "dialogueKey": "groom_complete_1"
+        }
+      ]
+    },
+    {
+      "id": "maintenance_court4_groom",
+      "type": "maintenance",
+      "title": "Groom Court 4",
+      "description": "Court 4 is looking rough. Hank wants it swept before the next lesson.",
+      "source": "radio",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "equipmentShed",
+          "prompt": "Get the drag brush from the equipment shed."
+        },
+        {
+          "action": "groom",
+          "target": "court4",
+          "prompt": "Groom Court 4 with the drag brush."
+        }
+      ]
+    },
+    {
+      "id": "maintenance_both_courts",
+      "type": "maintenance",
+      "title": "Morning Court Prep",
+      "description": "Both clay courts need grooming before the morning session. Hank's counting on you.",
+      "source": "taskBoard",
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Check in with Hank about the morning prep.",
+          "dialogueKey": "morning_prep_1"
+        },
+        {
+          "action": "goTo",
+          "target": "equipmentShed",
+          "prompt": "Pick up the drag brush from the equipment shed."
+        },
+        {
+          "action": "groom",
+          "target": "court3",
+          "prompt": "Groom Court 3 first."
+        },
+        {
+          "action": "groom",
+          "target": "court4",
+          "prompt": "Now groom Court 4."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Let Hank know both courts are done.",
+          "dialogueKey": "morning_prep_done"
+        }
+      ]
     }
   ],
 
@@ -314,6 +406,24 @@
     "noise_complaint_2": [
       { "speaker": "Tommy Chen", "text": "Oh man, was I being loud? I get into the zone sometimes!" },
       { "speaker": "Tommy Chen", "text": "My bad, my bad. What do you think I should do?" }
+    ],
+    "groom_intro_1": [
+      { "speaker": "Hank Morris", "text": "Good, you're here. Court 3's been getting hammered all morning — slides, divots, the works." },
+      { "speaker": "Hank Morris", "text": "Head to the equipment shed and hook up the drag brush to your cart. Then drive onto the court nice and slow." },
+      { "speaker": "Hank Morris", "text": "Remember — outside in, spiral pattern. Keep it under 5 and you'll do just fine." }
+    ],
+    "groom_complete_1": [
+      { "speaker": "Hank Morris", "text": "Let me take a look... nice work out there. The surface looks great." },
+      { "speaker": "Hank Morris", "text": "Keep it up and you'll be running the grounds crew in no time." }
+    ],
+    "morning_prep_1": [
+      { "speaker": "Hank Morris", "text": "Big morning ahead — both clay courts need grooming before the 9 AM group." },
+      { "speaker": "Hank Morris", "text": "Grab the brush, do Court 3 first, then Court 4. Spiral pattern, nice and easy." },
+      { "speaker": "Hank Morris", "text": "I'll be checking your work when you're done, so make it count!" }
+    ],
+    "morning_prep_done": [
+      { "speaker": "Hank Morris", "text": "Both courts done? Let me see..." },
+      { "speaker": "Hank Morris", "text": "Looking sharp! The members are going to love playing on that surface today. Good job." }
     ]
   }
 }

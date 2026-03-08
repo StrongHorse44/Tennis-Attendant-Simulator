@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { COLORS, SIZES } from '../utils/Constants.js';
+import { COLORS, SIZES, GAME } from '../utils/Constants.js';
 
 /**
  * Court - tennis court with surface, lines, net, fencing, and benches
@@ -12,9 +12,166 @@ export class Court {
     this.config = config;
     this.mesh = new THREE.Group();
     this.id = config.id;
+    this.isClay = config.type === 'clay';
+
+    // Surface grid for clay court maintenance
+    this.gridCols = 0;
+    this.gridRows = 0;
+    this.dirtGrid = null;       // 2D array of dirtiness values (0=clean, 1=dirty)
+    this.gridMeshes = null;     // 2D array of overlay meshes
+    this.surfaceMesh = null;    // reference to main surface for color updates
 
     this._build();
     this.scene.add(this.mesh);
+
+    if (this.isClay) {
+      this._buildDirtGrid();
+    }
+  }
+
+  /**
+   * Get dirtiness at a world position. Returns -1 if outside the court.
+   */
+  getDirtAt(worldX, worldZ) {
+    if (!this.dirtGrid) return -1;
+    const cell = this._worldToGrid(worldX, worldZ);
+    if (!cell) return -1;
+    return this.dirtGrid[cell.row][cell.col];
+  }
+
+  /**
+   * Groom (clean) cells near a world position within a given radius.
+   * Returns number of cells affected.
+   */
+  groomAt(worldX, worldZ, radius) {
+    if (!this.dirtGrid) return 0;
+    const { center } = this.config;
+    const w = SIZES.courtWidth;
+    const d = SIZES.courtDepth;
+    const cellSize = GAME.groomCellSize;
+    let affected = 0;
+
+    for (let row = 0; row < this.gridRows; row++) {
+      for (let col = 0; col < this.gridCols; col++) {
+        if (this.dirtGrid[row][col] <= 0) continue;
+
+        // Cell center in world coords
+        const cx = center.x - w / 2 + (col + 0.5) * cellSize;
+        const cz = center.z - d / 2 + (row + 0.5) * cellSize;
+        const dx = worldX - cx;
+        const dz = worldZ - cz;
+        if (dx * dx + dz * dz < radius * radius) {
+          this.dirtGrid[row][col] = Math.max(0, this.dirtGrid[row][col] - 0.15);
+          this._updateCellVisual(row, col);
+          affected++;
+        }
+      }
+    }
+    return affected;
+  }
+
+  /**
+   * Add dirt to all cells (simulates play degradation).
+   */
+  degradeSurface(amount) {
+    if (!this.dirtGrid) return;
+    for (let row = 0; row < this.gridRows; row++) {
+      for (let col = 0; col < this.gridCols; col++) {
+        this.dirtGrid[row][col] = Math.min(1, this.dirtGrid[row][col] + amount);
+        this._updateCellVisual(row, col);
+      }
+    }
+  }
+
+  /**
+   * Get overall cleanliness (0=all dirty, 1=all clean).
+   */
+  getCleanliness() {
+    if (!this.dirtGrid) return 1;
+    let total = 0;
+    const count = this.gridRows * this.gridCols;
+    for (let row = 0; row < this.gridRows; row++) {
+      for (let col = 0; col < this.gridCols; col++) {
+        total += (1 - this.dirtGrid[row][col]);
+      }
+    }
+    return total / count;
+  }
+
+  /**
+   * Set all cells to a given dirtiness level.
+   */
+  setAllDirt(level) {
+    if (!this.dirtGrid) return;
+    for (let row = 0; row < this.gridRows; row++) {
+      for (let col = 0; col < this.gridCols; col++) {
+        this.dirtGrid[row][col] = level;
+        this._updateCellVisual(row, col);
+      }
+    }
+  }
+
+  _worldToGrid(worldX, worldZ) {
+    const { center } = this.config;
+    const w = SIZES.courtWidth;
+    const d = SIZES.courtDepth;
+    const cellSize = GAME.groomCellSize;
+
+    const localX = worldX - (center.x - w / 2);
+    const localZ = worldZ - (center.z - d / 2);
+    const col = Math.floor(localX / cellSize);
+    const row = Math.floor(localZ / cellSize);
+
+    if (col < 0 || col >= this.gridCols || row < 0 || row >= this.gridRows) return null;
+    return { row, col };
+  }
+
+  _buildDirtGrid() {
+    const { center } = this.config;
+    const w = SIZES.courtWidth;
+    const d = SIZES.courtDepth;
+    const cellSize = GAME.groomCellSize;
+
+    this.gridCols = Math.floor(w / cellSize);
+    this.gridRows = Math.floor(d / cellSize);
+    this.dirtGrid = [];
+    this.gridMeshes = [];
+
+    const dirtyMat = new THREE.MeshLambertMaterial({
+      color: COLORS.clayCourtDirty,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+
+    for (let row = 0; row < this.gridRows; row++) {
+      this.dirtGrid[row] = [];
+      this.gridMeshes[row] = [];
+      for (let col = 0; col < this.gridCols; col++) {
+        // Start at 60% dirty
+        this.dirtGrid[row][col] = 0.6;
+
+        const cellMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(cellSize - 0.05, 0.01, cellSize - 0.05),
+          dirtyMat.clone()
+        );
+        const cx = center.x - w / 2 + (col + 0.5) * cellSize;
+        const cz = center.z - d / 2 + (row + 0.5) * cellSize;
+        cellMesh.position.set(cx, 0.17, cz);
+        cellMesh.receiveShadow = true;
+        this.mesh.add(cellMesh);
+        this.gridMeshes[row][col] = cellMesh;
+
+        this._updateCellVisual(row, col);
+      }
+    }
+  }
+
+  _updateCellVisual(row, col) {
+    const mesh = this.gridMeshes[row][col];
+    const dirt = this.dirtGrid[row][col];
+    // Opacity shows dirt level — fully clean = invisible, fully dirty = visible overlay
+    mesh.material.opacity = dirt * 0.6;
   }
 
   _build() {
