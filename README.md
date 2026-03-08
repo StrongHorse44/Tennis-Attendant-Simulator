@@ -43,7 +43,7 @@ You're the attendant at **Greenbriar Tennis & Social Club**. Your day involves:
 - **Helping club members** with reservations, complaints, and requests
 - **Running errands** — delivering towels, retrieving ball hoppers, restocking water bottles
 - **Mediating conflicts** between members with different personalities
-- **Grooming the clay courts** — attach a drag brush to your cart and sweep Courts 3 & 4
+- **Grooming the clay courts** — attach a drag brush to your cart and sweep all 3 clay courts (Courts 3, 4 & 5)
 - **Checking the task board** in the Pro Shop for new assignments
 - **Responding to radio dispatch** for urgent requests
 
@@ -51,7 +51,7 @@ You're the attendant at **Greenbriar Tennis & Social Club**. Your day involves:
 
 - **Main Entrance & Parking** — where you start, golf cart spawn
 - **Pro Shop** — walk inside, check the task board, grab supplies
-- **4 Tennis Courts** — 2 hard courts (blue), 2 clay courts (orange) in a 2x2 grid
+- **5 Tennis Courts** — 2 hard courts (blue) and 3 adjacent clay courts (orange)
 - **Garden** — hedges, flower beds, and an animated fountain
 - **Clubhouse Patio** — where members hang out and flag you down
 - **Equipment Shed** — near the garden, pick up the drag brush for court grooming
@@ -68,23 +68,37 @@ Members wander the club, play tennis, sit at the patio, and approach you with re
 
 ### Court Maintenance Minigame
 
-The two clay courts (Courts 3 & 4) need regular grooming to stay in playing condition. Here's how it works:
+The three adjacent clay courts (Courts 3, 4 & 5) need regular grooming. All three are swept in a single session. Here's how:
 
 1. **Get in the golf cart** and drive to the **Equipment Shed** (near the garden)
 2. Press **"Attach Brush"** — a 6-foot drag brush hooks onto the cart's rear
-3. **Drive to a clay court** (Courts 3 or 4, the orange ones in the back)
+3. **Drive to any clay court** (Courts 3, 4, or 5 — the orange ones in the back)
 4. Press **"Start Groom"** to begin the grooming session
-5. **Drive slowly in a spiral pattern** — start from the outside edges and work inward
-6. Watch the **Grooming HUD** (top-right) for cleanliness %, coverage, and speed
-7. Keep your speed under 5 for effective grooming (the indicator turns red if too fast)
-8. Press **"Stop Groom"** when satisfied — you'll get a performance rating
+5. **Sweep the outside perimeter first** — stay close to the fence (1-2 meters), but not so close you hit it
+6. **Then sweep along the nets** — pick a side, drive close to the net on that court
+7. **Sweep that half of the court**, then move to the other half and the areas between courts
+8. Watch the **Grooming HUD** (top-right) for cleanliness %, coverage, speed, and proximity indicators
+9. **Handle courtside tasks** — swap igloo coolers, add cups, and empty trash bins between the courts
+10. Press **"Stop Groom"** when satisfied — you'll get a performance rating
+
+**Proximity Feedback:**
+- The HUD shows your distance to the nearest fence and net
+- **Green** = optimal distance (0.5-2m) — you're sweeping efficiently
+- **Yellow** = getting too far — move closer for better coverage
+- **Red** = too close (danger of hitting!) or too far (missing the edges)
+
+**Courtside Tasks:**
+Between each pair of courts (at the net junctions), you'll find igloo coolers and trash bins. During grooming, stop near them and press the action button to:
+- **Swap cooler** — replace with a fresh one
+- **Add cups** — stock the cup holder on the cooler
+- **Empty trash** — clear out the trash bin
 
 **Tips:**
 - Your first time triggers a tutorial from **Hank Morris**, the Head Groundskeeper
-- Courts get dirty over time from play — darker overlay patches show where dirt has accumulated
-- You can groom anytime for fun, or accept maintenance missions from the task board
+- Courts get dirty over time from play — darker overlay patches show accumulated dirt
+- You can groom anytime, or accept maintenance missions from the task board
 - Don't try grooming in the rain — wet clay can't be brushed!
-- Hank will assign you court grooming tasks via the task board and radio dispatch
+- Completing all courtside tasks earns a higher rating
 
 ### Missions
 
@@ -132,6 +146,9 @@ All audio is procedurally generated using the Web Audio API — no sound files a
 - Brush scraping on clay during court grooming
 - Metallic clank when attaching/detaching the drag brush
 - Completion chime when finishing a grooming session
+- Proximity warning beeps when too close to fence/net
+- Water slosh when swapping coolers
+- Crinkle sound when emptying trash
 
 ## Project Structure
 

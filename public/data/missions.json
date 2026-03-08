@@ -61,8 +61,8 @@
               "reactions": { "mrs_wellington": "satisfied", "kevin_park": "neutral" }
             },
             {
-              "label": "Offer Kevin Court 4",
-              "result": "Kevin is happy with Court 4. Mrs. Wellington is pleased you sided with her.",
+              "label": "Offer Kevin Court 5",
+              "result": "Kevin is happy with Court 5. Mrs. Wellington is pleased you sided with her.",
               "reactions": { "mrs_wellington": "satisfied", "kevin_park": "satisfied" }
             },
             {
@@ -278,7 +278,7 @@
             },
             {
               "label": "Offer Diane a quieter court",
-              "result": "You move Diane to Court 4. Everyone's happy.",
+              "result": "You move Diane to Court 5. Everyone's happy.",
               "reactions": { "tommy_chen": "satisfied", "diane_ross": "satisfied" }
             },
             {
@@ -291,10 +291,10 @@
       ]
     },
     {
-      "id": "maintenance_court3_groom",
+      "id": "maintenance_all_courts_groom",
       "type": "maintenance",
-      "title": "Groom Court 3",
-      "description": "Court 3 needs grooming before the afternoon matches. Grab the drag brush and sweep the clay.",
+      "title": "Groom the Clay Courts",
+      "description": "All three clay courts need grooming before the afternoon matches. Grab the drag brush and sweep them.",
       "source": "taskBoard",
       "steps": [
         {
@@ -311,7 +311,7 @@
         {
           "action": "groom",
           "target": "court3",
-          "prompt": "Drive onto Court 3 with the brush attached and groom the surface."
+          "prompt": "Drive onto the clay courts with the brush attached and groom all three surfaces. Start at the fence and work in!"
         },
         {
           "action": "dialogue",
@@ -322,10 +322,10 @@
       ]
     },
     {
-      "id": "maintenance_court4_groom",
+      "id": "maintenance_quick_sweep",
       "type": "maintenance",
-      "title": "Groom Court 4",
-      "description": "Court 4 is looking rough. Hank wants it swept before the next lesson.",
+      "title": "Quick Court Sweep",
+      "description": "The clay courts need a quick touch-up. Hank says to focus on the heavy traffic areas.",
       "source": "radio",
       "steps": [
         {
@@ -336,15 +336,15 @@
         {
           "action": "groom",
           "target": "court4",
-          "prompt": "Groom Court 4 with the drag brush."
+          "prompt": "Groom the clay courts. Don't forget to swap coolers and empty trash while you're at it!"
         }
       ]
     },
     {
-      "id": "maintenance_both_courts",
+      "id": "maintenance_morning_prep",
       "type": "maintenance",
       "title": "Morning Court Prep",
-      "description": "Both clay courts need grooming before the morning session. Hank's counting on you.",
+      "description": "All three clay courts need grooming before the morning session. Hank's counting on you.",
       "source": "taskBoard",
       "steps": [
         {
@@ -361,17 +361,12 @@
         {
           "action": "groom",
           "target": "court3",
-          "prompt": "Groom Court 3 first."
-        },
-        {
-          "action": "groom",
-          "target": "court4",
-          "prompt": "Now groom Court 4."
+          "prompt": "Groom all three clay courts. Fence perimeter first, then near the nets, then fill in!"
         },
         {
           "action": "dialogue",
           "npcId": "hank_morris",
-          "prompt": "Let Hank know both courts are done.",
+          "prompt": "Let Hank know the courts are done.",
           "dialogueKey": "morning_prep_done"
         }
       ]
@@ -408,21 +403,21 @@
       { "speaker": "Tommy Chen", "text": "My bad, my bad. What do you think I should do?" }
     ],
     "groom_intro_1": [
-      { "speaker": "Hank Morris", "text": "Good, you're here. Court 3's been getting hammered all morning — slides, divots, the works." },
-      { "speaker": "Hank Morris", "text": "Head to the equipment shed and hook up the drag brush to your cart. Then drive onto the court nice and slow." },
-      { "speaker": "Hank Morris", "text": "Remember — outside in, spiral pattern. Keep it under 5 and you'll do just fine." }
+      { "speaker": "Hank Morris", "text": "Good, you're here. All three clay courts have been getting hammered — slides, divots, the works." },
+      { "speaker": "Hank Morris", "text": "Head to the equipment shed and hook up the drag brush. Then start at the fence perimeter and work your way in." },
+      { "speaker": "Hank Morris", "text": "After the perimeter, sweep close to the nets on each court. Then fill in the middles. Don't forget to swap the coolers and check the trash bins between courts!" }
     ],
     "groom_complete_1": [
-      { "speaker": "Hank Morris", "text": "Let me take a look... nice work out there. The surface looks great." },
+      { "speaker": "Hank Morris", "text": "Let me take a look... nice work out there. All three courts look great." },
       { "speaker": "Hank Morris", "text": "Keep it up and you'll be running the grounds crew in no time." }
     ],
     "morning_prep_1": [
-      { "speaker": "Hank Morris", "text": "Big morning ahead — both clay courts need grooming before the 9 AM group." },
-      { "speaker": "Hank Morris", "text": "Grab the brush, do Court 3 first, then Court 4. Spiral pattern, nice and easy." },
+      { "speaker": "Hank Morris", "text": "Big morning ahead — all three clay courts need grooming before the 9 AM group." },
+      { "speaker": "Hank Morris", "text": "Grab the brush, start at the fence line, and sweep your way in toward the nets. Remember to check the coolers and trash between courts." },
       { "speaker": "Hank Morris", "text": "I'll be checking your work when you're done, so make it count!" }
     ],
     "morning_prep_done": [
-      { "speaker": "Hank Morris", "text": "Both courts done? Let me see..." },
+      { "speaker": "Hank Morris", "text": "All three courts done? Let me see..." },
       { "speaker": "Hank Morris", "text": "Looking sharp! The members are going to love playing on that surface today. Good job." }
     ]
   }

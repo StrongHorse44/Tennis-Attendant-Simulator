@@ -198,9 +198,13 @@ export class Court {
     // Fence
     this._addFence(center, w, d);
 
-    // Benches on each side
-    this._addBench(center.x - w / 2 - 1.2, center.z);
-    this._addBench(center.x + w / 2 + 1.2, center.z);
+    // Benches on outer sides only (skip when adjacent to another court)
+    if (!this.config.adjacentLeft) {
+      this._addBench(center.x - w / 2 - 1.2, center.z);
+    }
+    if (!this.config.adjacentRight) {
+      this._addBench(center.x + w / 2 + 1.2, center.z);
+    }
 
     // Court label
     this._addLabel(center);

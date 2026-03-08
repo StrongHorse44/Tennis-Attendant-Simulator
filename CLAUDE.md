@@ -74,8 +74,9 @@ There are no tests, linters, or formatters configured yet.
 - **Missions** are defined in `public/data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`). The `MissionSystem` manages active missions (max 3), the task board, and radio dispatch.
 - **Dialogue** flows through `DialogueSystem` which controls `DialogueBox` (the UI overlay). Dialogues are keyed in `public/data/missions.json` under the `dialogues` object. Speaker names are color-coded by archetype.
 - **Camera** follows the player/cart in third-person with lerp smoothing. In cart mode, the camera auto-follows cart heading. On foot, the player can rotate the camera with Q/R keys or by dragging on the right side of the screen (>35% width).
-- **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. All sounds (footsteps, cart engine, UI clicks, pickups, notifications, bird chirps, brush scraping, brush attach, groom complete) are synthesized at runtime — there are no audio files. The system auto-initializes on first user interaction to comply with browser autoplay policies.
-- **Court Maintenance** is managed by `CourtMaintenanceSystem.js`. Clay courts (3 & 4) have a grid-based dirt system. Players attach a drag brush to the golf cart at the equipment shed, then drive onto clay courts to groom them. The system tracks coverage, speed, and cleanliness, and rates performance. A first-time tutorial teaches the proper outside-in spiral technique. Courts degrade over time. Grooming can be done freely or as part of maintenance missions from the task board/radio. Rain blocks grooming (wet clay). The `groom` mission step type integrates with `MissionSystem` — completing a groom session auto-advances the matching mission step.
+- **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. All sounds (footsteps, cart engine, UI clicks, pickups, notifications, bird chirps, brush scraping, brush attach, groom complete, proximity warnings, cooler swap, trash pickup) are synthesized at runtime — there are no audio files. The system auto-initializes on first user interaction to comply with browser autoplay policies.
+- **Court Maintenance** is managed by `CourtMaintenanceSystem.js`. Three adjacent clay courts (3, 4 & 5) share a grid-based dirt system. All three are groomed in a single session. Players attach a drag brush to the golf cart at the equipment shed, then drive onto any clay court to begin. The recommended sweep pattern: fence perimeter first (stay close), then near the nets, then fill in the middles and between courts. Proximity feedback shows distance to nearest fence/net with color-coded status (green=optimal, yellow=warning, red=danger). Courtside tasks (swap coolers, add cups, empty trash) at the junctions between courts must be completed during the session. The system tracks coverage, speed, cleanliness, and courtside task completion, and rates performance. A first-time tutorial from Hank teaches the technique. Courts degrade over time. Rain blocks grooming. The `groom` mission step type integrates with `MissionSystem`.
+- **Court Junctions** are defined in `map.json` under `areas.courtJunctions`. Each junction sits between two adjacent clay courts at the net line and holds igloo coolers and trash bins. `World.js` builds the 3D objects. During grooming, `CourtMaintenanceSystem` generates courtside tasks for each junction.
 - **Player/Cart interaction**: `Player.enterCart()` hides the player mesh, disables collision, and delegates movement to the cart. `Player.exitCart()` positions the player beside the cart and re-enables collision. The cart uses velocity-based driving (not force-based) since box-on-plane friction eats applied forces.
 
 ## Key Conventions
@@ -109,12 +110,17 @@ There are no tests, linters, or formatters configured yet.
 | `GAME.courtDegradeInterval` | 120 | Seconds between court degradation ticks |
 | `GAME.groomBrushWidth` | 3 | Brush sweep radius (world units) |
 | `GAME.groomScoreThreshold` | 0.85 | Cleanliness needed for "excellent" rating |
+| `GAME.proximityOptimalMin` | 0.5 | Min safe distance to fence/net (world units) |
+| `GAME.proximityOptimalMax` | 2.0 | Max optimal distance to fence/net |
+| `GAME.proximityWarnMax` | 3.5 | Warning distance — getting too far |
+| `GAME.proximityDangerMin` | 0.3 | Danger — too close to fence/net |
+| `GAME.coolerInteractRange` | 2.5 | Range to interact with courtside objects |
 
 ## Common Tasks
 
 **Adding a new NPC:** Add an entry to `data/npcs.json` under `npcs[]` with id, name, archetype, shirtColor, preferredAreas, greetings, requests, and dialoguePool. The NPC will automatically spawn and wander.
 
-**Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`), and steps array. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`. For maintenance missions, use type `maintenance` and the `groom` step action with a `target` matching a clay court id (e.g., `court3`, `court4`).
+**Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`), and steps array. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`. For maintenance missions, use type `maintenance` and the `groom` step action with a `target` matching a clay court id (e.g., `court3`, `court4`, `court5`). All 3 clay courts are groomed in one session — a `groom` step targeting any clay court triggers the multi-court grooming system.
 
 **Changing the map layout:** Edit `public/data/map.json`. Court positions, building locations, path routes, and waypoints are all defined there. The world rebuilds from this data on load.
 
@@ -124,4 +130,6 @@ There are no tests, linters, or formatters configured yet.
 
 **Adding sounds:** All sounds are procedural in `src/systems/SoundSystem.js` using Web Audio API oscillators and noise buffers. Add new methods following the existing patterns (create oscillator/gain, schedule ramps, connect to master gain).
 
-**Tuning court maintenance:** Adjust values in `Constants.js` under the `GAME` object — `groomCellSize` (grid resolution), `groomSpeedLimit` (max effective speed), `groomSpeedPenalty` (speed cutoff), `courtDegradeInterval` (how fast courts get dirty), `groomBrushWidth` (sweep area), `groomScoreThreshold` (rating threshold). Court dirt colors are in `COLORS` under `clayCourtDirty` and `clayCourtClean`.
+**Tuning court maintenance:** Adjust values in `Constants.js` under the `GAME` object — `groomCellSize` (grid resolution), `groomSpeedLimit` (max effective speed), `groomSpeedPenalty` (speed cutoff), `courtDegradeInterval` (how fast courts get dirty), `groomBrushWidth` (sweep area), `groomScoreThreshold` (rating threshold), `proximityOptimalMin`/`Max` (fence/net sweet spot), `proximityWarnMax`/`DangerMin` (warning thresholds), `coolerInteractRange` (courtside task range). Court dirt colors are in `COLORS` under `clayCourtDirty` and `clayCourtClean`. Courtside object colors are in `COLORS` under `iglooCooler`, `trashBin`, etc.
+
+**Adding/modifying court junctions:** Edit `public/data/map.json` under `areas.courtJunctions`. Each junction has a position and flags for `hasCooler`/`hasTrashBin`. The `World.js` class builds the 3D objects and `CourtMaintenanceSystem` generates courtside tasks from this data.

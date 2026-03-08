@@ -55,6 +55,14 @@ export const COLORS = {
   clayCourtClean: 0xCC7744,
   groomTrail: 0xDD9966,
 
+  // Courtside objects
+  iglooCooler: 0xE87440,
+  iglooCoolerLid: 0xF0F0F0,
+  trashBin: 0x555555,
+  trashBinLid: 0x444444,
+  cupHolder: 0x8B7355,
+  cup: 0xF5F5DC,
+
   // UI
   uiPrimary: 0x2d5a3d,
   uiAccent: 0xf4e8c1,
@@ -155,6 +163,15 @@ export const GAME = {
   courtDegradeAmount: 0.05,   // how much dirtiness accumulates per tick (0-1)
   groomBrushWidth: 3,         // brush sweep width in world units (half each side)
   groomScoreThreshold: 0.85,  // coverage needed for "good" rating
+
+  // Proximity feedback during grooming
+  proximityOptimalMin: 0.5,   // minimum safe distance to fence/net (world units)
+  proximityOptimalMax: 2.0,   // optimal max distance to fence/net
+  proximityWarnMax: 3.5,      // warning distance - getting too far
+  proximityDangerMin: 0.3,    // danger - too close to fence/net
+
+  // Courtside tasks
+  coolerInteractRange: 2.5,   // how close cart must be to interact with cooler/bin
 };
 
 // === Directions for waypoints ===
@@ -165,6 +182,7 @@ export const AREAS = {
   COURT_2: 'court2',
   COURT_3: 'court3',
   COURT_4: 'court4',
+  COURT_5: 'court5',
   GARDEN: 'garden',
   PATIO: 'patio',
   PARKING: 'parking',

@@ -48,15 +48,42 @@
         "id": "court3",
         "label": "Court 3",
         "type": "clay",
-        "center": { "x": 5, "y": 0, "z": -25 },
-        "rotation": 0
+        "center": { "x": -1, "y": 0, "z": -25 },
+        "rotation": 0,
+        "adjacentRight": true
       },
       {
         "id": "court4",
         "label": "Court 4",
         "type": "clay",
-        "center": { "x": 25, "y": 0, "z": -25 },
-        "rotation": 0
+        "center": { "x": 15, "y": 0, "z": -25 },
+        "rotation": 0,
+        "adjacentLeft": true,
+        "adjacentRight": true
+      },
+      {
+        "id": "court5",
+        "label": "Court 5",
+        "type": "clay",
+        "center": { "x": 31, "y": 0, "z": -25 },
+        "rotation": 0,
+        "adjacentLeft": true
+      }
+    ],
+    "courtJunctions": [
+      {
+        "id": "junction_3_4",
+        "between": ["court3", "court4"],
+        "position": { "x": 7, "y": 0, "z": -25 },
+        "hasCooler": true,
+        "hasTrashBin": true
+      },
+      {
+        "id": "junction_4_5",
+        "between": ["court4", "court5"],
+        "position": { "x": 23, "y": 0, "z": -25 },
+        "hasCooler": true,
+        "hasTrashBin": true
       }
     ],
     "garden": {
@@ -145,27 +172,38 @@
         { "x": -2, "z": 5 },
         { "x": -2, "z": -5 },
         { "x": -2, "z": -15 },
-        { "x": -2, "z": -30 }
+        { "x": -2, "z": -30 },
+        { "x": -2, "z": -42 }
       ],
       "width": 3
     },
     {
       "id": "courts_vertical_right",
       "points": [
-        { "x": 32, "z": 15 },
-        { "x": 32, "z": 5 },
-        { "x": 32, "z": -5 },
-        { "x": 32, "z": -15 },
-        { "x": 32, "z": -30 }
+        { "x": 40, "z": 15 },
+        { "x": 40, "z": 5 },
+        { "x": 40, "z": -5 },
+        { "x": 40, "z": -15 },
+        { "x": 40, "z": -30 },
+        { "x": 40, "z": -42 }
       ],
       "width": 3
     },
     {
       "id": "courts_south",
       "points": [
-        { "x": -2, "z": -25 },
-        { "x": 15, "z": -25 },
-        { "x": 32, "z": -25 }
+        { "x": -2, "z": -42 },
+        { "x": 15, "z": -42 },
+        { "x": 40, "z": -42 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "courts_north_clay",
+      "points": [
+        { "x": -2, "z": -10 },
+        { "x": 15, "z": -10 },
+        { "x": 40, "z": -10 }
       ],
       "width": 3
     },
@@ -203,6 +241,14 @@
         { "x": -28, "z": 5 }
       ],
       "width": 3
+    },
+    {
+      "id": "hard_to_clay_right",
+      "points": [
+        { "x": 32, "z": 5 },
+        { "x": 40, "z": 5 }
+      ],
+      "width": 3
     }
   ],
 
@@ -217,15 +263,19 @@
     "patio3": { "x": -14, "y": 0, "z": 6 },
     "court1_bench": { "x": -2, "y": 0, "z": 5 },
     "court2_bench": { "x": 32, "y": 0, "z": 5 },
-    "court3_bench": { "x": -2, "y": 0, "z": -25 },
-    "court4_bench": { "x": 32, "y": 0, "z": -25 },
+    "court3_bench": { "x": -10, "y": 0, "z": -25 },
+    "court4_bench": { "x": 15, "y": 0, "z": -10 },
+    "court5_bench": { "x": 40, "y": 0, "z": -25 },
     "court1_center": { "x": 5, "y": 0, "z": 5 },
     "court2_center": { "x": 25, "y": 0, "z": 5 },
-    "court3_center": { "x": 5, "y": 0, "z": -25 },
-    "court4_center": { "x": 25, "y": 0, "z": -25 },
+    "court3_center": { "x": -1, "y": 0, "z": -25 },
+    "court4_center": { "x": 15, "y": 0, "z": -25 },
+    "court5_center": { "x": 31, "y": 0, "z": -25 },
     "garden_fountain": { "x": -15, "y": 0, "z": -10 },
     "garden_north": { "x": -15, "y": 0, "z": -4 },
     "garden_south": { "x": -15, "y": 0, "z": -17 },
-    "equipmentShed": { "x": -5, "y": 0, "z": -15 }
+    "equipmentShed": { "x": -5, "y": 0, "z": -15 },
+    "junction_3_4": { "x": 7, "y": 0, "z": -25 },
+    "junction_4_5": { "x": 23, "y": 0, "z": -25 }
   }
 }

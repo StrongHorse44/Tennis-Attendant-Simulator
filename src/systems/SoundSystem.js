@@ -337,6 +337,92 @@ export class SoundSystem {
     } catch (e) { /* ignore audio errors */ }
   }
 
+  playProximityWarning() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+
+      // Short beep warning
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(660, now + 0.08);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  playCoolerSwap() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+
+      // Water sloshing + thunk
+      const bufferSize = 4096;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() - 0.5) * Math.sin(i * 0.05) * Math.exp(-i / 1500);
+      }
+
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 500;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      source.start(now);
+      source.stop(now + 0.3);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  playTrashPickup() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+
+      // Crinkle/rustle sound
+      const bufferSize = 2048;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() - 0.5) * (1 + Math.sin(i * 0.1) * 0.5) * Math.exp(-i / 600);
+      }
+
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 800;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      source.start(now);
+      source.stop(now + 0.15);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
   startAmbient() {
     if (!this.initialized || this.ambientStarted) return;
     this.ambientStarted = true;

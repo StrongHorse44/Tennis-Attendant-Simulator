@@ -18,9 +18,12 @@ export class World {
     this.garden = null;
     this.trees = [];
 
+    this.courtJunctionObjects = []; // coolers + trash bins between courts
+
     this._buildGround();
     this._buildPaths();
     this._buildCourts();
+    this._buildCourtJunctions();
     this._buildProShop();
     this._buildClubhouse();
     this._buildGarden();
@@ -98,6 +101,123 @@ export class World {
       const court = new Court(this.scene, this.physicsWorld, courtConfig);
       this.courts.push(court);
     }
+  }
+
+  _buildCourtJunctions() {
+    const junctions = this.mapData.areas.courtJunctions;
+    if (!junctions) return;
+
+    for (const junction of junctions) {
+      const pos = junction.position;
+      const junctionData = { id: junction.id, position: pos, meshes: {} };
+
+      if (junction.hasCooler) {
+        junctionData.meshes.cooler = this._addIglooCooler(pos.x - 0.8, pos.z);
+      }
+      if (junction.hasTrashBin) {
+        junctionData.meshes.trashBin = this._addTrashBin(pos.x + 0.8, pos.z);
+      }
+
+      this.courtJunctionObjects.push(junctionData);
+    }
+  }
+
+  _addIglooCooler(x, z) {
+    const group = new THREE.Group();
+
+    // Cooler body (orange/red igloo style)
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.5, 0.5),
+      new THREE.MeshLambertMaterial({ color: COLORS.iglooCooler })
+    );
+    body.position.y = 0.45;
+    body.castShadow = true;
+    group.add(body);
+
+    // Cooler lid (white)
+    const lid = new THREE.Mesh(
+      new THREE.BoxGeometry(0.72, 0.08, 0.52),
+      new THREE.MeshLambertMaterial({ color: COLORS.iglooCoolerLid })
+    );
+    lid.position.y = 0.74;
+    group.add(lid);
+
+    // Stand/legs
+    const legGeo = new THREE.BoxGeometry(0.06, 0.2, 0.06);
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+    for (const lx of [-0.25, 0.25]) {
+      for (const lz of [-0.18, 0.18]) {
+        const leg = new THREE.Mesh(legGeo, legMat);
+        leg.position.set(lx, 0.1, lz);
+        group.add(leg);
+      }
+    }
+
+    // Cup holder tray (attached to side)
+    const tray = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.04, 0.25),
+      new THREE.MeshLambertMaterial({ color: COLORS.cupHolder })
+    );
+    tray.position.set(0.5, 0.55, 0);
+    group.add(tray);
+
+    // Cup holder rings (2)
+    for (const offset of [-0.08, 0.08]) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.06, 0.015, 6, 8),
+        new THREE.MeshLambertMaterial({ color: 0x777777 })
+      );
+      ring.position.set(0.5, 0.58, offset);
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+    }
+
+    // Spigot (front)
+    const spigot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 0.1, 6),
+      new THREE.MeshLambertMaterial({ color: 0xCCCCCC })
+    );
+    spigot.position.set(0, 0.35, -0.3);
+    spigot.rotation.x = Math.PI / 2;
+    group.add(spigot);
+
+    group.position.set(x, 0, z);
+    this.scene.add(group);
+    return group;
+  }
+
+  _addTrashBin(x, z) {
+    const group = new THREE.Group();
+
+    // Bin body (cylinder)
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.25, 0.22, 0.7, 8),
+      new THREE.MeshLambertMaterial({ color: COLORS.trashBin })
+    );
+    body.position.y = 0.35;
+    body.castShadow = true;
+    group.add(body);
+
+    // Lid (slightly wider)
+    const lid = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.27, 0.27, 0.06, 8),
+      new THREE.MeshLambertMaterial({ color: COLORS.trashBinLid })
+    );
+    lid.position.y = 0.73;
+    group.add(lid);
+
+    // Handle on lid
+    const handle = new THREE.Mesh(
+      new THREE.TorusGeometry(0.06, 0.015, 4, 8, Math.PI),
+      new THREE.MeshLambertMaterial({ color: 0x777777 })
+    );
+    handle.position.y = 0.78;
+    handle.rotation.x = Math.PI;
+    group.add(handle);
+
+    group.position.set(x, 0, z);
+    this.scene.add(group);
+    return group;
   }
 
   _buildProShop() {
