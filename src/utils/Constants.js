@@ -48,6 +48,13 @@ export const COLORS = {
   npcFriendly: 0x27AE60,
   npcClueless: 0x3498DB,
 
+  // Court Maintenance
+  dragBrushFrame: 0x888888,
+  dragBrushBristles: 0x8B7355,
+  clayCourtDirty: 0xAA5533,
+  clayCourtClean: 0xCC7744,
+  groomTrail: 0xDD9966,
+
   // UI
   uiPrimary: 0x2d5a3d,
   uiAccent: 0xf4e8c1,
@@ -139,6 +146,15 @@ export const GAME = {
   npcSpawnInterval: 30,
   interactionRange: 3,
   dialogueAdvanceDelay: 200,
+
+  // Court Maintenance
+  groomCellSize: 2,           // grid cell size in world units
+  groomSpeedLimit: 5,         // max speed for quality grooming (units/s)
+  groomSpeedPenalty: 8,       // above this speed, no grooming happens
+  courtDegradeInterval: 120,  // seconds between court degradation ticks
+  courtDegradeAmount: 0.05,   // how much dirtiness accumulates per tick (0-1)
+  groomBrushWidth: 3,         // brush sweep width in world units (half each side)
+  groomScoreThreshold: 0.85,  // coverage needed for "good" rating
 };
 
 // === Directions for waypoints ===
@@ -152,4 +168,5 @@ export const AREAS = {
   GARDEN: 'garden',
   PATIO: 'patio',
   PARKING: 'parking',
+  EQUIPMENT_SHED: 'equipmentShed',
 };

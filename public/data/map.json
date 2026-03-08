@@ -76,6 +76,12 @@
         { "x": -11, "z": -13, "width": 3, "depth": 3, "color": 3 }
       ]
     },
+    "equipmentShed": {
+      "label": "Equipment Shed",
+      "center": { "x": -5, "y": 0, "z": -15 },
+      "bounds": { "width": 5, "depth": 4 },
+      "hasBrush": true
+    },
     "patio": {
       "label": "Clubhouse Patio",
       "center": { "x": -20, "y": 0, "z": 5 },
@@ -181,6 +187,14 @@
       "width": 2
     },
     {
+      "id": "garden_to_shed",
+      "points": [
+        { "x": -8, "z": -12 },
+        { "x": -5, "z": -15 }
+      ],
+      "width": 2
+    },
+    {
       "id": "entrance_loop",
       "points": [
         { "x": -40, "z": 35 },
@@ -211,6 +225,7 @@
     "court4_center": { "x": 25, "y": 0, "z": -25 },
     "garden_fountain": { "x": -15, "y": 0, "z": -10 },
     "garden_north": { "x": -15, "y": 0, "z": -4 },
-    "garden_south": { "x": -15, "y": 0, "z": -17 }
+    "garden_south": { "x": -15, "y": 0, "z": -17 },
+    "equipmentShed": { "x": -5, "y": 0, "z": -15 }
   }
 }

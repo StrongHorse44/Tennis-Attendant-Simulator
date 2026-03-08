@@ -248,6 +248,95 @@ export class SoundSystem {
     } catch (e) { /* ignore audio errors */ }
   }
 
+  playBrushScrape() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+
+      // Noise burst filtered to sound like bristles on clay
+      const bufferSize = 2048;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() - 0.5) * Math.exp(-i / 800);
+      }
+
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 400 + Math.random() * 200;
+      filter.Q.value = 1.5;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.04, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      source.start(now);
+      source.stop(now + 0.2);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  playBrushAttach() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+
+      // Metallic clank for attaching brush
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+
+      const osc2 = this.ctx.createOscillator();
+      osc2.type = 'square';
+      osc2.frequency.setValueAtTime(150, now);
+      osc2.frequency.exponentialRampToValueAtTime(60, now + 0.1);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+      osc.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc2.start(now);
+      osc.stop(now + 0.2);
+      osc2.stop(now + 0.2);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  playGroomComplete() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+
+      // Ascending three-note chime for completion
+      const notes = [523, 659, 784]; // C5, E5, G5
+      notes.forEach((freq, i) => {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        const gain = this.ctx.createGain();
+        const start = now + i * 0.15;
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.08, start + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(start);
+        osc.stop(start + 0.4);
+      });
+    } catch (e) { /* ignore audio errors */ }
+  }
+
   startAmbient() {
     if (!this.initialized || this.ambientStarted) return;
     this.ambientStarted = true;

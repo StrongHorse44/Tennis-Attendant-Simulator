@@ -16,6 +16,10 @@ export class GolfCart {
     this.currentSpeed = 0;
     this.engineSound = 0;
 
+    // Brush attachment state
+    this.hasBrush = false;
+    this.brushMesh = null;
+
     this._createMesh(position);
     this._createPhysics(position);
   }
@@ -235,6 +239,85 @@ export class GolfCart {
       this.body.quaternion.z,
       this.body.quaternion.w
     );
+  }
+
+  attachBrush() {
+    if (this.hasBrush) return;
+    this.hasBrush = true;
+
+    this.brushMesh = new THREE.Group();
+
+    // Tow bar (connects cart rear to brush)
+    const towBar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.08, 1.2),
+      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+    );
+    towBar.position.set(0, 0.3, 2.2);
+    this.brushMesh.add(towBar);
+
+    // Brush frame (U-shaped handles)
+    const frameLeft = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, 1.0),
+      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+    );
+    frameLeft.position.set(-1.2, 0.25, 3.0);
+    this.brushMesh.add(frameLeft);
+
+    const frameRight = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, 1.0),
+      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+    );
+    frameRight.position.set(1.2, 0.25, 3.0);
+    this.brushMesh.add(frameRight);
+
+    // Cross bar
+    const crossBar = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 0.06, 0.06),
+      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+    );
+    crossBar.position.set(0, 0.25, 3.5);
+    this.brushMesh.add(crossBar);
+
+    // Bristle block (the actual brush head - 6ft / ~1.8m wide)
+    const bristles = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 0.12, 0.6),
+      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushBristles })
+    );
+    bristles.position.set(0, 0.08, 3.5);
+    bristles.castShadow = true;
+    this.brushMesh.add(bristles);
+
+    // Bristle texture stripes (visual detail)
+    const stripeMat = new THREE.MeshLambertMaterial({ color: 0x6B5B3F });
+    for (let i = -3; i <= 3; i++) {
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.13, 0.62),
+        stripeMat
+      );
+      stripe.position.set(i * 0.3, 0.08, 3.5);
+      this.brushMesh.add(stripe);
+    }
+
+    this.mesh.add(this.brushMesh);
+  }
+
+  detachBrush() {
+    if (!this.hasBrush || !this.brushMesh) return;
+    this.mesh.remove(this.brushMesh);
+    this.brushMesh = null;
+    this.hasBrush = false;
+  }
+
+  /**
+   * Get the world position of the brush head center (for grooming calculations).
+   */
+  getBrushWorldPosition() {
+    if (!this.hasBrush) return null;
+    // Brush is at local Z=3.5 behind the cart
+    const localBrushPos = new THREE.Vector3(0, 0.1, 3.5);
+    const worldPos = localBrushPos.clone();
+    this.mesh.localToWorld(worldPos);
+    return worldPos;
   }
 
   getPosition() {

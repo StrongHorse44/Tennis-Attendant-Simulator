@@ -24,6 +24,7 @@ export class World {
     this._buildProShop();
     this._buildClubhouse();
     this._buildGarden();
+    this._buildEquipmentShed();
     this._buildPatio();
     this._buildParking();
     this._buildPerimeter();
@@ -116,6 +117,120 @@ export class World {
   _buildGarden() {
     const gardenConfig = this.mapData.areas.garden;
     this.garden = new Garden(this.scene, this.physicsWorld, gardenConfig);
+  }
+
+  _buildEquipmentShed() {
+    const shed = this.mapData.areas.equipmentShed;
+    if (!shed) return;
+
+    const { center, bounds } = shed;
+    const w = bounds.width;
+    const d = bounds.depth;
+    const h = 2.5;
+
+    // Shed floor
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(w, 0.08, d),
+      new THREE.MeshLambertMaterial({ color: 0x999999 })
+    );
+    floor.position.set(center.x, 0.04, center.z);
+    floor.receiveShadow = true;
+    this.scene.add(floor);
+
+    // Walls (3 sides — open front facing +Z)
+    const wallMat = new THREE.MeshLambertMaterial({ color: 0x8B7355 });
+
+    // Back wall
+    const backWall = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, 0.15),
+      wallMat
+    );
+    backWall.position.set(center.x, h / 2, center.z - d / 2);
+    backWall.castShadow = true;
+    this.scene.add(backWall);
+
+    // Side walls
+    for (const side of [-1, 1]) {
+      const sideWall = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, h, d),
+        wallMat
+      );
+      sideWall.position.set(center.x + side * w / 2, h / 2, center.z);
+      sideWall.castShadow = true;
+      this.scene.add(sideWall);
+    }
+
+    // Roof
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.5, 0.12, d + 0.5),
+      new THREE.MeshLambertMaterial({ color: 0x6B4226 })
+    );
+    roof.position.set(center.x, h, center.z);
+    roof.castShadow = true;
+    this.scene.add(roof);
+
+    // Shed label
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Equipment Shed', 128, 40);
+    const texture = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: texture, transparent: true })
+    );
+    sprite.scale.set(4, 1, 1);
+    sprite.position.set(center.x, h + 1, center.z);
+    this.scene.add(sprite);
+
+    // Physics blockers for walls
+    const backShape = new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, 0.1));
+    const backBody = new CANNON.Body({
+      mass: 0,
+      position: new CANNON.Vec3(center.x, h / 2, center.z - d / 2),
+      shape: backShape,
+    });
+    this.physicsWorld.addBody(backBody);
+
+    for (const side of [-1, 1]) {
+      const sideShape = new CANNON.Box(new CANNON.Vec3(0.1, h / 2, d / 2));
+      const sideBody = new CANNON.Body({
+        mass: 0,
+        position: new CANNON.Vec3(center.x + side * w / 2, h / 2, center.z),
+        shape: sideShape,
+      });
+      this.physicsWorld.addBody(sideBody);
+    }
+
+    // Visual brush prop inside the shed (standing against back wall)
+    const brushProp = new THREE.Group();
+    // Frame
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.06, 0.06),
+      new THREE.MeshLambertMaterial({ color: 0x888888 })
+    );
+    frame.position.set(0, 0.8, 0);
+    brushProp.add(frame);
+    // Bristles
+    const bristles = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.12, 0.4),
+      new THREE.MeshLambertMaterial({ color: 0x8B7355 })
+    );
+    bristles.position.set(0, 0.3, 0);
+    brushProp.add(bristles);
+    // Handle
+    const handle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.03, 1.2, 6),
+      new THREE.MeshLambertMaterial({ color: 0x888888 })
+    );
+    handle.position.set(0, 1.4, 0);
+    brushProp.add(handle);
+
+    brushProp.position.set(center.x, 0, center.z - d / 2 + 0.5);
+    this.scene.add(brushProp);
   }
 
   _buildPatio() {

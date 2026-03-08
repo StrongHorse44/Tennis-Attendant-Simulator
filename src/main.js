@@ -15,6 +15,7 @@ import { NPC } from './entities/NPC.js';
 import { Joystick } from './ui/Joystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
 import { HUD } from './ui/HUD.js';
+import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
 
 class Game {
   constructor() {
@@ -31,6 +32,7 @@ class Game {
     this.missionSystem = null;
     this.inventory = null;
     this.sound = null;
+    this.courtMaintenance = null;
 
     // Entities
     this.player = null;
@@ -158,6 +160,40 @@ class Game {
 
     // Setup HUD
     this.hud = new HUD(this.weather, this.missionSystem, this.inventory);
+
+    // Setup court maintenance system
+    this.courtMaintenance = new CourtMaintenanceSystem(
+      this.world.courts,
+      this.cart,
+      this.dialogueSystem,
+      this.sound
+    );
+
+    // Wire up grooming callbacks
+    this.courtMaintenance.onGroomStart = (court) => {
+      this.hud.showGroomingHUD();
+      this.hud.showNotification(`Grooming ${court.config.label}... Drive slowly in a spiral pattern!`);
+    };
+
+    this.courtMaintenance.onGroomEnd = (score, message) => {
+      this.hud.hideGroomingHUD();
+      this.sound.playGroomComplete();
+      this.hud.showNotification(message, 5);
+
+      // Check if any active groom mission step matches
+      for (const mission of this.missionSystem.getActiveMissions()) {
+        const step = this.missionSystem.getCurrentStep(mission.id);
+        if (step && step.action === 'groom' && step.target === score.courtId) {
+          this.missionSystem.advanceMissionStep(mission.id);
+          this.hud.updateTaskList();
+          break;
+        }
+      }
+    };
+
+    this.courtMaintenance.onGroomUpdate = (progress) => {
+      this.hud.updateGroomingHUD(progress);
+    };
 
     this._updateLoadingBar(80);
 
@@ -340,6 +376,51 @@ class Game {
       }
     }
 
+    // Check equipment shed - attach/detach brush (must be in cart)
+    if (this.player.isInCart && this.mapData.areas.equipmentShed) {
+      const shed = this.mapData.areas.equipmentShed;
+      const shedPos = new THREE.Vector3(shed.center.x, 0, shed.center.z);
+      if (this.courtMaintenance.isNearEquipmentShed(playerPos, shedPos)) {
+        if (!this.cart.hasBrush) {
+          actionLabel = 'Attach\nBrush';
+          actionCb = () => {
+            this.cart.attachBrush();
+            this.sound.playBrushAttach();
+            this.hud.showNotification('Drag brush attached! Drive to a clay court to start grooming.', 4);
+          };
+        } else {
+          actionLabel = 'Detach\nBrush';
+          actionCb = () => {
+            if (this.courtMaintenance.isGrooming()) {
+              this.courtMaintenance.stopGrooming();
+            }
+            this.cart.detachBrush();
+            this.sound.playBrushAttach();
+            this.hud.showNotification('Drag brush detached.', 2);
+          };
+        }
+      }
+    }
+
+    // Check clay court grooming - start/stop grooming (must be in cart with brush)
+    if (this.player.isInCart && this.cart.hasBrush) {
+      if (this.courtMaintenance.isGrooming()) {
+        // Allow stopping mid-groom
+        actionLabel = 'Stop\nGroom';
+        actionCb = () => {
+          this.courtMaintenance.stopGrooming();
+        };
+      } else {
+        const nearbyCourt = this.courtMaintenance.getNearbyClayCourtForGrooming(playerPos);
+        if (nearbyCourt) {
+          actionLabel = 'Start\nGroom';
+          actionCb = () => {
+            this.courtMaintenance.startGrooming(nearbyCourt);
+          };
+        }
+      }
+    }
+
     // Check task board proximity
     if (!this.player.isInCart && this.mapData.areas.proShop.taskBoard) {
       const tb = this.mapData.areas.proShop.taskBoard;
@@ -428,6 +509,15 @@ class Game {
     if (Math.abs(pos.x - garden.center.x) < garden.bounds.width / 2 + 2 &&
         Math.abs(pos.z - garden.center.z) < garden.bounds.depth / 2 + 2) {
       return 'garden';
+    }
+
+    // Check equipment shed
+    if (areas.equipmentShed) {
+      const es = areas.equipmentShed;
+      if (Math.abs(pos.x - es.center.x) < es.bounds.width / 2 + 2 &&
+          Math.abs(pos.z - es.center.z) < es.bounds.depth / 2 + 2) {
+        return 'equipmentShed';
+      }
     }
 
     return null;
@@ -580,6 +670,16 @@ class Game {
 
     // Update interactions
     this._updateInteractions();
+
+    // Update court maintenance system
+    const weatherState = this.weather.getWeather();
+    this.courtMaintenance.update(dt, playerWorldPos, this.player.isInCart, weatherState);
+
+    // Update grooming HUD in real time if grooming
+    if (this.courtMaintenance.isGrooming()) {
+      const progress = this.courtMaintenance.getGroomingProgress();
+      if (progress) this.hud.updateGroomingHUD(progress);
+    }
 
     // Update mission system
     this.missionSystem.update(dt, playerWorldPos);
