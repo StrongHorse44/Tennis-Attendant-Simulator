@@ -126,7 +126,7 @@ Carry up to 3 items at once for errands:
 
 ### Weather & Time
 
-A full day passes in 10 real-time minutes with dynamic lighting changes:
+A full day passes in 30 real-time minutes with dynamic lighting changes:
 
 - **Morning (7-11)** — warm sunrise light
 - **Afternoon (11-17)** — bright midday sun

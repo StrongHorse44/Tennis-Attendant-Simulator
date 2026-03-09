@@ -293,6 +293,15 @@ export class Court {
     );
     cord.position.set(center.x, SIZES.netHeight - 0.1, center.z);
     this.mesh.add(cord);
+
+    // Net collision body (thin wall across the court)
+    const netShape = new CANNON.Box(new CANNON.Vec3((w - 0.4) / 2, SIZES.netHeight / 2, 0.08));
+    const netBody = new CANNON.Body({
+      mass: 0,
+      position: new CANNON.Vec3(center.x, SIZES.netHeight / 2, center.z),
+      shape: netShape,
+    });
+    this.physicsWorld.addBody(netBody);
   }
 
   _addFence(center, w, d) {
@@ -321,6 +330,17 @@ export class Court {
         fence.rotation.y = 0;
       }
       this.mesh.add(fence);
+    }
+
+    // Fence collision bodies (behind baselines)
+    for (const f of fences) {
+      const fenceShape = new CANNON.Box(new CANNON.Vec3(f.size[0] / 2, fenceH / 2, 0.15));
+      const fenceBody = new CANNON.Body({
+        mass: 0,
+        position: new CANNON.Vec3(center.x + f.pos[0], f.pos[1], center.z + f.pos[2]),
+        shape: fenceShape,
+      });
+      this.physicsWorld.addBody(fenceBody);
     }
 
     // Fence posts

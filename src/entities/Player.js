@@ -111,12 +111,16 @@ export class Player {
     rightShoe.position.set(0.12, 0.04, -0.03);
     this.mesh.add(rightShoe);
 
+    // Scale down for better proportions relative to courts
+    const s = SIZES.playerScale;
+    this.mesh.scale.set(s, s, s);
+
     this.mesh.position.set(pos.x, pos.y, pos.z);
     this.scene.add(this.mesh);
   }
 
   _createPhysics(pos) {
-    const shape = new CANNON.Sphere(SIZES.playerRadius);
+    const shape = new CANNON.Sphere(SIZES.playerRadius * SIZES.playerScale);
     this.body = new CANNON.Body({
       mass: 70,
       position: new CANNON.Vec3(pos.x, pos.y + 1, pos.z),

@@ -77,7 +77,9 @@ There are no tests, linters, or formatters configured yet.
 - **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. All sounds (footsteps, cart engine, UI clicks, pickups, notifications, bird chirps, brush scraping, brush attach, groom complete, proximity warnings, cooler swap, trash pickup) are synthesized at runtime — there are no audio files. The system auto-initializes on first user interaction to comply with browser autoplay policies.
 - **Court Maintenance** is managed by `CourtMaintenanceSystem.js`. Three adjacent clay courts (3, 4 & 5) share a grid-based dirt system. All three are groomed in a single session. Players attach a drag brush to the golf cart at the equipment shed, then drive onto any clay court to begin. The recommended sweep pattern: fence perimeter first (stay close), then near the nets, then fill in the middles and between courts. Proximity feedback shows distance to nearest fence/net with color-coded status (green=optimal, yellow=warning, red=danger). Courtside tasks (swap coolers, add cups, empty trash) at the junctions between courts must be completed during the session. The system tracks coverage, speed, cleanliness, and courtside task completion, and rates performance. A first-time tutorial from Hank teaches the technique. Courts degrade over time. Rain blocks grooming. The `groom` mission step type integrates with `MissionSystem`.
 - **Court Junctions** are defined in `map.json` under `areas.courtJunctions`. Each junction sits between two adjacent clay courts at the net line and holds igloo coolers and trash bins. `World.js` builds the 3D objects. During grooming, `CourtMaintenanceSystem` generates courtside tasks for each junction.
-- **Player/Cart interaction**: `Player.enterCart()` hides the player mesh, disables collision, and delegates movement to the cart. `Player.exitCart()` positions the player beside the cart and re-enables collision. The cart uses velocity-based driving (not force-based) since box-on-plane friction eats applied forces.
+- **Player/Cart interaction**: `Player.enterCart()` hides the player mesh, disables collision, and delegates movement to the cart. `Player.exitCart()` positions the player beside the cart and re-enables collision. The cart uses velocity-based driving (not force-based) since box-on-plane friction eats applied forces. Both player and cart meshes are scaled down (`SIZES.playerScale` = 0.85, `SIZES.cartScale` = 0.75) for better proportions relative to court sizes.
+- **Court collisions**: Nets and back fences have static CANNON.Box physics bodies, preventing the cart and player from driving through them. Net collision spans the full width at net height. Fence collision spans behind each baseline.
+- **Perimeter path**: A golf cart path runs around the entire map perimeter, connecting to existing court and entrance paths for a continuous driving loop.
 
 ## Key Conventions
 
@@ -99,7 +101,7 @@ There are no tests, linters, or formatters configured yet.
 | `SIZES.cartAcceleration` | 5 | Cart acceleration (units/s^2) |
 | `SIZES.cameraDistance` | 8 | Camera follow distance |
 | `SIZES.cameraHeight` | 5 | Camera height above target |
-| `GAME.dayDurationSeconds` | 600 | Real seconds per in-game day (10 min) |
+| `GAME.dayDurationSeconds` | 1800 | Real seconds per in-game day (30 min) |
 | `GAME.maxActiveMissions` | 3 | Simultaneous mission cap |
 | `GAME.interactionRange` | 3 | Distance to interact with NPCs/objects |
 | `GAME.radioDispatchInterval` | 90 | Seconds between radio dispatches |
@@ -110,10 +112,10 @@ There are no tests, linters, or formatters configured yet.
 | `GAME.courtDegradeInterval` | 120 | Seconds between court degradation ticks |
 | `GAME.groomBrushWidth` | 3 | Brush sweep radius (world units) |
 | `GAME.groomScoreThreshold` | 0.85 | Cleanliness needed for "excellent" rating |
-| `GAME.proximityOptimalMin` | 0.5 | Min safe distance to fence/net (world units) |
-| `GAME.proximityOptimalMax` | 2.0 | Max optimal distance to fence/net |
-| `GAME.proximityWarnMax` | 3.5 | Warning distance — getting too far |
-| `GAME.proximityDangerMin` | 0.3 | Danger — too close to fence/net |
+| `GAME.proximityOptimalMin` | 0.15 | Min safe distance to fence/net (~6 inches) |
+| `GAME.proximityOptimalMax` | 1.0 | Max optimal distance to fence/net |
+| `GAME.proximityWarnMax` | 2.0 | Warning distance — getting too far |
+| `GAME.proximityDangerMin` | 0.1 | Danger — too close to fence/net |
 | `GAME.coolerInteractRange` | 2.5 | Range to interact with courtside objects |
 
 ## Common Tasks

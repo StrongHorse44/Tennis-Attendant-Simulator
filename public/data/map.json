@@ -105,7 +105,7 @@
     },
     "equipmentShed": {
       "label": "Equipment Shed",
-      "center": { "x": -5, "y": 0, "z": -15 },
+      "center": { "x": -14, "y": 0, "z": -20 },
       "bounds": { "width": 5, "depth": 4 },
       "hasBrush": true
     },
@@ -228,7 +228,7 @@
       "id": "garden_to_shed",
       "points": [
         { "x": -8, "z": -12 },
-        { "x": -5, "z": -15 }
+        { "x": -14, "z": -18 }
       ],
       "width": 2
     },
@@ -246,6 +246,70 @@
       "id": "hard_to_clay_right",
       "points": [
         { "x": 32, "z": 5 },
+        { "x": 40, "z": 5 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_west",
+      "points": [
+        { "x": -42, "z": 35 },
+        { "x": -42, "z": 15 },
+        { "x": -42, "z": -10 },
+        { "x": -42, "z": -45 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_south",
+      "points": [
+        { "x": -42, "z": -45 },
+        { "x": -15, "z": -45 },
+        { "x": 15, "z": -45 },
+        { "x": 45, "z": -45 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_east",
+      "points": [
+        { "x": 45, "z": -45 },
+        { "x": 45, "z": -15 },
+        { "x": 45, "z": 15 },
+        { "x": 45, "z": 35 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_north",
+      "points": [
+        { "x": 45, "z": 35 },
+        { "x": 15, "z": 35 },
+        { "x": -15, "z": 35 },
+        { "x": -42, "z": 35 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_to_shed",
+      "points": [
+        { "x": -42, "z": -20 },
+        { "x": -17, "z": -20 }
+      ],
+      "width": 2.5
+    },
+    {
+      "id": "perimeter_south_to_courts",
+      "points": [
+        { "x": -2, "z": -45 },
+        { "x": -2, "z": -42 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_east_to_courts",
+      "points": [
+        { "x": 45, "z": 5 },
         { "x": 40, "z": 5 }
       ],
       "width": 3
@@ -274,7 +338,7 @@
     "garden_fountain": { "x": -15, "y": 0, "z": -10 },
     "garden_north": { "x": -15, "y": 0, "z": -4 },
     "garden_south": { "x": -15, "y": 0, "z": -17 },
-    "equipmentShed": { "x": -5, "y": 0, "z": -15 },
+    "equipmentShed": { "x": -14, "y": 0, "z": -20 },
     "junction_3_4": { "x": 7, "y": 0, "z": -25 },
     "junction_4_5": { "x": 23, "y": 0, "z": -25 }
   }

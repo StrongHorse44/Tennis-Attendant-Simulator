@@ -45,11 +45,11 @@ export class CourtMaintenanceSystem {
       },
       {
         speaker: 'Hank (Head Groundskeeper)',
-        text: "We've got three clay courts side by side now. You'll sweep all three in one pass — no stopping between courts. Start on the OUTSIDE PERIMETER, right along the fence. Stay close to it — about a foot or two away. Not too close or you'll catch the fence, not too far or you'll miss the edges.",
+        text: "We've got three clay courts side by side now. You'll sweep all three in one pass — no stopping between courts. Start on the OUTSIDE PERIMETER, right along the fence. Stay close to it — around 6 inches away. Not too close or you'll catch the fence, not too far or you'll miss the edges.",
       },
       {
         speaker: 'Hank (Head Groundskeeper)',
-        text: "After the perimeter, pick a side and sweep along the NET. Get close to the net — same deal, a foot or two away. Then sweep that whole half of the court. After that, do the other half and the areas between the courts.",
+        text: "After the perimeter, pick a side and sweep along the NET. Get close to the net — same deal, around 6 inches away. Then sweep that whole half of the court. After that, do the other half and the areas between the courts.",
       },
       {
         speaker: 'Hank (Head Groundskeeper)',
