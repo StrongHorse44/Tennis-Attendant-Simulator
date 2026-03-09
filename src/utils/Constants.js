@@ -105,7 +105,11 @@ export const SIZES = {
   cartMaxSpeed: 10,
   cartAcceleration: 5,
   cartBrakeForce: 12,
-  cartSteerSpeed: 2.5,
+  cartSteerSpeed: 1.5,
+
+  // Entity scaling (applied to meshes and physics)
+  cartScale: 0.75,
+  playerScale: 0.85,
 
   // NPC
   npcHeight: 1.7,
@@ -123,7 +127,7 @@ export const SIZES = {
 // === Game Constants ===
 export const GAME = {
   // Time
-  dayDurationSeconds: 600, // 10 minutes real time = 1 full day
+  dayDurationSeconds: 1800, // 30 minutes real time = 1 full day
   startHour: 7, // 7 AM
   morningEnd: 11,
   afternoonEnd: 17,
@@ -165,10 +169,10 @@ export const GAME = {
   groomScoreThreshold: 0.85,  // coverage needed for "good" rating
 
   // Proximity feedback during grooming
-  proximityOptimalMin: 0.5,   // minimum safe distance to fence/net (world units)
-  proximityOptimalMax: 2.0,   // optimal max distance to fence/net
-  proximityWarnMax: 3.5,      // warning distance - getting too far
-  proximityDangerMin: 0.3,    // danger - too close to fence/net
+  proximityOptimalMin: 0.15,  // minimum safe distance to fence/net (~6 inches)
+  proximityOptimalMax: 1.0,   // optimal max distance to fence/net
+  proximityWarnMax: 2.0,      // warning distance - getting too far
+  proximityDangerMin: 0.1,    // danger - too close to fence/net
 
   // Courtside tasks
   coolerInteractRange: 2.5,   // how close cart must be to interact with cooler/bin

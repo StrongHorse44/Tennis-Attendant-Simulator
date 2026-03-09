@@ -134,17 +134,22 @@ export class GolfCart {
     cargo.position.set(0, 0.55, 1.2);
     this.mesh.add(cargo);
 
+    // Scale down the cart mesh for better proportions relative to courts
+    const s = SIZES.cartScale;
+    this.mesh.scale.set(s, s, s);
+
     this.mesh.position.set(pos.x, pos.y, pos.z);
     this.scene.add(this.mesh);
   }
 
   _createPhysics(pos) {
+    const s = SIZES.cartScale;
     const shape = new CANNON.Box(
-      new CANNON.Vec3(SIZES.cartWidth / 2, 0.4, SIZES.cartLength / 2)
+      new CANNON.Vec3(SIZES.cartWidth / 2 * s, 0.4 * s, SIZES.cartLength / 2 * s)
     );
     this.body = new CANNON.Body({
       mass: 400,
-      position: new CANNON.Vec3(pos.x, pos.y + 0.6, pos.z),
+      position: new CANNON.Vec3(pos.x, pos.y + 0.6 * s, pos.z),
       shape,
       linearDamping: 0.3,
       angularDamping: 0.85,
@@ -173,8 +178,8 @@ export class GolfCart {
     const forward = moveInput.y;
     const steer = moveInput.x;
 
-    // Steering
-    this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, -steer * 0.6, dt * 5);
+    // Steering (reduced sharpness for smoother control)
+    this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, -steer * 0.35, dt * 4);
 
     // Get cart forward direction (-Z is front/headlights)
     const quat = this.body.quaternion;
@@ -204,7 +209,7 @@ export class GolfCart {
     // Turn (only when moving)
     const absSpeed = Math.abs(this.currentSpeed);
     if (absSpeed > 0.5) {
-      const turnForce = this.steerAngle * Math.min(absSpeed, 8) * 0.5;
+      const turnForce = this.steerAngle * Math.min(absSpeed, 8) * 0.3;
       this.body.angularVelocity.y = turnForce;
     } else {
       this.body.angularVelocity.y = 0;
@@ -228,9 +233,10 @@ export class GolfCart {
   }
 
   _syncMesh() {
+    const s = SIZES.cartScale;
     this.mesh.position.set(
       this.body.position.x,
-      this.body.position.y - 0.4,
+      this.body.position.y - 0.4 * s,
       this.body.position.z
     );
     this.mesh.quaternion.set(
