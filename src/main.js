@@ -253,10 +253,9 @@ class Game {
     this.hud.updateInventory();
     this.hud.updateTaskList();
 
-    // Show welcome notification
+    // Show game tutorial after a short delay
     setTimeout(() => {
-      this.hud.showNotification('Welcome to Greenbriar Tennis Club! Check the Pro Shop task board.', 5);
-      this.sound.playNotification();
+      this._showGameTutorial();
     }, 1000);
 
     // Start game loop
@@ -590,6 +589,47 @@ class Game {
         this.hud.updateTaskList();
       }
     });
+  }
+
+  _showGameTutorial() {
+    const steps = [
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "Welcome to Greenbriar Tennis & Social Club! You're the new court attendant. Use WASD or arrow keys to move. On mobile, use the joystick in the bottom-left corner.",
+      },
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "Press E or tap the action button to interact with people and objects. Walk up to club members to chat or help them out.",
+      },
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "Head to the Pro Shop and check the Task Board for your assignments. You'll also get tasks over the radio while on the job.",
+      },
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "See the golf cart nearby? Walk up to it and press E to hop in. You can drive it around the club with the same movement keys.",
+      },
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "To groom the clay courts, drive the cart to the Equipment Shed and press E to attach the drag brush. Then drive onto the clay courts to start sweeping.",
+      },
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "That's the basics! Explore the club, help the members, and keep those courts looking sharp. Good luck!",
+      },
+    ];
+
+    let stepIndex = 0;
+    const showNext = () => {
+      if (stepIndex >= steps.length) return;
+      const step = steps[stepIndex];
+      this.dialogueSystem.showMessage(step.speaker, step.text, '#3498DB', () => {
+        stepIndex++;
+        showNext();
+      });
+    };
+    this.sound.playNotification();
+    showNext();
   }
 
   _updateCamera(dt) {

@@ -81,7 +81,7 @@ export const SIZES = {
   courtWidth: 16,
   courtDepth: 28,
   courtSpacing: 4,
-  clayCourtBuffer: 7,  // extra clay runoff at each end of clay courts (1/4 court depth)
+  clayCourtBuffer: 4,  // extra clay runoff on outer sides of clay courts (1/4 court width)
   netHeight: 1.5,
   fenceHeight: 3,
 
