@@ -102,7 +102,7 @@ export const SIZES = {
   cartLength: 2.8,
   cartWidth: 1.6,
   cartHeight: 1.2,
-  cartMaxSpeed: 10,
+  cartMaxSpeed: 7,
   cartAcceleration: 5,
   cartBrakeForce: 12,
   cartSteerSpeed: 1.5,

@@ -178,8 +178,8 @@ export class GolfCart {
     const forward = moveInput.y;
     const steer = moveInput.x;
 
-    // Steering (reduced sharpness for smoother control)
-    this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, -steer * 0.35, dt * 4);
+    // Steering
+    this.steerAngle = THREE.MathUtils.lerp(this.steerAngle, -steer * 0.5, dt * 5);
 
     // Get cart forward direction (-Z is front/headlights)
     const quat = this.body.quaternion;
@@ -209,7 +209,7 @@ export class GolfCart {
     // Turn (only when moving)
     const absSpeed = Math.abs(this.currentSpeed);
     if (absSpeed > 0.5) {
-      const turnForce = this.steerAngle * Math.min(absSpeed, 8) * 0.3;
+      const turnForce = this.steerAngle * Math.min(absSpeed, 6) * 0.45;
       this.body.angularVelocity.y = turnForce;
     } else {
       this.body.angularVelocity.y = 0;

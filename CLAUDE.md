@@ -97,7 +97,7 @@ There are no tests, linters, or formatters configured yet.
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `SIZES.playerSpeed` | 8 | Walk speed (units/s) |
-| `SIZES.cartMaxSpeed` | 10 | Cart top speed (units/s) |
+| `SIZES.cartMaxSpeed` | 7 | Cart top speed (units/s) |
 | `SIZES.cartAcceleration` | 5 | Cart acceleration (units/s^2) |
 | `SIZES.cameraDistance` | 8 | Camera follow distance |
 | `SIZES.cameraHeight` | 5 | Camera height above target |

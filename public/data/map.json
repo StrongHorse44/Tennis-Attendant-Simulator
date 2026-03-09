@@ -105,7 +105,7 @@
     },
     "equipmentShed": {
       "label": "Equipment Shed",
-      "center": { "x": -14, "y": 0, "z": -20 },
+      "center": { "x": -25, "y": 0, "z": -25 },
       "bounds": { "width": 5, "depth": 4 },
       "hasBrush": true
     },
@@ -228,9 +228,10 @@
       "id": "garden_to_shed",
       "points": [
         { "x": -8, "z": -12 },
-        { "x": -14, "z": -18 }
+        { "x": -18, "z": -18 },
+        { "x": -25, "z": -22 }
       ],
-      "width": 2
+      "width": 2.5
     },
     {
       "id": "entrance_loop",
@@ -293,8 +294,8 @@
     {
       "id": "perimeter_to_shed",
       "points": [
-        { "x": -42, "z": -20 },
-        { "x": -17, "z": -20 }
+        { "x": -42, "z": -25 },
+        { "x": -28, "z": -25 }
       ],
       "width": 2.5
     },
@@ -338,7 +339,7 @@
     "garden_fountain": { "x": -15, "y": 0, "z": -10 },
     "garden_north": { "x": -15, "y": 0, "z": -4 },
     "garden_south": { "x": -15, "y": 0, "z": -17 },
-    "equipmentShed": { "x": -14, "y": 0, "z": -20 },
+    "equipmentShed": { "x": -25, "y": 0, "z": -25 },
     "junction_3_4": { "x": 7, "y": 0, "z": -25 },
     "junction_4_5": { "x": 23, "y": 0, "z": -25 }
   }
