@@ -112,10 +112,10 @@ There are no tests, linters, or formatters configured yet.
 | `GAME.courtDegradeInterval` | 120 | Seconds between court degradation ticks |
 | `GAME.groomBrushWidth` | 3 | Brush sweep radius (world units) |
 | `GAME.groomScoreThreshold` | 0.85 | Cleanliness needed for "excellent" rating |
-| `GAME.proximityOptimalMin` | 0.15 | Min safe distance to fence/net (~6 inches) |
-| `GAME.proximityOptimalMax` | 1.0 | Max optimal distance to fence/net |
-| `GAME.proximityWarnMax` | 2.0 | Warning distance — getting too far |
-| `GAME.proximityDangerMin` | 0.1 | Danger — too close to fence/net |
+| `GAME.proximityOptimalMin` | 0.5 | Min safe brush-center distance to fence/net |
+| `GAME.proximityOptimalMax` | 3.0 | Max optimal brush-center distance (edge ~1.5m from fence) |
+| `GAME.proximityWarnMax` | 4.5 | Warning distance — getting too far |
+| `GAME.proximityDangerMin` | 0.3 | Danger — brush hitting fence/net |
 | `GAME.coolerInteractRange` | 2.5 | Range to interact with courtside objects |
 
 ## Common Tasks
@@ -132,6 +132,6 @@ There are no tests, linters, or formatters configured yet.
 
 **Adding sounds:** All sounds are procedural in `src/systems/SoundSystem.js` using Web Audio API oscillators and noise buffers. Add new methods following the existing patterns (create oscillator/gain, schedule ramps, connect to master gain).
 
-**Tuning court maintenance:** Adjust values in `Constants.js` under the `GAME` object — `groomCellSize` (grid resolution), `groomSpeedLimit` (max effective speed), `groomSpeedPenalty` (speed cutoff), `courtDegradeInterval` (how fast courts get dirty), `groomBrushWidth` (sweep area), `groomScoreThreshold` (rating threshold), `proximityOptimalMin`/`Max` (fence/net sweet spot), `proximityWarnMax`/`DangerMin` (warning thresholds), `coolerInteractRange` (courtside task range). Court dirt colors are in `COLORS` under `clayCourtDirty` and `clayCourtClean`. Courtside object colors are in `COLORS` under `iglooCooler`, `trashBin`, etc.
+**Tuning court maintenance:** Adjust values in `Constants.js` under the `GAME` object — `groomCellSize` (grid resolution), `groomSpeedLimit` (max effective speed), `groomSpeedPenalty` (speed cutoff), `courtDegradeInterval` (how fast courts get dirty), `groomBrushWidth` (sweep area), `groomScoreThreshold` (rating threshold), `proximityOptimalMin`/`Max` (fence/net sweet spot), `proximityWarnMax`/`DangerMin` (warning thresholds), `coolerInteractRange` (courtside task range). Note: proximity distances are measured from the **brush center** to the fence/net — since the brush is 3 units wide (1.5 unit radius), the brush edge is ~1.5 units closer than the reported distance. Court dirt colors are in `COLORS` under `clayCourtDirty` and `clayCourtClean`. Courtside object colors are in `COLORS` under `iglooCooler`, `trashBin`, etc.
 
 **Adding/modifying court junctions:** Edit `public/data/map.json` under `areas.courtJunctions`. Each junction has a position and flags for `hasCooler`/`hasTrashBin`. The `World.js` class builds the 3D objects and `CourtMaintenanceSystem` generates courtside tasks from this data.

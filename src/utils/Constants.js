@@ -168,11 +168,12 @@ export const GAME = {
   groomBrushWidth: 3,         // brush sweep width in world units (half each side)
   groomScoreThreshold: 0.85,  // coverage needed for "good" rating
 
-  // Proximity feedback during grooming
-  proximityOptimalMin: 0.15,  // minimum safe distance to fence/net (~6 inches)
-  proximityOptimalMax: 1.0,   // optimal max distance to fence/net
-  proximityWarnMax: 2.0,      // warning distance - getting too far
-  proximityDangerMin: 0.1,    // danger - too close to fence/net
+  // Proximity feedback during grooming (distances are brush-center-to-fence/net)
+  // Brush is 3 units wide, so brush edge is ~1.5 units closer than center
+  proximityOptimalMin: 0.5,   // minimum safe distance (brush edge nearly touching)
+  proximityOptimalMax: 3.0,   // optimal max distance (brush edge ~1.5m from fence)
+  proximityWarnMax: 4.5,      // warning distance - getting too far
+  proximityDangerMin: 0.3,    // danger - brush hitting fence/net
 
   // Courtside tasks
   coolerInteractRange: 2.5,   // how close cart must be to interact with cooler/bin
