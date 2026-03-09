@@ -473,11 +473,10 @@ export class CourtMaintenanceSystem {
       const center = court.config.center;
       const halfW = SIZES.courtWidth / 2;
       const halfD = SIZES.courtDepth / 2;
-      const buffer = SIZES.clayCourtBuffer || 0;
 
-      // Distance to baseline fences (pushed out by buffer for clay courts)
-      const fenceNorthZ = center.z - halfD - buffer - 0.5;
-      const fenceSouthZ = center.z + halfD + buffer + 0.5;
+      // Distance to baseline fences (at z = center.z +/- halfD + 0.5)
+      const fenceNorthZ = center.z - halfD - 0.5;
+      const fenceSouthZ = center.z + halfD + 0.5;
       const distToNorth = Math.abs(brushPos.z - fenceNorthZ);
       const distToSouth = Math.abs(brushPos.z - fenceSouthZ);
       nearestFenceDist = Math.min(nearestFenceDist, distToNorth, distToSouth);

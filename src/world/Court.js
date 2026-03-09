@@ -178,41 +178,67 @@ export class Court {
     const { center, type } = this.config;
     const w = SIZES.courtWidth;
     const d = SIZES.courtDepth;
-    const buffer = this.isClay ? (SIZES.clayCourtBuffer || 0) : 0;
     const surfaceColor = type === 'clay' ? COLORS.clayCourt : COLORS.hardCourt;
 
-    // Court surface (includes buffer runoff for clay courts)
-    const totalDepth = d + 2 * buffer;
+    // Court surface
     const surface = new THREE.Mesh(
-      new THREE.BoxGeometry(w, 0.15, totalDepth),
+      new THREE.BoxGeometry(w, 0.15, d),
       new THREE.MeshLambertMaterial({ color: surfaceColor })
     );
     surface.position.set(center.x, 0.08, center.z);
     surface.receiveShadow = true;
     this.mesh.add(surface);
 
-    // Court lines (always within the playing area, not the buffer)
+    // Side buffer surfaces for clay courts (extra clay for cart movement)
+    if (this.isClay) {
+      const buffer = SIZES.clayCourtBuffer || 0;
+      if (buffer > 0) {
+        const bufferMat = new THREE.MeshLambertMaterial({ color: surfaceColor });
+        if (!this.config.adjacentLeft) {
+          const leftBuffer = new THREE.Mesh(
+            new THREE.BoxGeometry(buffer, 0.15, d),
+            bufferMat
+          );
+          leftBuffer.position.set(center.x - w / 2 - buffer / 2, 0.08, center.z);
+          leftBuffer.receiveShadow = true;
+          this.mesh.add(leftBuffer);
+        }
+        if (!this.config.adjacentRight) {
+          const rightBuffer = new THREE.Mesh(
+            new THREE.BoxGeometry(buffer, 0.15, d),
+            bufferMat
+          );
+          rightBuffer.position.set(center.x + w / 2 + buffer / 2, 0.08, center.z);
+          rightBuffer.receiveShadow = true;
+          this.mesh.add(rightBuffer);
+        }
+      }
+    }
+
+    // Court lines
     this._addLines(center, w, d);
 
     // Net
     this._addNet(center, w);
 
-    // Fence (moved outward for clay courts to enclose buffer)
-    this._addFence(center, w, d, buffer);
+    // Fence
+    this._addFence(center, w, d);
 
     // Benches on outer sides only (skip when adjacent to another court)
+    // Push benches past the buffer on clay courts
+    const benchOffset = this.isClay ? (SIZES.clayCourtBuffer || 0) + 1.2 : 1.2;
     if (!this.config.adjacentLeft) {
-      this._addBench(center.x - w / 2 - 1.2, center.z);
+      this._addBench(center.x - w / 2 - benchOffset, center.z);
     }
     if (!this.config.adjacentRight) {
-      this._addBench(center.x + w / 2 + 1.2, center.z);
+      this._addBench(center.x + w / 2 + benchOffset, center.z);
     }
 
     // Court label
     this._addLabel(center);
 
-    // Physics: static body for court surface (includes buffer)
-    const courtShape = new CANNON.Box(new CANNON.Vec3(w / 2, 0.1, totalDepth / 2));
+    // Physics: static body for court surface
+    const courtShape = new CANNON.Box(new CANNON.Vec3(w / 2, 0.1, d / 2));
     const courtBody = new CANNON.Body({
       mass: 0,
       position: new CANNON.Vec3(center.x, 0.05, center.z),
@@ -306,7 +332,7 @@ export class Court {
     this.physicsWorld.addBody(netBody);
   }
 
-  _addFence(center, w, d, buffer = 0) {
+  _addFence(center, w, d) {
     const fenceH = SIZES.fenceHeight;
     const fenceMat = new THREE.MeshLambertMaterial({
       color: COLORS.courtFence,
@@ -316,11 +342,10 @@ export class Court {
     });
     const postMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
 
-    // Back fences (behind baselines, pushed out by buffer for clay courts)
-    const fenceOffset = d / 2 + buffer + 0.5;
+    // Back fences (behind baselines)
     const fences = [
-      { pos: [0, fenceH / 2, -fenceOffset], size: [w + 2, fenceH, 0.1] },
-      { pos: [0, fenceH / 2, fenceOffset], size: [w + 2, fenceH, 0.1] },
+      { pos: [0, fenceH / 2, -d / 2 - 0.5], size: [w + 2, fenceH, 0.1] },
+      { pos: [0, fenceH / 2, d / 2 + 0.5], size: [w + 2, fenceH, 0.1] },
     ];
 
     for (const f of fences) {
@@ -350,7 +375,7 @@ export class Court {
     const postGeo = new THREE.CylinderGeometry(0.04, 0.04, fenceH);
     const postSpacing = 4;
     for (let x = -w / 2 - 1; x <= w / 2 + 1; x += postSpacing) {
-      for (const zOff of [-fenceOffset, fenceOffset]) {
+      for (const zOff of [-d / 2 - 0.5, d / 2 + 0.5]) {
         const post = new THREE.Mesh(postGeo, postMat);
         post.position.set(center.x + x, fenceH / 2, center.z + zOff);
         post.castShadow = true;
