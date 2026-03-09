@@ -209,7 +209,7 @@ export class GolfCart {
     // Turn (only when moving)
     const absSpeed = Math.abs(this.currentSpeed);
     if (absSpeed > 0.5) {
-      const turnForce = this.steerAngle * Math.min(absSpeed, 5) * 0.35;
+      const turnForce = this.steerAngle * Math.min(absSpeed, 5) * 0.39;
       this.body.angularVelocity.y = turnForce;
     } else {
       this.body.angularVelocity.y = 0;

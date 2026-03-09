@@ -45,7 +45,7 @@ export class CourtMaintenanceSystem {
       },
       {
         speaker: 'Hank (Head Groundskeeper)',
-        text: "We've got three clay courts side by side now. You'll sweep all three in one pass — no stopping between courts. Start on the OUTSIDE PERIMETER, right along the fence. Stay close to it — around 6 inches away. Not too close or you'll catch the fence, not too far or you'll miss the edges.",
+        text: "The clay courts are all side by side. You'll sweep all three in one pass — no stopping between courts. Start on the OUTSIDE PERIMETER, right along the fence. Stay close to it — around 6 inches away. Not too close or you'll catch the fence, not too far or you'll miss the edges.",
       },
       {
         speaker: 'Hank (Head Groundskeeper)',
@@ -473,10 +473,11 @@ export class CourtMaintenanceSystem {
       const center = court.config.center;
       const halfW = SIZES.courtWidth / 2;
       const halfD = SIZES.courtDepth / 2;
+      const buffer = SIZES.clayCourtBuffer || 0;
 
-      // Distance to baseline fences (at z = center.z +/- halfD + 0.5)
-      const fenceNorthZ = center.z - halfD - 0.5;
-      const fenceSouthZ = center.z + halfD + 0.5;
+      // Distance to baseline fences (pushed out by buffer for clay courts)
+      const fenceNorthZ = center.z - halfD - buffer - 0.5;
+      const fenceSouthZ = center.z + halfD + buffer + 0.5;
       const distToNorth = Math.abs(brushPos.z - fenceNorthZ);
       const distToSouth = Math.abs(brushPos.z - fenceSouthZ);
       nearestFenceDist = Math.min(nearestFenceDist, distToNorth, distToSouth);

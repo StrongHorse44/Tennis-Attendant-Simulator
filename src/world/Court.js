@@ -178,25 +178,27 @@ export class Court {
     const { center, type } = this.config;
     const w = SIZES.courtWidth;
     const d = SIZES.courtDepth;
+    const buffer = this.isClay ? (SIZES.clayCourtBuffer || 0) : 0;
     const surfaceColor = type === 'clay' ? COLORS.clayCourt : COLORS.hardCourt;
 
-    // Court surface
+    // Court surface (includes buffer runoff for clay courts)
+    const totalDepth = d + 2 * buffer;
     const surface = new THREE.Mesh(
-      new THREE.BoxGeometry(w, 0.15, d),
+      new THREE.BoxGeometry(w, 0.15, totalDepth),
       new THREE.MeshLambertMaterial({ color: surfaceColor })
     );
     surface.position.set(center.x, 0.08, center.z);
     surface.receiveShadow = true;
     this.mesh.add(surface);
 
-    // Court lines
+    // Court lines (always within the playing area, not the buffer)
     this._addLines(center, w, d);
 
     // Net
     this._addNet(center, w);
 
-    // Fence
-    this._addFence(center, w, d);
+    // Fence (moved outward for clay courts to enclose buffer)
+    this._addFence(center, w, d, buffer);
 
     // Benches on outer sides only (skip when adjacent to another court)
     if (!this.config.adjacentLeft) {
@@ -209,8 +211,8 @@ export class Court {
     // Court label
     this._addLabel(center);
 
-    // Physics: static body for court surface
-    const courtShape = new CANNON.Box(new CANNON.Vec3(w / 2, 0.1, d / 2));
+    // Physics: static body for court surface (includes buffer)
+    const courtShape = new CANNON.Box(new CANNON.Vec3(w / 2, 0.1, totalDepth / 2));
     const courtBody = new CANNON.Body({
       mass: 0,
       position: new CANNON.Vec3(center.x, 0.05, center.z),
@@ -304,7 +306,7 @@ export class Court {
     this.physicsWorld.addBody(netBody);
   }
 
-  _addFence(center, w, d) {
+  _addFence(center, w, d, buffer = 0) {
     const fenceH = SIZES.fenceHeight;
     const fenceMat = new THREE.MeshLambertMaterial({
       color: COLORS.courtFence,
@@ -314,10 +316,11 @@ export class Court {
     });
     const postMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
 
-    // Back fences (behind baselines)
+    // Back fences (behind baselines, pushed out by buffer for clay courts)
+    const fenceOffset = d / 2 + buffer + 0.5;
     const fences = [
-      { pos: [0, fenceH / 2, -d / 2 - 0.5], size: [w + 2, fenceH, 0.1] },
-      { pos: [0, fenceH / 2, d / 2 + 0.5], size: [w + 2, fenceH, 0.1] },
+      { pos: [0, fenceH / 2, -fenceOffset], size: [w + 2, fenceH, 0.1] },
+      { pos: [0, fenceH / 2, fenceOffset], size: [w + 2, fenceH, 0.1] },
     ];
 
     for (const f of fences) {
@@ -347,7 +350,7 @@ export class Court {
     const postGeo = new THREE.CylinderGeometry(0.04, 0.04, fenceH);
     const postSpacing = 4;
     for (let x = -w / 2 - 1; x <= w / 2 + 1; x += postSpacing) {
-      for (const zOff of [-d / 2 - 0.5, d / 2 + 0.5]) {
+      for (const zOff of [-fenceOffset, fenceOffset]) {
         const post = new THREE.Mesh(postGeo, postMat);
         post.position.set(center.x + x, fenceH / 2, center.z + zOff);
         post.castShadow = true;
