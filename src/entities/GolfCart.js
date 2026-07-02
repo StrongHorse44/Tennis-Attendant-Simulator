@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * GolfCart - drivable cart with physics
@@ -30,7 +31,7 @@ export class GolfCart {
     // Cart body (main chassis)
     const chassis = new THREE.Mesh(
       new THREE.BoxGeometry(SIZES.cartWidth, 0.3, SIZES.cartLength),
-      new THREE.MeshLambertMaterial({ color: COLORS.golfCart })
+      createMaterial('plastic', { color: COLORS.golfCart, roughness: 0.45 })
     );
     chassis.position.y = 0.5;
     chassis.castShadow = true;
@@ -40,7 +41,7 @@ export class GolfCart {
     // Floor
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(SIZES.cartWidth - 0.1, 0.05, SIZES.cartLength - 0.2),
-      new THREE.MeshLambertMaterial({ color: 0xCCCCCC })
+      createMaterial('plastic', { color: 0xCCCCCC })
     );
     floor.position.y = 0.35;
     this.mesh.add(floor);
@@ -48,7 +49,7 @@ export class GolfCart {
     // Seat
     const seat = new THREE.Mesh(
       new THREE.BoxGeometry(SIZES.cartWidth - 0.3, 0.15, 0.6),
-      new THREE.MeshLambertMaterial({ color: COLORS.golfCartSeat })
+      createMaterial('matte', { color: COLORS.golfCartSeat })
     );
     seat.position.set(0, 0.75, 0.3);
     seat.castShadow = true;
@@ -57,7 +58,7 @@ export class GolfCart {
     // Seat back
     const seatBack = new THREE.Mesh(
       new THREE.BoxGeometry(SIZES.cartWidth - 0.3, 0.5, 0.1),
-      new THREE.MeshLambertMaterial({ color: COLORS.golfCartSeat })
+      createMaterial('matte', { color: COLORS.golfCartSeat })
     );
     seatBack.position.set(0, 1.0, 0.6);
     seatBack.castShadow = true;
@@ -66,7 +67,7 @@ export class GolfCart {
     // Roof
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(SIZES.cartWidth + 0.1, 0.08, SIZES.cartLength + 0.1),
-      new THREE.MeshLambertMaterial({ color: COLORS.golfCartRoof })
+      createMaterial('plastic', { color: COLORS.golfCartRoof })
     );
     roof.position.y = 1.8;
     roof.castShadow = true;
@@ -74,7 +75,7 @@ export class GolfCart {
 
     // Roof supports (4 posts)
     const postGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.2);
-    const postMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+    const postMat = createMaterial('metal', { color: 0x888888 });
     const posts = [
       [-0.7, 1.2, -1.0],
       [0.7, 1.2, -1.0],
@@ -90,7 +91,7 @@ export class GolfCart {
     // Steering wheel
     const steering = new THREE.Mesh(
       new THREE.TorusGeometry(0.12, 0.02, 8, 12),
-      new THREE.MeshLambertMaterial({ color: 0x333333 })
+      createMaterial('matte', { color: 0x333333 })
     );
     steering.position.set(-0.3, 0.95, -0.5);
     steering.rotation.x = -Math.PI / 4;
@@ -99,7 +100,7 @@ export class GolfCart {
 
     // Wheels (4)
     const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.12, 8);
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+    const wheelMat = createMaterial('matte', { color: 0x222222 });
     this.wheels = [];
     const wheelPositions = [
       [-0.8, 0.2, -0.9],
@@ -118,7 +119,8 @@ export class GolfCart {
 
     // Headlights
     const lightGeo = new THREE.SphereGeometry(0.08, 6, 6);
-    const lightMat = new THREE.MeshLambertMaterial({ color: 0xFFFF88, emissive: 0x444400 });
+    const lightMat = createMaterial('plastic', { color: 0xFFFF88, emissive: 0xFFEE66, emissiveIntensity: 1.2 });
+    this.headlightMaterial = lightMat;
     const ll = new THREE.Mesh(lightGeo, lightMat);
     ll.position.set(-0.5, 0.55, -1.4);
     this.mesh.add(ll);
@@ -129,7 +131,7 @@ export class GolfCart {
     // Rear cargo area
     const cargo = new THREE.Mesh(
       new THREE.BoxGeometry(SIZES.cartWidth - 0.2, 0.3, 0.6),
-      new THREE.MeshLambertMaterial({ color: 0xDDDDDD })
+      createMaterial('plastic', { color: 0xDDDDDD })
     );
     cargo.position.set(0, 0.55, 1.2);
     this.mesh.add(cargo);
@@ -256,7 +258,7 @@ export class GolfCart {
     // Tow bar (connects cart rear to brush)
     const towBar = new THREE.Mesh(
       new THREE.BoxGeometry(0.08, 0.08, 1.2),
-      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+      createMaterial('metal', { color: COLORS.dragBrushFrame })
     );
     towBar.position.set(0, 0.3, 2.2);
     this.brushMesh.add(towBar);
@@ -264,14 +266,14 @@ export class GolfCart {
     // Brush frame (U-shaped handles)
     const frameLeft = new THREE.Mesh(
       new THREE.BoxGeometry(0.06, 0.06, 1.0),
-      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+      createMaterial('metal', { color: COLORS.dragBrushFrame })
     );
     frameLeft.position.set(-1.2, 0.25, 3.0);
     this.brushMesh.add(frameLeft);
 
     const frameRight = new THREE.Mesh(
       new THREE.BoxGeometry(0.06, 0.06, 1.0),
-      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+      createMaterial('metal', { color: COLORS.dragBrushFrame })
     );
     frameRight.position.set(1.2, 0.25, 3.0);
     this.brushMesh.add(frameRight);
@@ -279,7 +281,7 @@ export class GolfCart {
     // Cross bar
     const crossBar = new THREE.Mesh(
       new THREE.BoxGeometry(2.5, 0.06, 0.06),
-      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushFrame })
+      createMaterial('metal', { color: COLORS.dragBrushFrame })
     );
     crossBar.position.set(0, 0.25, 3.5);
     this.brushMesh.add(crossBar);
@@ -287,14 +289,14 @@ export class GolfCart {
     // Bristle block (the actual brush head - 6ft / ~1.8m wide)
     const bristles = new THREE.Mesh(
       new THREE.BoxGeometry(2.4, 0.12, 0.6),
-      new THREE.MeshLambertMaterial({ color: COLORS.dragBrushBristles })
+      createMaterial('matte', { color: COLORS.dragBrushBristles })
     );
     bristles.position.set(0, 0.08, 3.5);
     bristles.castShadow = true;
     this.brushMesh.add(bristles);
 
     // Bristle texture stripes (visual detail)
-    const stripeMat = new THREE.MeshLambertMaterial({ color: 0x6B5B3F });
+    const stripeMat = createMaterial('matte', { color: 0x6B5B3F });
     for (let i = -3; i <= 3; i++) {
       const stripe = new THREE.Mesh(
         new THREE.BoxGeometry(0.04, 0.13, 0.62),

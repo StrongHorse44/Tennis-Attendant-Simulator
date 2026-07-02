@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * Player - attendant character with walking/driving states
@@ -28,7 +29,7 @@ export class Player {
     // Body (polo shirt)
     const torso = new THREE.Mesh(
       new THREE.BoxGeometry(0.55, 0.6, 0.35),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerPolo })
+      createMaterial('matte', { color: COLORS.playerPolo })
     );
     torso.position.y = 1.1;
     torso.castShadow = true;
@@ -37,7 +38,7 @@ export class Player {
     // Shorts
     const shorts = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.3, 0.33),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerShorts })
+      createMaterial('matte', { color: COLORS.playerShorts })
     );
     shorts.position.y = 0.7;
     shorts.castShadow = true;
@@ -46,7 +47,7 @@ export class Player {
     // Head
     const head = new THREE.Mesh(
       new THREE.SphereGeometry(0.2, 8, 8),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     head.position.y = 1.6;
     head.castShadow = true;
@@ -55,7 +56,7 @@ export class Player {
     // Visor
     const visor = new THREE.Mesh(
       new THREE.BoxGeometry(0.3, 0.05, 0.15),
-      new THREE.MeshLambertMaterial({ color: 0xFFFFFF })
+      createMaterial('plastic', { color: 0xFFFFFF })
     );
     visor.position.set(0, 1.68, -0.15);
     this.mesh.add(visor);
@@ -63,7 +64,7 @@ export class Player {
     // Left leg
     this.leftLeg = new THREE.Mesh(
       new THREE.BoxGeometry(0.15, 0.5, 0.15),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.leftLeg.position.set(-0.12, 0.3, 0);
     this.leftLeg.castShadow = true;
@@ -72,7 +73,7 @@ export class Player {
     // Right leg
     this.rightLeg = new THREE.Mesh(
       new THREE.BoxGeometry(0.15, 0.5, 0.15),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.rightLeg.position.set(0.12, 0.3, 0);
     this.rightLeg.castShadow = true;
@@ -81,7 +82,7 @@ export class Player {
     // Left arm
     this.leftArm = new THREE.Mesh(
       new THREE.BoxGeometry(0.12, 0.45, 0.12),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.leftArm.position.set(-0.38, 1.05, 0);
     this.leftArm.castShadow = true;
@@ -90,7 +91,7 @@ export class Player {
     // Right arm
     this.rightArm = new THREE.Mesh(
       new THREE.BoxGeometry(0.12, 0.45, 0.12),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.rightArm.position.set(0.38, 1.05, 0);
     this.rightArm.castShadow = true;
@@ -99,14 +100,14 @@ export class Player {
     // Shoes
     const leftShoe = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.08, 0.22),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerShoes })
+      createMaterial('plastic', { color: COLORS.playerShoes })
     );
     leftShoe.position.set(-0.12, 0.04, -0.03);
     this.mesh.add(leftShoe);
 
     const rightShoe = new THREE.Mesh(
       new THREE.BoxGeometry(0.16, 0.08, 0.22),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerShoes })
+      createMaterial('plastic', { color: COLORS.playerShoes })
     );
     rightShoe.position.set(0.12, 0.04, -0.03);
     this.mesh.add(rightShoe);

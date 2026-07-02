@@ -4,6 +4,7 @@ import { COLORS, SIZES } from '../utils/Constants.js';
 import { Court } from './Court.js';
 import { Building } from './Building.js';
 import { Garden } from './Garden.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * World - loads map.json and builds the entire club environment
@@ -37,7 +38,7 @@ export class World {
     // Main ground plane
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(SIZES.mapWidth * 2, SIZES.mapDepth * 2),
-      new THREE.MeshLambertMaterial({ color: COLORS.ground })
+      createMaterial('matte', { color: COLORS.ground })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
@@ -55,7 +56,7 @@ export class World {
   }
 
   _buildPaths() {
-    const pathMat = new THREE.MeshLambertMaterial({ color: COLORS.path });
+    const pathMat = createMaterial('rough', { color: COLORS.path });
 
     for (const path of this.mapData.paths) {
       const points = path.points;
@@ -128,7 +129,7 @@ export class World {
     // Cooler body (orange/red igloo style)
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(0.7, 0.5, 0.5),
-      new THREE.MeshLambertMaterial({ color: COLORS.iglooCooler })
+      createMaterial('plastic', { color: COLORS.iglooCooler })
     );
     body.position.y = 0.45;
     body.castShadow = true;
@@ -137,14 +138,14 @@ export class World {
     // Cooler lid (white)
     const lid = new THREE.Mesh(
       new THREE.BoxGeometry(0.72, 0.08, 0.52),
-      new THREE.MeshLambertMaterial({ color: COLORS.iglooCoolerLid })
+      createMaterial('plastic', { color: COLORS.iglooCoolerLid })
     );
     lid.position.y = 0.74;
     group.add(lid);
 
     // Stand/legs
     const legGeo = new THREE.BoxGeometry(0.06, 0.2, 0.06);
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+    const legMat = createMaterial('metal', { color: 0x666666 });
     for (const lx of [-0.25, 0.25]) {
       for (const lz of [-0.18, 0.18]) {
         const leg = new THREE.Mesh(legGeo, legMat);
@@ -156,7 +157,7 @@ export class World {
     // Cup holder tray (attached to side)
     const tray = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.04, 0.25),
-      new THREE.MeshLambertMaterial({ color: COLORS.cupHolder })
+      createMaterial('wood', { color: COLORS.cupHolder })
     );
     tray.position.set(0.5, 0.55, 0);
     group.add(tray);
@@ -165,7 +166,7 @@ export class World {
     for (const offset of [-0.08, 0.08]) {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.06, 0.015, 6, 8),
-        new THREE.MeshLambertMaterial({ color: 0x777777 })
+        createMaterial('metal', { color: 0x777777 })
       );
       ring.position.set(0.5, 0.58, offset);
       ring.rotation.x = Math.PI / 2;
@@ -175,7 +176,7 @@ export class World {
     // Spigot (front)
     const spigot = new THREE.Mesh(
       new THREE.CylinderGeometry(0.025, 0.025, 0.1, 6),
-      new THREE.MeshLambertMaterial({ color: 0xCCCCCC })
+      createMaterial('metal', { color: 0xCCCCCC })
     );
     spigot.position.set(0, 0.35, -0.3);
     spigot.rotation.x = Math.PI / 2;
@@ -192,7 +193,7 @@ export class World {
     // Bin body (cylinder)
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(0.25, 0.22, 0.7, 8),
-      new THREE.MeshLambertMaterial({ color: COLORS.trashBin })
+      createMaterial('metal', { color: COLORS.trashBin })
     );
     body.position.y = 0.35;
     body.castShadow = true;
@@ -201,7 +202,7 @@ export class World {
     // Lid (slightly wider)
     const lid = new THREE.Mesh(
       new THREE.CylinderGeometry(0.27, 0.27, 0.06, 8),
-      new THREE.MeshLambertMaterial({ color: COLORS.trashBinLid })
+      createMaterial('metal', { color: COLORS.trashBinLid })
     );
     lid.position.y = 0.73;
     group.add(lid);
@@ -209,7 +210,7 @@ export class World {
     // Handle on lid
     const handle = new THREE.Mesh(
       new THREE.TorusGeometry(0.06, 0.015, 4, 8, Math.PI),
-      new THREE.MeshLambertMaterial({ color: 0x777777 })
+      createMaterial('metal', { color: 0x777777 })
     );
     handle.position.y = 0.78;
     handle.rotation.x = Math.PI;
@@ -251,14 +252,14 @@ export class World {
     // Shed floor
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(w, 0.08, d),
-      new THREE.MeshLambertMaterial({ color: 0x999999 })
+      createMaterial('rough', { color: 0x999999 })
     );
     floor.position.set(center.x, 0.04, center.z);
     floor.receiveShadow = true;
     this.scene.add(floor);
 
     // Walls (3 sides — open front facing +Z)
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0x8B7355 });
+    const wallMat = createMaterial('wood', { color: 0x8B7355 });
 
     // Back wall
     const backWall = new THREE.Mesh(
@@ -283,7 +284,7 @@ export class World {
     // Roof
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(w + 0.5, 0.12, d + 0.5),
-      new THREE.MeshLambertMaterial({ color: 0x6B4226 })
+      createMaterial('wood', { color: 0x6B4226 })
     );
     roof.position.set(center.x, h, center.z);
     roof.castShadow = true;
@@ -299,6 +300,7 @@ export class World {
     ctx.textAlign = 'center';
     ctx.fillText('Equipment Shed', 128, 40);
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
@@ -330,21 +332,21 @@ export class World {
     // Frame
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(1.8, 0.06, 0.06),
-      new THREE.MeshLambertMaterial({ color: 0x888888 })
+      createMaterial('metal', { color: 0x888888 })
     );
     frame.position.set(0, 0.8, 0);
     brushProp.add(frame);
     // Bristles
     const bristles = new THREE.Mesh(
       new THREE.BoxGeometry(1.8, 0.12, 0.4),
-      new THREE.MeshLambertMaterial({ color: 0x8B7355 })
+      createMaterial('matte', { color: 0x8B7355 })
     );
     bristles.position.set(0, 0.3, 0);
     brushProp.add(bristles);
     // Handle
     const handle = new THREE.Mesh(
       new THREE.CylinderGeometry(0.03, 0.03, 1.2, 6),
-      new THREE.MeshLambertMaterial({ color: 0x888888 })
+      createMaterial('metal', { color: 0x888888 })
     );
     handle.position.set(0, 1.4, 0);
     brushProp.add(handle);
@@ -368,7 +370,7 @@ export class World {
     // Patio floor
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(patioConfig.bounds.width, 0.08, patioConfig.bounds.depth),
-      new THREE.MeshLambertMaterial({ color: 0xC4A882 })
+      createMaterial('rough', { color: 0xC4A882 })
     );
     floor.position.set(patioConfig.center.x, 0.04, patioConfig.center.z);
     floor.receiveShadow = true;
@@ -381,7 +383,7 @@ export class World {
     // Table top
     const top = new THREE.Mesh(
       new THREE.CylinderGeometry(0.8, 0.8, 0.08, 8),
-      new THREE.MeshLambertMaterial({ color: 0xDEB887 })
+      createMaterial('wood', { color: 0xDEB887 })
     );
     top.position.y = 0.75;
     top.castShadow = true;
@@ -390,7 +392,7 @@ export class World {
     // Table leg
     const leg = new THREE.Mesh(
       new THREE.CylinderGeometry(0.08, 0.08, 0.75, 6),
-      new THREE.MeshLambertMaterial({ color: 0x888888 })
+      createMaterial('metal', { color: 0x888888 })
     );
     leg.position.y = 0.375;
     group.add(leg);
@@ -398,7 +400,7 @@ export class World {
     // Umbrella pole
     const pole = new THREE.Mesh(
       new THREE.CylinderGeometry(0.03, 0.03, 2.0, 6),
-      new THREE.MeshLambertMaterial({ color: 0x888888 })
+      createMaterial('metal', { color: 0x888888 })
     );
     pole.position.y = 1.75;
     group.add(pole);
@@ -406,7 +408,7 @@ export class World {
     // Umbrella
     const umbrella = new THREE.Mesh(
       new THREE.ConeGeometry(1.2, 0.5, 8),
-      new THREE.MeshLambertMaterial({ color: 0xB22222 })
+      createMaterial('matte', { color: 0xB22222 })
     );
     umbrella.position.y = 2.5;
     umbrella.castShadow = true;
@@ -416,14 +418,14 @@ export class World {
     for (const offset of [-0.9, 0.9]) {
       const chair = new THREE.Mesh(
         new THREE.BoxGeometry(0.4, 0.05, 0.4),
-        new THREE.MeshLambertMaterial({ color: 0xDEB887 })
+        createMaterial('wood', { color: 0xDEB887 })
       );
       chair.position.set(offset, 0.45, 0);
       group.add(chair);
 
       const chairLeg = new THREE.Mesh(
         new THREE.CylinderGeometry(0.03, 0.03, 0.45, 4),
-        new THREE.MeshLambertMaterial({ color: 0x888888 })
+        createMaterial('metal', { color: 0x888888 })
       );
       chairLeg.position.set(offset, 0.225, 0);
       group.add(chairLeg);
@@ -438,20 +440,20 @@ export class World {
 
     const seat = new THREE.Mesh(
       new THREE.BoxGeometry(2.0, 0.08, 0.5),
-      new THREE.MeshLambertMaterial({ color: 0x8B6914 })
+      createMaterial('wood', { color: 0x8B6914 })
     );
     seat.position.y = 0.45;
     bench.add(seat);
 
     const back = new THREE.Mesh(
       new THREE.BoxGeometry(2.0, 0.5, 0.08),
-      new THREE.MeshLambertMaterial({ color: 0x8B6914 })
+      createMaterial('wood', { color: 0x8B6914 })
     );
     back.position.set(0, 0.7, -0.2);
     bench.add(back);
 
     const legGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.45, 4);
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+    const legMat = createMaterial('metal', { color: 0x555555 });
     for (const lx of [-0.8, 0.8]) {
       for (const lz of [-0.15, 0.15]) {
         const leg = new THREE.Mesh(legGeo, legMat);
@@ -471,7 +473,7 @@ export class World {
     // Parking surface
     const lot = new THREE.Mesh(
       new THREE.BoxGeometry(parking.bounds.width, 0.06, parking.bounds.depth),
-      new THREE.MeshLambertMaterial({ color: 0x555555 })
+      createMaterial('rough', { color: 0x555555 })
     );
     lot.position.set(parking.center.x, 0.03, parking.center.z);
     lot.receiveShadow = true;
@@ -505,7 +507,7 @@ export class World {
     // Body
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(1.8, 0.8, 3.5),
-      new THREE.MeshLambertMaterial({ color })
+      createMaterial('plastic', { color, roughness: 0.4 })
     );
     body.position.y = 0.7;
     body.castShadow = true;
@@ -514,14 +516,14 @@ export class World {
     // Cabin
     const cabin = new THREE.Mesh(
       new THREE.BoxGeometry(1.6, 0.6, 1.8),
-      new THREE.MeshLambertMaterial({ color })
+      createMaterial('plastic', { color, roughness: 0.4 })
     );
     cabin.position.set(0, 1.3, -0.2);
     cabin.castShadow = true;
     car.add(cabin);
 
     // Windows
-    const winMat = new THREE.MeshLambertMaterial({
+    const winMat = createMaterial('glass', {
       color: 0x87CEEB,
       transparent: true,
       opacity: 0.6,
@@ -532,7 +534,7 @@ export class World {
 
     // Wheels
     const wheelGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.15, 8);
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+    const wheelMat = createMaterial('matte', { color: 0x222222 });
     const wheelPositions = [[-0.9, 0.25, -1.0], [0.9, 0.25, -1.0], [-0.9, 0.25, 1.0], [0.9, 0.25, 1.0]];
     for (const [wx, wy, wz] of wheelPositions) {
       const wheel = new THREE.Mesh(wheelGeo, wheelMat);
@@ -558,7 +560,7 @@ export class World {
   _buildPerimeter() {
     // Perimeter fence/wall
     const wallH = 2;
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0x8B8B6E });
+    const wallMat = createMaterial('rough', { color: 0x8B8B6E });
     const halfW = SIZES.mapWidth / 2 + 5;
     const halfD = SIZES.mapDepth / 2 + 5;
 
@@ -604,7 +606,7 @@ export class World {
   _addPerimeterTree(x, z) {
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.12, 0.18, 1.8, 5),
-      new THREE.MeshLambertMaterial({ color: 0x8B6914 })
+      createMaterial('wood', { color: 0x8B6914 })
     );
     trunk.position.set(x, 0.9, z);
     trunk.castShadow = true;
@@ -612,7 +614,7 @@ export class World {
 
     const canopy = new THREE.Mesh(
       new THREE.SphereGeometry(1.2, 6, 5),
-      new THREE.MeshLambertMaterial({ color: 0x228B22 })
+      createMaterial('matte', { color: 0x228B22 })
     );
     canopy.position.set(x, 2.5, z);
     canopy.castShadow = true;

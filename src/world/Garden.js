@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS } from '../utils/Constants.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * Garden - landscaping area with hedges, flower beds, and fountain
@@ -22,7 +23,7 @@ export class Garden {
     // Ground cover (slightly different green)
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(config.bounds.width, 0.05, config.bounds.depth),
-      new THREE.MeshLambertMaterial({ color: 0x5AA83A })
+      createMaterial('matte', { color: 0x5AA83A })
     );
     ground.position.set(center.x, 0.03, center.z);
     ground.receiveShadow = true;
@@ -56,7 +57,7 @@ export class Garden {
   _addHedge(config) {
     const hedge = new THREE.Mesh(
       new THREE.BoxGeometry(config.width, 1.5, config.depth),
-      new THREE.MeshLambertMaterial({ color: COLORS.hedge })
+      createMaterial('matte', { color: COLORS.hedge })
     );
     hedge.position.set(config.x, 0.75, config.z);
     hedge.castShadow = true;
@@ -73,7 +74,7 @@ export class Garden {
     // Soil bed
     const bed = new THREE.Mesh(
       new THREE.BoxGeometry(config.width, 0.15, config.depth),
-      new THREE.MeshLambertMaterial({ color: 0x5C4033 })
+      createMaterial('matte', { color: 0x5C4033 })
     );
     bed.position.set(config.x, 0.08, config.z);
     bed.receiveShadow = true;
@@ -89,7 +90,7 @@ export class Garden {
       // Stem
       const stem = new THREE.Mesh(
         new THREE.CylinderGeometry(0.02, 0.02, 0.3 + Math.random() * 0.2),
-        new THREE.MeshLambertMaterial({ color: 0x228B22 })
+        createMaterial('matte', { color: 0x228B22 })
       );
       stem.position.set(fx, 0.3, fz);
       this.mesh.add(stem);
@@ -97,14 +98,14 @@ export class Garden {
       // Flower head
       const flower = new THREE.Mesh(
         new THREE.SphereGeometry(0.08 + Math.random() * 0.05, 6, 6),
-        new THREE.MeshLambertMaterial({ color: flowerColor })
+        createMaterial('matte', { color: flowerColor })
       );
       flower.position.set(fx, 0.45 + Math.random() * 0.1, fz);
       this.mesh.add(flower);
     }
 
     // Border stones
-    const stoneMat = new THREE.MeshLambertMaterial({ color: 0x999999 });
+    const stoneMat = createMaterial('rough', { color: 0x999999 });
     const stoneSize = 0.15;
     for (let x = -config.width / 2; x <= config.width / 2; x += stoneSize * 1.5) {
       for (const z of [-config.depth / 2, config.depth / 2]) {
@@ -122,7 +123,7 @@ export class Garden {
     // Base pool
     const pool = new THREE.Mesh(
       new THREE.CylinderGeometry(1.8, 2.0, 0.4, 16),
-      new THREE.MeshLambertMaterial({ color: COLORS.fountain })
+      createMaterial('rough', { color: COLORS.fountain })
     );
     pool.position.set(pos.x, 0.2, pos.z);
     pool.castShadow = true;
@@ -131,7 +132,7 @@ export class Garden {
     // Water in pool
     const water = new THREE.Mesh(
       new THREE.CylinderGeometry(1.6, 1.6, 0.05, 16),
-      new THREE.MeshLambertMaterial({
+      createMaterial('glass', {
         color: COLORS.fountainWater,
         transparent: true,
         opacity: 0.7,
@@ -143,7 +144,7 @@ export class Garden {
     // Center column
     const column = new THREE.Mesh(
       new THREE.CylinderGeometry(0.2, 0.3, 1.2, 8),
-      new THREE.MeshLambertMaterial({ color: COLORS.fountain })
+      createMaterial('rough', { color: COLORS.fountain })
     );
     column.position.set(pos.x, 1.0, pos.z);
     column.castShadow = true;
@@ -152,7 +153,7 @@ export class Garden {
     // Top bowl
     const bowl = new THREE.Mesh(
       new THREE.CylinderGeometry(0.6, 0.3, 0.3, 12),
-      new THREE.MeshLambertMaterial({ color: COLORS.fountain })
+      createMaterial('rough', { color: COLORS.fountain })
     );
     bowl.position.set(pos.x, 1.65, pos.z);
     this.mesh.add(bowl);
@@ -161,7 +162,7 @@ export class Garden {
     for (let i = 0; i < 8; i++) {
       const particle = new THREE.Mesh(
         new THREE.SphereGeometry(0.04, 4, 4),
-        new THREE.MeshLambertMaterial({
+        createMaterial('glass', {
           color: COLORS.fountainWater,
           transparent: true,
           opacity: 0.6,
@@ -189,14 +190,14 @@ export class Garden {
     // Trunk
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.15, 0.2, 2, 6),
-      new THREE.MeshLambertMaterial({ color: 0x8B6914 })
+      createMaterial('wood', { color: 0x8B6914 })
     );
     trunk.position.set(x, 1, z);
     trunk.castShadow = true;
     this.mesh.add(trunk);
 
     // Canopy (layered cones for low-poly look)
-    const canopyMat = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
+    const canopyMat = createMaterial('matte', { color: 0x2E8B57 });
     const c1 = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.5, 6), canopyMat);
     c1.position.set(x, 2.8, z);
     c1.castShadow = true;

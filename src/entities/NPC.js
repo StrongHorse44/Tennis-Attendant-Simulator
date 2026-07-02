@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * NPC - club member with wandering, dialogue, and task functionality
@@ -68,7 +69,7 @@ export class NPC {
     // Body (shirt)
     const torso = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.55, 0.3),
-      new THREE.MeshLambertMaterial({ color: this.shirtColor })
+      createMaterial('matte', { color: this.shirtColor })
     );
     torso.position.y = 1.05;
     torso.castShadow = true;
@@ -77,7 +78,7 @@ export class NPC {
     // Shorts/pants
     const shorts = new THREE.Mesh(
       new THREE.BoxGeometry(0.45, 0.3, 0.28),
-      new THREE.MeshLambertMaterial({ color: 0x444455 })
+      createMaterial('matte', { color: 0x444455 })
     );
     shorts.position.y = 0.65;
     shorts.castShadow = true;
@@ -86,7 +87,7 @@ export class NPC {
     // Head
     const head = new THREE.Mesh(
       new THREE.SphereGeometry(0.18, 8, 8),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     head.position.y = 1.5;
     head.castShadow = true;
@@ -95,14 +96,14 @@ export class NPC {
     // Legs
     this.leftLeg = new THREE.Mesh(
       new THREE.BoxGeometry(0.13, 0.45, 0.13),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.leftLeg.position.set(-0.1, 0.28, 0);
     this.mesh.add(this.leftLeg);
 
     this.rightLeg = new THREE.Mesh(
       new THREE.BoxGeometry(0.13, 0.45, 0.13),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.rightLeg.position.set(0.1, 0.28, 0);
     this.mesh.add(this.rightLeg);
@@ -110,14 +111,14 @@ export class NPC {
     // Arms
     this.leftArm = new THREE.Mesh(
       new THREE.BoxGeometry(0.1, 0.4, 0.1),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.leftArm.position.set(-0.33, 1.0, 0);
     this.mesh.add(this.leftArm);
 
     this.rightArm = new THREE.Mesh(
       new THREE.BoxGeometry(0.1, 0.4, 0.1),
-      new THREE.MeshLambertMaterial({ color: COLORS.playerSkin })
+      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
     );
     this.rightArm.position.set(0.33, 1.0, 0);
     this.mesh.add(this.rightArm);
@@ -165,6 +166,7 @@ export class NPC {
     ctx.fillText(this.data.name, 128, 40);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
@@ -192,6 +194,7 @@ export class NPC {
     ctx.fillText('!', 32, 32);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
@@ -222,6 +225,7 @@ export class NPC {
     ctx.fillText(emoji, 32, 32);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );

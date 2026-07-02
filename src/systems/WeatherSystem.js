@@ -52,7 +52,7 @@ export class WeatherSystem {
     this.scene.add(this.ambientLight);
 
     // Hemisphere light (sky + ground bounce)
-    this.hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x5AA83A, 0.3);
+    this.hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x5AA83A, 0.6);
     this.scene.add(this.hemisphereLight);
   }
 
@@ -135,6 +135,7 @@ export class WeatherSystem {
     ctx.fillRect(0, 0, 128, 128);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     this.lensFlare = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending })
     );
@@ -241,8 +242,8 @@ export class WeatherSystem {
       ambientIntensity *= 1.0;
     }
 
-    this.sunLight.intensity = intensity;
-    this.ambientLight.intensity = ambientIntensity;
+    this.sunLight.intensity = intensity * 2.2; // TEMP: removed in Phase C
+    this.ambientLight.intensity = ambientIntensity * 2.0; // TEMP: removed in Phase C
   }
 
   _updateSkyColor() {

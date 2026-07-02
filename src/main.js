@@ -17,6 +17,7 @@ import { DialogueBox } from './ui/DialogueBox.js';
 import { HUD } from './ui/HUD.js';
 import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
 import { PostFX, isLowEndDevice } from './systems/PostFX.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 class Game {
   constructor() {
@@ -86,6 +87,12 @@ class Game {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(COLORS.sky);
     this.scene.fog = new THREE.Fog(COLORS.sky, 60, 150);
+
+    // Environment map (IBL) so PBR metals/glass don't read as flat black
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 1.0; // driven by WeatherSystem in Phase C
+    pmrem.dispose();
 
     // Setup camera
     this.camera = new THREE.PerspectiveCamera(

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES } from '../utils/Constants.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * Building - pro shop and clubhouse structures
@@ -28,7 +29,7 @@ export class Building {
     const h = SIZES.proShopHeight;
 
     // Walls
-    const wallMat = new THREE.MeshLambertMaterial({ color: COLORS.proShopWall });
+    const wallMat = createMaterial('rough', { color: COLORS.proShopWall });
 
     // Back wall
     const backWall = new THREE.Mesh(
@@ -88,7 +89,7 @@ export class Building {
     // Roof
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(w + 1, 0.3, d + 1),
-      new THREE.MeshLambertMaterial({ color: COLORS.proShopRoof })
+      createMaterial('wood', { color: COLORS.proShopRoof })
     );
     roof.position.set(center.x, h + 0.15, center.z);
     roof.castShadow = true;
@@ -98,7 +99,7 @@ export class Building {
     // Floor
     const floor = new THREE.Mesh(
       new THREE.BoxGeometry(w - 0.4, 0.1, d - 0.4),
-      new THREE.MeshLambertMaterial({ color: 0xD2B48C })
+      createMaterial('wood', { color: 0xD2B48C })
     );
     floor.position.set(center.x, 0.05, center.z);
     floor.receiveShadow = true;
@@ -107,7 +108,7 @@ export class Building {
     // Counter
     const counter = new THREE.Mesh(
       new THREE.BoxGeometry(4, 1.1, 1),
-      new THREE.MeshLambertMaterial({ color: COLORS.counter })
+      createMaterial('wood', { color: COLORS.counter })
     );
     counter.position.set(center.x + 2, 0.55, center.z - 2);
     counter.castShadow = true;
@@ -116,7 +117,7 @@ export class Building {
     // Register on counter
     const register = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.4, 0.4),
-      new THREE.MeshLambertMaterial({ color: 0x333333 })
+      createMaterial('plastic', { color: 0x333333 })
     );
     register.position.set(center.x + 2, 1.3, center.z - 2);
     this.mesh.add(register);
@@ -125,7 +126,7 @@ export class Building {
     for (let i = 0; i < 3; i++) {
       const shelf = new THREE.Mesh(
         new THREE.BoxGeometry(3.5, 0.1, 0.6),
-        new THREE.MeshLambertMaterial({ color: COLORS.shelf })
+        createMaterial('wood', { color: COLORS.shelf })
       );
       shelf.position.set(center.x - 3, 1 + i * 1.0, center.z - d / 2 + 0.8);
       this.mesh.add(shelf);
@@ -134,7 +135,7 @@ export class Building {
       for (let j = 0; j < 4; j++) {
         const item = new THREE.Mesh(
           new THREE.BoxGeometry(0.3 + Math.random() * 0.3, 0.4 + Math.random() * 0.3, 0.25),
-          new THREE.MeshLambertMaterial({
+          createMaterial('plastic', {
             color: [0x3498DB, 0xE74C3C, 0x2ECC71, 0xF1C40F][j % 4]
           })
         );
@@ -151,7 +152,7 @@ export class Building {
     if (config.taskBoard) {
       const board = new THREE.Mesh(
         new THREE.BoxGeometry(0.8, 1.0, 0.05),
-        new THREE.MeshLambertMaterial({ color: 0xD4A76A })
+        createMaterial('wood', { color: 0xD4A76A })
       );
       board.position.set(config.taskBoard.x, config.taskBoard.y, center.z - d / 2 + 0.2);
       this.mesh.add(board);
@@ -159,7 +160,7 @@ export class Building {
       // Paper on board
       const paper = new THREE.Mesh(
         new THREE.BoxGeometry(0.65, 0.85, 0.02),
-        new THREE.MeshLambertMaterial({ color: 0xFFFFF0 })
+        createMaterial('matte', { color: 0xFFFFF0 })
       );
       paper.position.set(config.taskBoard.x, config.taskBoard.y, center.z - d / 2 + 0.25);
       this.mesh.add(paper);
@@ -188,7 +189,7 @@ export class Building {
     // Main structure
     const building = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshLambertMaterial({ color: COLORS.clubhouseWall })
+      createMaterial('rough', { color: COLORS.clubhouseWall })
     );
     building.position.set(center.x, h / 2, center.z);
     building.castShadow = true;
@@ -198,17 +199,19 @@ export class Building {
     // Roof
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(w + 1.5, 0.4, d + 1.5),
-      new THREE.MeshLambertMaterial({ color: COLORS.clubhouseRoof })
+      createMaterial('wood', { color: COLORS.clubhouseRoof })
     );
     roof.position.set(center.x, h + 0.2, center.z);
     roof.castShadow = true;
     this.mesh.add(roof);
 
     // Windows
-    const windowMat = new THREE.MeshLambertMaterial({
+    const windowMat = createMaterial('glass', {
       color: 0x87CEEB,
-      emissive: 0x222244,
+      emissive: 0xFFE9B3,
+      emissiveIntensity: 0.0,
     });
+    this.windowMaterial = windowMat;
     for (let i = 0; i < 4; i++) {
       const win = new THREE.Mesh(
         new THREE.BoxGeometry(1.2, 1.0, 0.05),
@@ -225,7 +228,7 @@ export class Building {
     // Awning over patio side
     const awning = new THREE.Mesh(
       new THREE.BoxGeometry(w + 2, 0.08, 3),
-      new THREE.MeshLambertMaterial({ color: 0xCC8844, transparent: true, opacity: 0.8 })
+      createMaterial('matte', { color: 0xCC8844, transparent: true, opacity: 0.8 })
     );
     awning.position.set(center.x, h - 0.3, center.z + d / 2 + 1.5);
     awning.castShadow = true;
@@ -257,6 +260,7 @@ export class Building {
     ctx.fillText(text, 256, 48);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture })
     );

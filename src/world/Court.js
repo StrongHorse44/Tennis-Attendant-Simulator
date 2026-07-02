@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
+import { createMaterial } from '../utils/Materials.js';
 
 /**
  * Court - tennis court with surface, lines, net, fencing, and benches
@@ -137,7 +138,7 @@ export class Court {
     this.dirtGrid = [];
     this.gridMeshes = [];
 
-    const dirtyMat = new THREE.MeshLambertMaterial({
+    const dirtyMat = createMaterial('matte', {
       color: COLORS.clayCourtDirty,
       transparent: true,
       opacity: 0,
@@ -181,9 +182,11 @@ export class Court {
     const surfaceColor = type === 'clay' ? COLORS.clayCourt : COLORS.hardCourt;
 
     // Court surface
+    const surfaceOptions = { color: surfaceColor };
+    if (type !== 'clay') surfaceOptions.roughness = 0.85;
     const surface = new THREE.Mesh(
       new THREE.BoxGeometry(w, 0.15, d),
-      new THREE.MeshLambertMaterial({ color: surfaceColor })
+      createMaterial('matte', surfaceOptions)
     );
     surface.position.set(center.x, 0.08, center.z);
     surface.receiveShadow = true;
@@ -193,7 +196,7 @@ export class Court {
     if (this.isClay) {
       const buffer = SIZES.clayCourtBuffer || 0;
       if (buffer > 0) {
-        const bufferMat = new THREE.MeshLambertMaterial({ color: surfaceColor });
+        const bufferMat = createMaterial('matte', { color: surfaceColor });
         if (!this.config.adjacentLeft) {
           const leftBuffer = new THREE.Mesh(
             new THREE.BoxGeometry(buffer, 0.15, d),
@@ -289,7 +292,7 @@ export class Court {
   _addNet(center, w) {
     // Net posts
     const postGeo = new THREE.CylinderGeometry(0.05, 0.05, SIZES.netHeight);
-    const postMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+    const postMat = createMaterial('metal', { color: 0x666666 });
 
     const leftPost = new THREE.Mesh(postGeo, postMat);
     leftPost.position.set(center.x - w / 2 + 0.2, SIZES.netHeight / 2, center.z);
@@ -304,7 +307,7 @@ export class Court {
     // Net mesh (simplified as a flat plane)
     const net = new THREE.Mesh(
       new THREE.PlaneGeometry(w - 0.4, SIZES.netHeight - 0.2),
-      new THREE.MeshLambertMaterial({
+      createMaterial('matte', {
         color: COLORS.net,
         transparent: true,
         opacity: 0.7,
@@ -317,7 +320,7 @@ export class Court {
     // Net cord (top cable)
     const cord = new THREE.Mesh(
       new THREE.BoxGeometry(w - 0.4, 0.04, 0.04),
-      new THREE.MeshLambertMaterial({ color: 0xFFFFFF })
+      createMaterial('matte', { color: 0xFFFFFF })
     );
     cord.position.set(center.x, SIZES.netHeight - 0.1, center.z);
     this.mesh.add(cord);
@@ -334,13 +337,13 @@ export class Court {
 
   _addFence(center, w, d) {
     const fenceH = SIZES.fenceHeight;
-    const fenceMat = new THREE.MeshLambertMaterial({
+    const fenceMat = createMaterial('metal', {
       color: COLORS.courtFence,
       transparent: true,
       opacity: 0.3,
       side: THREE.DoubleSide,
     });
-    const postMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+    const postMat = createMaterial('metal', { color: 0x666666 });
 
     // Back fences (behind baselines)
     const fences = [
@@ -390,7 +393,7 @@ export class Court {
     // Seat
     const seat = new THREE.Mesh(
       new THREE.BoxGeometry(1.5, 0.08, 0.4),
-      new THREE.MeshLambertMaterial({ color: COLORS.bench })
+      createMaterial('wood', { color: COLORS.bench })
     );
     seat.position.y = 0.45;
     seat.castShadow = true;
@@ -398,7 +401,7 @@ export class Court {
 
     // Legs
     const legGeo = new THREE.BoxGeometry(0.08, 0.45, 0.08);
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+    const legMat = createMaterial('metal', { color: 0x555555 });
     const legs = [[-0.6, 0.225, 0.12], [0.6, 0.225, 0.12], [-0.6, 0.225, -0.12], [0.6, 0.225, -0.12]];
     for (const [lx, ly, lz] of legs) {
       const leg = new THREE.Mesh(legGeo, legMat);
@@ -409,7 +412,7 @@ export class Court {
     // Backrest
     const back = new THREE.Mesh(
       new THREE.BoxGeometry(1.5, 0.4, 0.06),
-      new THREE.MeshLambertMaterial({ color: COLORS.bench })
+      createMaterial('wood', { color: COLORS.bench })
     );
     back.position.set(0, 0.7, -0.15);
     bench.add(back);
@@ -429,6 +432,7 @@ export class Court {
     ctx.fillText(this.config.label, 64, 40);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
