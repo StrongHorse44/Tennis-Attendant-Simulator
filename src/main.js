@@ -16,6 +16,7 @@ import { Joystick } from './ui/Joystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
 import { HUD } from './ui/HUD.js';
 import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
+import { PostFX, isLowEndDevice } from './systems/PostFX.js';
 
 class Game {
   constructor() {
@@ -91,6 +92,10 @@ class Game {
       60, window.innerWidth / window.innerHeight, 0.1, 200
     );
     this.camera.position.set(0, SIZES.cameraHeight, SIZES.cameraDistance);
+
+    // Post-processing (bloom + vignette); skip on low-end phones and fall
+    // back to a direct renderer.render() call
+    this.postFX = isLowEndDevice() ? null : new PostFX(this.renderer, this.scene, this.camera);
 
     this._updateLoadingBar(20);
 
@@ -257,6 +262,8 @@ class Game {
     setTimeout(() => {
       this._showGameTutorial();
     }, 1000);
+
+    window.game = this; // debug hook
 
     // Start game loop
     this._gameLoop();
@@ -752,7 +759,7 @@ class Game {
     this.hud.update(dt);
 
     // Render
-    this.renderer.render(this.scene, this.camera);
+    if (this.postFX) this.postFX.render(); else this.renderer.render(this.scene, this.camera);
     } catch (err) {
       console.error('Game loop error:', err);
     }
@@ -764,6 +771,7 @@ class Game {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    if (this.postFX) this.postFX.setSize(w, h);
   }
 }
 
