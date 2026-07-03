@@ -119,8 +119,12 @@ export const SIZES = {
   npcWanderRadius: 30,
 
   // Camera
-  cameraDistance: 8,
-  cameraHeight: 5,
+  cameraDistance: 6.5,
+  cameraHeight: 3.8,
+  // Cart mode needs more breathing room than on-foot (grooming minigame
+  // needs court visibility, driving needs a wider view of the road ahead).
+  cameraDistanceCart: 8,
+  cameraHeightCart: 4.5,
   cameraLerpSpeed: 3,
   cameraLookAhead: 2,
 };

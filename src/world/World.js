@@ -25,6 +25,24 @@ const TREE_BASE_SCALE = {
 const BENCH_SCALE = 0.7; // patio bench, seat ~2.0 long -> ~1.66
 const TABLE_SCALE = 0.65; // patio table, ~3.7 long -> ~2.4 (incl. old chairs' span)
 
+const ROCK_MODELS = ['formation-stone', 'formation-rock', 'formation-large-stone'];
+
+// Density-pass scatter: extra trees + rock formations tucked in the buffer
+// strip between the outermost courts/buildings/paths and the perimeter
+// fence (fence sits at x/z = ±(mapWidth/2+5) / ±(mapDepth/2+5) = ±65/±55).
+// Positions are hand-picked to sit clear of every area rect and path in
+// map.json (courts max out around x -10..40 / z -45..15, garden/patio/shed/
+// parking/entrance cluster around x -47..-11 / z -40..46) and interleaved
+// with the existing perimeter tree loop (which sits right at the fence
+// line) rather than on top of it.
+const SCATTER_TREES = [
+  { x: -54, z: -49 }, { x: -30, z: -49 }, { x: -6, z: -49 }, { x: 18, z: -49 }, { x: 42, z: -49 },
+  { x: -42, z: 49 }, { x: -18, z: 49 }, { x: 6, z: 49 }, { x: 30, z: 49 }, { x: 54, z: 49 },
+];
+const SCATTER_ROCKS = [
+  { x: -58, z: -49 }, { x: 58, z: -49 }, { x: -58, z: 49 }, { x: 58, z: 49 },
+];
+
 /**
  * World - loads map.json and builds the entire club environment
  */
@@ -52,6 +70,7 @@ export class World {
     this._buildPatio();
     this._buildParking();
     this._buildPerimeter();
+    this._buildDensityScatter();
   }
 
   _buildGround() {
@@ -468,14 +487,26 @@ export class World {
     lot.receiveShadow = true;
     this.scene.add(lot);
 
-    // Parking lines
+    // Parking lines (main row, plus one extra divider for the density-pass
+    // spot added at the row's open end)
     const lineMat = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       const line = new THREE.Mesh(
         new THREE.BoxGeometry(0.1, 0.01, 4),
         lineMat
       );
       line.position.set(parking.center.x - 10 + i * 4, 0.07, parking.center.z);
+      this.scene.add(line);
+    }
+
+    // Perpendicular row markings along the back edge (density-pass cars
+    // parked lengthwise against the lot boundary)
+    for (let i = 0; i < 4; i++) {
+      const line = new THREE.Mesh(
+        new THREE.BoxGeometry(4, 0.01, 0.1),
+        lineMat
+      );
+      line.position.set(parking.center.x - 10.5, 0.07, parking.center.z - 6 + i * 4);
       this.scene.add(line);
     }
 
@@ -506,17 +537,22 @@ export class World {
       }
     });
 
+    const rotationY = (config.rotation || 0) + (Math.random() - 0.5) * 0.1; // ±0.05 rad jitter
     car.position.set(config.x, 0, config.z);
-    car.rotation.y = (config.rotation || 0) + (Math.random() - 0.5) * 0.1; // ±0.05 rad jitter
+    car.rotation.y = rotationY;
     this.scene.add(car);
 
-    // Physics blocker (unchanged)
+    // Physics blocker (box size unchanged; orientation now matches the
+    // visual so cars rotated to park along an edge — e.g. the density-pass
+    // additions — block/collide correctly instead of leaving a mismatched
+    // axis-aligned box).
     const shape = new CANNON.Box(new CANNON.Vec3(1.0, 0.8, 1.8));
     const physBody = new CANNON.Body({
       mass: 0,
       position: new CANNON.Vec3(config.x, 0.8, config.z),
       shape,
     });
+    physBody.quaternion.setFromEuler(0, rotationY, 0);
     this.physicsWorld.addBody(physBody);
   }
 
@@ -578,6 +614,27 @@ export class World {
     tree.rotation.y = Math.random() * Math.PI * 2;
     tree.position.set(x, 0, z);
     this.scene.add(tree);
+  }
+
+  /**
+   * Density pass: extra trees + rock formations scattered in the buffer
+   * strip between the playable area and the perimeter fence. Purely
+   * decorative (no physics bodies) — see SCATTER_TREES/SCATTER_ROCKS above
+   * for how positions were chosen to clear every area/path rect.
+   */
+  _buildDensityScatter() {
+    for (const { x, z } of SCATTER_TREES) {
+      this._addPerimeterTree(x, z);
+    }
+    for (const { x, z } of SCATTER_ROCKS) {
+      const name = ROCK_MODELS[Math.floor(Math.random() * ROCK_MODELS.length)];
+      const raw = this.assets.getModelInstance(name);
+      const rock = this._groundAndCenter(raw);
+      rock.scale.setScalar(0.7 + Math.random() * 0.6);
+      rock.rotation.y = Math.random() * Math.PI * 2;
+      rock.position.set(x, 0, z);
+      this.scene.add(rock);
+    }
   }
 
   update(dt) {

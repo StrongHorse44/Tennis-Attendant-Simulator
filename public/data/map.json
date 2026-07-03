@@ -18,7 +18,11 @@
         { "x": -42, "z": 42, "rotation": 0, "color": 0 },
         { "x": -38, "z": 42, "rotation": 0, "color": 1 },
         { "x": -34, "z": 42, "rotation": 0, "color": 2 },
-        { "x": -28, "z": 42, "rotation": 0.1, "color": 3 }
+        { "x": -28, "z": 42, "rotation": 0.1, "color": 3 },
+        { "x": -24, "z": 42, "rotation": -0.1, "color": 1 },
+        { "x": -45.5, "z": 36, "rotation": 1.5708, "color": 2 },
+        { "x": -45.5, "z": 40, "rotation": 1.5708, "color": 0 },
+        { "x": -45.5, "z": 44, "rotation": 1.5708, "color": 3 }
       ]
     },
     "proShop": {

@@ -17,7 +17,7 @@ import { DialogueBox } from './ui/DialogueBox.js';
 import { HUD } from './ui/HUD.js';
 import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
 import { PostFX, isLowEndDevice } from './systems/PostFX.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 
 class Game {
   constructor() {
@@ -88,15 +88,24 @@ class Game {
     this.scene.background = new THREE.Color(COLORS.sky);
     this.scene.fog = new THREE.Fog(COLORS.sky, 60, 150);
 
-    // Environment map (IBL) so PBR metals/glass don't read as flat black
+    // Environment map (IBL) so PBR metals/glass don't read as flat black —
+    // vendored outdoor HDRI (dawn sky) rather than an indoor studio scene.
+    // Only scene.environment is set (used for reflections/ambient lighting);
+    // scene.background stays the keyframed sky gradient from WeatherSystem.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.compileEquirectangularShader();
+    const hdrLoader = new RGBELoader();
+    hdrLoader.load(`${import.meta.env.BASE_URL}assets/hdri/kiara_1_dawn_1k.hdr`, (hdrTexture) => {
+      const envRT = pmrem.fromEquirectangular(hdrTexture);
+      this.scene.environment = envRT.texture;
+      hdrTexture.dispose();
+      pmrem.dispose();
+    });
     this.scene.environmentIntensity = 1.0; // driven by WeatherSystem in Phase C
-    pmrem.dispose();
 
     // Setup camera
     this.camera = new THREE.PerspectiveCamera(
-      60, window.innerWidth / window.innerHeight, 0.1, 200
+      55, window.innerWidth / window.innerHeight, 0.1, 200
     );
     this.camera.position.set(0, SIZES.cameraHeight, SIZES.cameraDistance);
 
@@ -683,9 +692,11 @@ class Game {
     const yawLerpSpeed = this.player.isInCart ? 4 : 8;
     this.cameraYaw += yawDiff * dt * yawLerpSpeed;
 
-    // Camera position
-    const dist = this.player.isInCart ? SIZES.cameraDistance + 2 : SIZES.cameraDistance;
-    const height = this.player.isInCart ? SIZES.cameraHeight + 1 : SIZES.cameraHeight;
+    // Camera position — cart mode uses a wider/higher view (driving needs
+    // more of the road ahead, and the grooming minigame needs court
+    // visibility) while on-foot uses the tighter, more grounded framing.
+    const dist = this.player.isInCart ? SIZES.cameraDistanceCart : SIZES.cameraDistance;
+    const height = this.player.isInCart ? SIZES.cameraHeightCart : SIZES.cameraHeight;
 
     const camX = target.x - Math.sin(this.cameraYaw) * dist;
     const camZ = target.z - Math.cos(this.cameraYaw) * dist;
