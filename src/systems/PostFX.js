@@ -44,7 +44,7 @@ export class PostFX {
 
     this.composer.addPass(new RenderPass(scene, camera));
     // Subtle filmic bloom — only genuinely bright things glow
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.35, 0.4, 0.9);
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.25, 0.4, 1.3);
     this.composer.addPass(this.bloomPass);
     this.vignettePass = new ShaderPass(VignetteShader);
     this.composer.addPass(this.vignettePass);
