@@ -162,7 +162,7 @@ export class WeatherSystem {
     this.lensFlare = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending })
     );
-    this.lensFlare.scale.set(15, 15, 1);
+    this.lensFlare.scale.set(10, 10, 1);
     this.lensFlare.visible = false;
     this.scene.add(this.lensFlare);
   }
@@ -338,7 +338,7 @@ export class WeatherSystem {
     if (showFlare) {
       this.lensFlare.position.copy(this.sunLight.position);
       const flareIntensity = t < 9 ? (9 - t) / 3 : (t - 16) / 3;
-      this.lensFlare.material.opacity = Math.min(0.6, flareIntensity * 0.6);
+      this.lensFlare.material.opacity = Math.min(0.3, flareIntensity * 0.3);
     }
   }
 }

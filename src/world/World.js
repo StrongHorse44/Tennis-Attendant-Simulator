@@ -626,4 +626,8 @@ export class World {
       this.garden.update(dt);
     }
   }
+
+  setNightGlow(f) {
+    for (const b of this.buildings) b.setNightGlow(f);
+  }
 }

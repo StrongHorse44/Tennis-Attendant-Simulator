@@ -273,4 +273,8 @@ export class Building {
     const body = new CANNON.Body({ mass: 0, position: new CANNON.Vec3(x, y, z), shape });
     this.physicsWorld.addBody(body);
   }
+
+  setNightGlow(f) {
+    if (this.windowMaterial) this.windowMaterial.emissiveIntensity = f * 1.5;
+  }
 }

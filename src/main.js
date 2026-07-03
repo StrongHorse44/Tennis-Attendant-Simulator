@@ -744,6 +744,14 @@ class Game {
     // Update weather
     this.weather.update(dt, playerWorldPos);
 
+    // Night glow: windows and cart headlights ramp up after dusk
+    const tod = this.weather.timeOfDay;
+    const nightGlow = THREE.MathUtils.smoothstep(tod < 12 ? 6.5 - tod : tod - 17.5, 0, 1.5);
+    this.world.setNightGlow(nightGlow);
+    if (this.cart?.headlightMaterial) {
+      this.cart.headlightMaterial.emissiveIntensity = 0.3 + nightGlow * 2.0;
+    }
+
     // Update interactions
     this._updateInteractions();
 
