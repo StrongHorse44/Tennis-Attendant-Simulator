@@ -1,17 +1,42 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { COLORS, SIZES, GAME } from '../utils/Constants.js';
-import { createMaterial } from '../utils/Materials.js';
+import { SIZES } from '../utils/Constants.js';
+import { CharacterRig } from './CharacterRig.js';
+
+// Old primitive NPC body measured ~1.66 world units tall (head-top to
+// ring-bottom Box3, no scale applied to NPC meshes). The rig targets that
+// same height so gameplay proportions are unaffected by the model swap.
+const NPC_TARGET_HEIGHT = 1.66;
+
+// Deterministic model pick per archetype variety - hashed from the NPC id
+// so each NPC keeps the same look across sessions/reloads.
+const NPC_MODELS = ['male', 'skater-male', 'skater-female', 'survivor-male', 'survivor-female'];
+
+function hashModelPick(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  }
+  return NPC_MODELS[Math.abs(hash) % NPC_MODELS.length];
+}
+
+// Vertical offsets for floating sprites, relative to the rig's own height -
+// matches the old fixed offsets (2.0 / 2.5 / 2.8) which were tuned against
+// the old ~1.68-tall primitive body.
+const NAME_TAG_MARGIN = 0.32;
+const EXCLAMATION_MARGIN = 0.82;
+const REACTION_MARGIN = 1.12;
 
 /**
  * NPC - club member with wandering, dialogue, and task functionality
  */
 export class NPC {
-  constructor(scene, physicsWorld, data, waypoints) {
+  constructor(scene, physicsWorld, data, waypoints, assets) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.data = data;
     this.waypoints = waypoints;
+    this.assets = assets;
 
     this.id = data.id;
     this.name = data.name;
@@ -28,7 +53,6 @@ export class NPC {
     this.wanderTimer = Math.random() * 5 + 2;
     this.hasRequest = false;
     this.mood = 'neutral';
-    this.animTime = 0;
 
     this.reactionSprite = null;
     this.reactionTimer = 0;
@@ -57,87 +81,20 @@ export class NPC {
   }
 
   _createMesh(pos) {
-    this.mesh = new THREE.Group();
-
-    const archColors = {
-      entitled: COLORS.npcEntitled,
-      friendly: COLORS.npcFriendly,
-      clueless: COLORS.npcClueless,
-    };
-    const outlineColor = archColors[this.archetype] || 0xAAAAAA;
-
-    // Body (shirt)
-    const torso = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 0.55, 0.3),
-      createMaterial('matte', { color: this.shirtColor })
-    );
-    torso.position.y = 1.05;
-    torso.castShadow = true;
-    this.mesh.add(torso);
-
-    // Shorts/pants
-    const shorts = new THREE.Mesh(
-      new THREE.BoxGeometry(0.45, 0.3, 0.28),
-      createMaterial('matte', { color: 0x444455 })
-    );
-    shorts.position.y = 0.65;
-    shorts.castShadow = true;
-    this.mesh.add(shorts);
-
-    // Head
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 8, 8),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    head.position.y = 1.5;
-    head.castShadow = true;
-    this.mesh.add(head);
-
-    // Legs
-    this.leftLeg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.13, 0.45, 0.13),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.leftLeg.position.set(-0.1, 0.28, 0);
-    this.mesh.add(this.leftLeg);
-
-    this.rightLeg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.13, 0.45, 0.13),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.rightLeg.position.set(0.1, 0.28, 0);
-    this.mesh.add(this.rightLeg);
-
-    // Arms
-    this.leftArm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.4, 0.1),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.leftArm.position.set(-0.33, 1.0, 0);
-    this.mesh.add(this.leftArm);
-
-    this.rightArm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.4, 0.1),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.rightArm.position.set(0.33, 1.0, 0);
-    this.mesh.add(this.rightArm);
-
-    // Archetype indicator ring at feet
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.4, 0.5, 16),
-      new THREE.MeshBasicMaterial({ color: outlineColor, side: THREE.DoubleSide })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.02;
-    this.mesh.add(ring);
+    const modelName = hashModelPick(this.id);
+    const instance = this.assets.getModelInstance(modelName, { skinned: true });
+    this.rig = new CharacterRig(instance, NPC_TARGET_HEIGHT);
+    this.mesh = this.rig.group;
 
     this.mesh.position.set(pos.x, pos.y || 0, pos.z);
     this.scene.add(this.mesh);
   }
 
   _createPhysics(pos) {
-    const shape = new CANNON.Sphere(SIZES.npcRadius);
+    // Stored so update() can sync the (feet-at-group-origin) rig group to
+    // the physics sphere's center regardless of resting contact height.
+    this.radius = SIZES.npcRadius;
+    const shape = new CANNON.Sphere(this.radius);
     this.body = new CANNON.Body({
       mass: 60,
       position: new CANNON.Vec3(pos.x, (pos.y || 0) + 1, pos.z),
@@ -171,7 +128,7 @@ export class NPC {
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
     sprite.scale.set(2, 0.5, 1);
-    sprite.position.y = 2.0;
+    sprite.position.y = this.rig.height + NAME_TAG_MARGIN;
     this.mesh.add(sprite);
     this.nameTag = sprite;
   }
@@ -199,7 +156,7 @@ export class NPC {
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
     sprite.scale.set(0.5, 0.5, 1);
-    sprite.position.y = 2.5;
+    sprite.position.y = this.rig.height + EXCLAMATION_MARGIN;
     sprite.visible = false;
     this.mesh.add(sprite);
     this.exclamation = sprite;
@@ -230,7 +187,7 @@ export class NPC {
       new THREE.SpriteMaterial({ map: texture, transparent: true })
     );
     sprite.scale.set(0.6, 0.6, 1);
-    sprite.position.y = 2.8;
+    sprite.position.y = this.rig.height + REACTION_MARGIN;
     this.mesh.add(sprite);
     this.reactionSprite = sprite;
     this.reactionTimer = 2.0;
@@ -241,7 +198,7 @@ export class NPC {
     if (this.reactionTimer > 0) {
       this.reactionTimer -= dt;
       if (this.reactionSprite) {
-        this.reactionSprite.position.y = 2.8 + (2.0 - this.reactionTimer) * 0.3;
+        this.reactionSprite.position.y = this.rig.height + REACTION_MARGIN + (2.0 - this.reactionTimer) * 0.3;
         this.reactionSprite.material.opacity = Math.min(1, this.reactionTimer);
       }
       if (this.reactionTimer <= 0 && this.reactionSprite) {
@@ -252,16 +209,17 @@ export class NPC {
 
     // Exclamation bob
     if (this.exclamation.visible) {
-      this.exclamation.position.y = 2.5 + Math.sin(Date.now() * 0.005) * 0.15;
+      this.exclamation.position.y = this.rig.height + EXCLAMATION_MARGIN + Math.sin(Date.now() * 0.005) * 0.15;
     }
 
     // State machine
+    let speed = 0;
     switch (this.state) {
       case 'idle':
         this._updateIdle(dt);
         break;
       case 'wandering':
-        this._updateWandering(dt);
+        speed = this._updateWandering(dt);
         break;
       case 'talking':
         this._faceTarget(playerPos);
@@ -271,19 +229,21 @@ export class NPC {
         break;
     }
 
-    // Sync mesh to physics
+    // Procedural walk/idle animation
+    this.rig.update(dt, speed);
+
+    // Sync mesh to physics. The sphere rests with its center `radius` above
+    // the ground contact point, and the rig's feet sit at group-local y=0,
+    // so subtracting `radius` (not a hardcoded offset) keeps feet grounded.
     this.mesh.position.set(
       this.body.position.x,
-      this.body.position.y - 1,
+      this.body.position.y - this.radius,
       this.body.position.z
     );
   }
 
   _updateIdle(dt) {
     this.wanderTimer -= dt;
-    // Idle breathing
-    const breathe = Math.sin(Date.now() * 0.002 + this.id.length) * 0.01;
-    this.mesh.children[0].position.y = 1.05 + breathe;
 
     if (this.wanderTimer <= 0) {
       this.state = 'wandering';
@@ -295,7 +255,7 @@ export class NPC {
   _updateWandering(dt) {
     if (!this.currentTarget) {
       this.state = 'idle';
-      return;
+      return 0;
     }
 
     const dx = this.currentTarget.x - this.body.position.x;
@@ -306,7 +266,7 @@ export class NPC {
       this.state = 'idle';
       this.body.velocity.set(0, this.body.velocity.y, 0);
       this.wanderTimer = Math.random() * 8 + 4;
-      return;
+      return 0;
     }
 
     const speed = SIZES.npcSpeed;
@@ -317,20 +277,11 @@ export class NPC {
     const angle = Math.atan2(dx, dz);
     this.mesh.rotation.y = angle;
 
-    // Walk animation
-    this.animTime += dt * 6;
-    const swing = Math.sin(this.animTime) * 0.3;
-    this.leftLeg.rotation.x = swing;
-    this.rightLeg.rotation.x = -swing;
-    this.leftArm.rotation.x = -swing * 0.5;
-    this.rightArm.rotation.x = swing * 0.5;
+    return 1;
   }
 
   _updatePlaying(dt) {
-    // Simple tennis-playing animation (arm swinging)
-    this.animTime += dt * 3;
-    this.rightArm.rotation.x = Math.sin(this.animTime) * 0.8;
-    this.rightArm.rotation.z = Math.sin(this.animTime * 0.5) * 0.2;
+    // Tennis-playing NPCs just idle-animate for now (no dedicated swing rig pose).
   }
 
   _faceTarget(targetPos) {
@@ -339,12 +290,6 @@ export class NPC {
     const dz = targetPos.z - this.mesh.position.z;
     this.mesh.rotation.y = Math.atan2(dx, dz);
     this.body.velocity.set(0, this.body.velocity.y, 0);
-
-    // Reset walk animation
-    this.leftLeg.rotation.x = 0;
-    this.rightLeg.rotation.x = 0;
-    this.leftArm.rotation.x = 0;
-    this.rightArm.rotation.x = 0;
   }
 
   startTalking() {

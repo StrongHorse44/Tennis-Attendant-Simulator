@@ -157,7 +157,7 @@ class Game {
 
     // Create player
     const spawn = this.mapData.spawnPoint;
-    this.player = new Player(this.scene, this.physicsWorld, spawn);
+    this.player = new Player(this.scene, this.physicsWorld, spawn, this.assets);
 
     // Create golf cart
     const cartSpawn = this.mapData.cartSpawnPoint;
@@ -304,7 +304,7 @@ class Game {
     const waypoints = this.mapData.waypoints;
 
     for (const npcDef of this.npcData.npcs) {
-      const npc = new NPC(this.scene, this.physicsWorld, npcDef, waypoints);
+      const npc = new NPC(this.scene, this.physicsWorld, npcDef, waypoints, this.assets);
       this.npcs.push(npc);
     }
 

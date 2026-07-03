@@ -1,15 +1,22 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { COLORS, SIZES, GAME } from '../utils/Constants.js';
-import { createMaterial } from '../utils/Materials.js';
+import { SIZES, GAME } from '../utils/Constants.js';
+import { CharacterRig } from './CharacterRig.js';
+
+// Old primitive player body measured ~1.8 world units tall (head-top to
+// shoe-bottom Box3), scaled by SIZES.playerScale (0.85) -> 1.53. The rig
+// targets that same height so gameplay proportions (camera distance,
+// interaction ranges, court scale) are unaffected by the model swap.
+const PLAYER_TARGET_HEIGHT = 1.8 * SIZES.playerScale;
 
 /**
  * Player - attendant character with walking/driving states
  */
 export class Player {
-  constructor(scene, physicsWorld, position) {
+  constructor(scene, physicsWorld, position, assets) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
+    this.assets = assets;
     this.mesh = null;
     this.body = null;
     this.speed = SIZES.playerSpeed;
@@ -17,111 +24,25 @@ export class Player {
     this.cart = null;
     this.facing = new THREE.Vector3(0, 0, -1);
     this.velocity = new THREE.Vector3();
-    this.animTime = 0;
 
     this._createMesh(position);
     this._createPhysics(position);
   }
 
   _createMesh(pos) {
-    this.mesh = new THREE.Group();
-
-    // Body (polo shirt)
-    const torso = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, 0.6, 0.35),
-      createMaterial('matte', { color: COLORS.playerPolo })
-    );
-    torso.position.y = 1.1;
-    torso.castShadow = true;
-    this.mesh.add(torso);
-
-    // Shorts
-    const shorts = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 0.3, 0.33),
-      createMaterial('matte', { color: COLORS.playerShorts })
-    );
-    shorts.position.y = 0.7;
-    shorts.castShadow = true;
-    this.mesh.add(shorts);
-
-    // Head
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 8, 8),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    head.position.y = 1.6;
-    head.castShadow = true;
-    this.mesh.add(head);
-
-    // Visor
-    const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.3, 0.05, 0.15),
-      createMaterial('plastic', { color: 0xFFFFFF })
-    );
-    visor.position.set(0, 1.68, -0.15);
-    this.mesh.add(visor);
-
-    // Left leg
-    this.leftLeg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.15, 0.5, 0.15),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.leftLeg.position.set(-0.12, 0.3, 0);
-    this.leftLeg.castShadow = true;
-    this.mesh.add(this.leftLeg);
-
-    // Right leg
-    this.rightLeg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.15, 0.5, 0.15),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.rightLeg.position.set(0.12, 0.3, 0);
-    this.rightLeg.castShadow = true;
-    this.mesh.add(this.rightLeg);
-
-    // Left arm
-    this.leftArm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.45, 0.12),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.leftArm.position.set(-0.38, 1.05, 0);
-    this.leftArm.castShadow = true;
-    this.mesh.add(this.leftArm);
-
-    // Right arm
-    this.rightArm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.45, 0.12),
-      createMaterial('rough', { color: COLORS.playerSkin, roughness: 0.85 })
-    );
-    this.rightArm.position.set(0.38, 1.05, 0);
-    this.rightArm.castShadow = true;
-    this.mesh.add(this.rightArm);
-
-    // Shoes
-    const leftShoe = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.08, 0.22),
-      createMaterial('plastic', { color: COLORS.playerShoes })
-    );
-    leftShoe.position.set(-0.12, 0.04, -0.03);
-    this.mesh.add(leftShoe);
-
-    const rightShoe = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.08, 0.22),
-      createMaterial('plastic', { color: COLORS.playerShoes })
-    );
-    rightShoe.position.set(0.12, 0.04, -0.03);
-    this.mesh.add(rightShoe);
-
-    // Scale down for better proportions relative to courts
-    const s = SIZES.playerScale;
-    this.mesh.scale.set(s, s, s);
+    const instance = this.assets.getModelInstance('male', { skinned: true });
+    this.rig = new CharacterRig(instance, PLAYER_TARGET_HEIGHT);
+    this.mesh = this.rig.group;
 
     this.mesh.position.set(pos.x, pos.y, pos.z);
     this.scene.add(this.mesh);
   }
 
   _createPhysics(pos) {
-    const shape = new CANNON.Sphere(SIZES.playerRadius * SIZES.playerScale);
+    // Stored so update() can sync the (feet-at-group-origin) rig group to
+    // the physics sphere's center regardless of resting contact height.
+    this.radius = SIZES.playerRadius * SIZES.playerScale;
+    const shape = new CANNON.Sphere(this.radius);
     this.body = new CANNON.Body({
       mass: 70,
       position: new CANNON.Vec3(pos.x, pos.y + 1, pos.z),
@@ -179,31 +100,17 @@ export class Player {
 
       // Face the movement direction
       this.facing.set(Math.sin(worldAngle), 0, Math.cos(worldAngle));
-
-      // Walk animation
-      this.animTime += dt * inputLen * 8;
-      const swing = Math.sin(this.animTime) * 0.4;
-      this.leftLeg.rotation.x = swing;
-      this.rightLeg.rotation.x = -swing;
-      this.leftArm.rotation.x = -swing * 0.6;
-      this.rightArm.rotation.x = swing * 0.6;
-    } else {
-      // Idle
-      this.animTime = 0;
-      this.leftLeg.rotation.x = 0;
-      this.rightLeg.rotation.x = 0;
-      this.leftArm.rotation.x = 0;
-      this.rightArm.rotation.x = 0;
-
-      // Gentle breathing
-      const breathe = Math.sin(Date.now() * 0.003) * 0.01;
-      this.mesh.children[0].position.y = 1.1 + breathe;
     }
 
-    // Sync mesh to physics
+    // Procedural walk/idle animation
+    this.rig.update(dt, inputLen);
+
+    // Sync mesh to physics. The sphere rests with its center `radius` above
+    // the ground contact point, and the rig's feet sit at group-local y=0,
+    // so subtracting `radius` (not a hardcoded offset) keeps feet grounded.
     this.mesh.position.set(
       this.body.position.x,
-      this.body.position.y - 1,
+      this.body.position.y - this.radius,
       this.body.position.z
     );
 
