@@ -155,7 +155,7 @@ class Game {
     this._updateLoadingBar(70);
 
     // Setup weather
-    this.weather = new WeatherSystem(this.scene);
+    this.weather = new WeatherSystem(this.scene, this.renderer);
 
     // Setup UI
     this.joystick = new Joystick(this.input);
@@ -742,7 +742,7 @@ class Game {
     this.world.update(dt);
 
     // Update weather
-    this.weather.update(dt);
+    this.weather.update(dt, playerWorldPos);
 
     // Update interactions
     this._updateInteractions();

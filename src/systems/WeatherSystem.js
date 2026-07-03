@@ -1,20 +1,44 @@
 import * as THREE from 'three';
-import { COLORS, GAME } from '../utils/Constants.js';
+import { GAME } from '../utils/Constants.js';
+
+// sunI values assume r155+ physical lighting + MeshStandardMaterial
+const TOD_KEYS = [
+  //  h     sun color  sunI   sky        fog        hemiSky    hemiGnd   hemiI  envI  exp
+  { h: 0.0,  sun: 0x8FA8DC, sunI: 0.30, sky: 0x0E1526, fog: 0x1A2338, hemiSky: 0x2A3B5E, hemiGnd: 0x141C14, hemiI: 0.30, env: 0.12, exp: 0.80 },
+  { h: 4.5,  sun: 0x9FA0C8, sunI: 0.35, sky: 0x1B2440, fog: 0x2A3352, hemiSky: 0x35406A, hemiGnd: 0x1A231A, hemiI: 0.35, env: 0.18, exp: 0.85 },
+  { h: 6.0,  sun: 0xFF8E4D, sunI: 1.40, sky: 0xE8794F, fog: 0xEFA477, hemiSky: 0xC98A6B, hemiGnd: 0x3F4A2E, hemiI: 0.50, env: 0.45, exp: 0.95 },
+  { h: 7.5,  sun: 0xFFC98A, sunI: 2.40, sky: 0x8FC7E8, fog: 0xC3E0EF, hemiSky: 0x87CEEB, hemiGnd: 0x5AA83A, hemiI: 0.60, env: 0.85, exp: 1.05 },
+  { h: 12.0, sun: 0xFFF2DE, sunI: 3.20, sky: 0x87CEEB, fog: 0xCFE8F2, hemiSky: 0x9AD4EE, hemiGnd: 0x5AA83A, hemiI: 0.70, env: 1.00, exp: 1.10 },
+  { h: 16.0, sun: 0xFFE3B0, sunI: 2.60, sky: 0x8CC6E6, fog: 0xC8E2EF, hemiSky: 0x93CBE9, hemiGnd: 0x5AA83A, hemiI: 0.65, env: 0.90, exp: 1.05 },
+  { h: 17.5, sun: 0xFFA24D, sunI: 1.80, sky: 0xE9A06B, fog: 0xEEB68C, hemiSky: 0xD9926B, hemiGnd: 0x4E5230, hemiI: 0.55, env: 0.60, exp: 1.00 },
+  { h: 19.0, sun: 0xFF6A33, sunI: 0.90, sky: 0xF4845F, fog: 0xE38B62, hemiSky: 0xB06A55, hemiGnd: 0x33321F, hemiI: 0.45, env: 0.35, exp: 0.95 },
+  { h: 20.5, sun: 0x7C8FC9, sunI: 0.35, sky: 0x2C3E50, fog: 0x36485C, hemiSky: 0x33456A, hemiGnd: 0x18201A, hemiI: 0.35, env: 0.18, exp: 0.85 },
+  { h: 24.0, sun: 0x8FA8DC, sunI: 0.30, sky: 0x0E1526, fog: 0x1A2338, hemiSky: 0x2A3B5E, hemiGnd: 0x141C14, hemiI: 0.30, env: 0.12, exp: 0.80 },
+];
 
 /**
  * WeatherSystem - day/night cycle + weather states
  */
 export class WeatherSystem {
-  constructor(scene) {
+  constructor(scene, renderer) {
     this.scene = scene;
+    this.renderer = renderer;
     this.timeOfDay = GAME.startHour; // hours (0-24)
     this.weather = 'sunny'; // sunny, cloudy, rainy, windy
     this.weatherTimer = GAME.weatherCheckInterval;
 
     // Lighting references
     this.sunLight = null;
-    this.ambientLight = null;
     this.hemisphereLight = null;
+
+    // Preallocated Color instances for keyframe lerping (avoid per-frame allocation)
+    this._cA = new THREE.Color();
+    this._cB = new THREE.Color();
+    this._sunColor = new THREE.Color();
+    this._skyColor = new THREE.Color();
+    this._fogColor = new THREE.Color();
+    this._hemiSky = new THREE.Color();
+    this._hemiGnd = new THREE.Color();
 
     // Rain particles
     this.rainGroup = null;
@@ -25,6 +49,8 @@ export class WeatherSystem {
 
     // Lens flare (simple sprite)
     this.lensFlare = null;
+
+    this.scene.background = new THREE.Color();
 
     this._setupLighting();
     this._setupRain();
@@ -41,15 +67,12 @@ export class WeatherSystem {
     this.sunLight.shadow.mapSize.height = 2048;
     this.sunLight.shadow.camera.near = 0.5;
     this.sunLight.shadow.camera.far = 150;
-    this.sunLight.shadow.camera.left = -60;
-    this.sunLight.shadow.camera.right = 60;
-    this.sunLight.shadow.camera.top = 60;
-    this.sunLight.shadow.camera.bottom = -60;
+    this.sunLight.shadow.camera.left = -40;
+    this.sunLight.shadow.camera.right = 40;
+    this.sunLight.shadow.camera.top = 40;
+    this.sunLight.shadow.camera.bottom = -40;
     this.scene.add(this.sunLight);
-
-    // Ambient light
-    this.ambientLight = new THREE.AmbientLight(0x6688AA, 0.4);
-    this.scene.add(this.ambientLight);
+    this.scene.add(this.sunLight.target);
 
     // Hemisphere light (sky + ground bounce)
     this.hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x5AA83A, 0.6);
@@ -173,7 +196,7 @@ export class WeatherSystem {
     return 'night';
   }
 
-  update(dt) {
+  update(dt, playerPos) {
     // Advance time
     const hoursPerSecond = 24 / GAME.dayDurationSeconds;
     this.timeOfDay += hoursPerSecond * dt;
@@ -189,88 +212,83 @@ export class WeatherSystem {
       }
     }
 
-    this._updateLighting();
+    this._updateLighting(playerPos);
     this._updateRain(dt);
     this._updateWind(dt);
     this._updateLensFlare();
     this._updateSkyColor();
   }
 
-  _updateLighting() {
+  // Find the bracketing keyframes for hour t and return lerped values, using
+  // the preallocated Color instances (no per-frame allocation).
+  _sampleToD(t) {
+    const keys = TOD_KEYS;
+    let i = 0;
+    while (i < keys.length - 2 && t >= keys[i + 1].h) i++;
+    const a = keys[i];
+    const b = keys[i + 1];
+    const f = (t - a.h) / (b.h - a.h);
+
+    const sunColor = this._sunColor.copy(this._cA.setHex(a.sun)).lerp(this._cB.setHex(b.sun), f);
+    const sky = this._skyColor.copy(this._cA.setHex(a.sky)).lerp(this._cB.setHex(b.sky), f);
+    const fog = this._fogColor.copy(this._cA.setHex(a.fog)).lerp(this._cB.setHex(b.fog), f);
+    const hemiSky = this._hemiSky.copy(this._cA.setHex(a.hemiSky)).lerp(this._cB.setHex(b.hemiSky), f);
+    const hemiGnd = this._hemiGnd.copy(this._cA.setHex(a.hemiGnd)).lerp(this._cB.setHex(b.hemiGnd), f);
+
+    return {
+      sunColor,
+      sunI: a.sunI + (b.sunI - a.sunI) * f,
+      sky,
+      fog,
+      hemiSky,
+      hemiGnd,
+      hemiI: a.hemiI + (b.hemiI - a.hemiI) * f,
+      env: a.env + (b.env - a.env) * f,
+      exp: a.exp + (b.exp - a.exp) * f,
+    };
+  }
+
+  _updateLighting(playerPos) {
     const t = this.timeOfDay;
-    const period = this.getPeriod();
+    const k = this._sampleToD(t);
 
-    // Sun position (arc across sky)
-    const sunAngle = ((t - 6) / 12) * Math.PI; // sunrise at 6, sunset at 18
-    const sunHeight = Math.sin(sunAngle) * 50;
-    const sunX = Math.cos(sunAngle) * 40;
-
-    this.sunLight.position.set(sunX, Math.max(sunHeight, 2), 20);
-
-    // Light intensity based on time
-    let intensity = 1.2;
-    let ambientIntensity = 0.4;
-
-    if (t < 6 || t > 20) {
-      // Night
-      intensity = 0.15;
-      ambientIntensity = 0.15;
-      this.sunLight.color.setHex(0x4466AA);
-    } else if (t < 8) {
-      // Dawn
-      const dawn = (t - 6) / 2;
-      intensity = 0.3 + dawn * 0.9;
-      ambientIntensity = 0.2 + dawn * 0.2;
-      this.sunLight.color.setHex(0xFFAA66);
-    } else if (t > 18) {
-      // Dusk
-      const dusk = 1 - (t - 18) / 2;
-      intensity = 0.3 + dusk * 0.9;
-      ambientIntensity = 0.2 + dusk * 0.2;
-      this.sunLight.color.setHex(0xFF8844);
+    // Sun 6-18; same light becomes the moon at night (mirrored arc; cool
+    // color/intensity come from the keyframes)
+    let angle;
+    if (t >= 6 && t < 18) {
+      angle = ((t - 6) / 12) * Math.PI;
     } else {
-      // Daytime
-      this.sunLight.color.setHex(0xFFEECC);
+      const tn = t < 6 ? t + 24 : t; // 18..30
+      angle = ((tn - 18) / 12) * Math.PI;
     }
+    const px = playerPos ? playerPos.x : 0;
+    const pz = playerPos ? playerPos.z : 0;
+    this.sunLight.position.set(px + Math.cos(angle) * 40, Math.max(Math.sin(angle) * 50, 8), pz + 20);
+    this.sunLight.target.position.set(px, 0, pz);
 
-    // Weather modifiers
-    if (this.weather === 'cloudy') {
-      intensity *= 0.6;
-      ambientIntensity *= 1.2;
-    } else if (this.weather === 'rainy') {
-      intensity *= 0.4;
-      ambientIntensity *= 1.0;
-    }
+    let sunI = k.sunI, hemiI = k.hemiI, envI = k.env, exp = k.exp;
+    if (this.weather === 'cloudy')     { sunI *= 0.35; hemiI *= 1.15; envI *= 0.7; exp -= 0.05; }
+    else if (this.weather === 'rainy') { sunI *= 0.20; hemiI *= 0.9;  envI *= 0.5; exp -= 0.10; }
 
-    this.sunLight.intensity = intensity * 2.2; // TEMP: removed in Phase C
-    this.ambientLight.intensity = ambientIntensity * 2.0; // TEMP: removed in Phase C
+    this.sunLight.color.copy(k.sunColor);
+    this.sunLight.intensity = sunI;
+    this.hemisphereLight.color.copy(k.hemiSky);
+    this.hemisphereLight.groundColor.copy(k.hemiGnd);
+    this.hemisphereLight.intensity = hemiI;
+    this.scene.environmentIntensity = envI;
+    this.renderer.toneMappingExposure = exp;
   }
 
   _updateSkyColor() {
-    const t = this.timeOfDay;
-    let skyColor;
-
-    if (t < 6 || t > 20) {
-      skyColor = new THREE.Color(COLORS.skyNight);
-    } else if (t < 8) {
-      const f = (t - 6) / 2;
-      skyColor = new THREE.Color(COLORS.skyNight).lerp(new THREE.Color(COLORS.sky), f);
-    } else if (t > 18) {
-      const f = (t - 18) / 2;
-      skyColor = new THREE.Color(COLORS.skyEvening).lerp(new THREE.Color(COLORS.skyNight), f);
-    } else if (t > 16) {
-      const f = (t - 16) / 2;
-      skyColor = new THREE.Color(COLORS.sky).lerp(new THREE.Color(COLORS.skyEvening), f);
-    } else {
-      skyColor = new THREE.Color(COLORS.sky);
-    }
+    const k = this._sampleToD(this.timeOfDay);
 
     if (this.weather === 'cloudy' || this.weather === 'rainy') {
-      skyColor.lerp(new THREE.Color(0x8899AA), 0.5);
+      k.sky.lerp(this._cA.setHex(0x8899AA), 0.5);
+      k.fog.lerp(this._cA.setHex(0x8899AA), 0.5);
     }
 
-    this.scene.background = skyColor;
-    this.scene.fog.color = skyColor;
+    this.scene.background.copy(k.sky);
+    this.scene.fog.color.copy(k.fog);
   }
 
   _updateRain(dt) {
