@@ -125,13 +125,24 @@ class Game {
     this._updateLoadingBar(30);
 
     // Load data
-    const loader = new AssetLoader();
-    const data = await loader.loadAllData();
+    this.assets = new AssetLoader();
+    const data = await this.assets.loadAllData();
     this.mapData = data.mapData;
     this.npcData = data.npcData;
     this.missionData = data.missionData;
 
     this._updateLoadingBar(40);
+
+    // Preload vendored 3D models (vehicles, nature, props, skinned characters)
+    await this.assets.preloadModels([
+      'sedan', 'suv', 'suv-luxury', 'hatchback', 'taxi', 'van',
+      'tree-big', 'tree-small', 'low-poly-tree',
+      'formation-stone', 'formation-rock', 'formation-large-stone',
+      'bench', 'table',
+      'male', 'skater-male', 'skater-female', 'survivor-male', 'survivor-female',
+    ]);
+
+    this._updateLoadingBar(50);
 
     // Setup input
     this.input = new InputSystem();
