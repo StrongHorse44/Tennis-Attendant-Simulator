@@ -4,13 +4,36 @@ import { COLORS } from '../utils/Constants.js';
 import { createMaterial } from '../utils/Materials.js';
 import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
+// Garden trees favor the smaller/leafier models over the tall perimeter
+// tree-big. Base uniform scale (measured via Box3 during development —
+// tree-small raw height ~0.700, low-poly-tree ~2.296) brings them to a
+// height comparable to the old primitive garden trees (~4.2 units).
+const GARDEN_TREE_MODELS = ['tree-small', 'low-poly-tree'];
+const GARDEN_TREE_BASE_SCALE = {
+  'tree-small': 5.4,
+  'low-poly-tree': 1.96,
+};
+
+const ROCK_MODELS = ['formation-stone', 'formation-rock', 'formation-large-stone'];
+// Offsets from the garden center, tucked between hedges/flower beds and
+// clear of the paths that cross the garden.
+const ROCK_OFFSETS = [
+  { x: -8.2, z: 0 },
+  { x: 8.2, z: -3.5 },
+  { x: -4, z: -6.8 },
+  { x: 4, z: -6.8 },
+  { x: -5.8, z: 5.3 },
+  { x: 5.8, z: 5.3 },
+];
+
 /**
  * Garden - landscaping area with hedges, flower beds, and fountain
  */
 export class Garden {
-  constructor(scene, physicsWorld, config) {
+  constructor(scene, physicsWorld, config, assets) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
+    this.assets = assets;
     this.mesh = new THREE.Group();
     this.fountainParticles = [];
 
@@ -59,6 +82,9 @@ export class Garden {
     this._addTree(center.x - 7, center.z - 2);
     this._addTree(center.x + 5, center.z - 15);
     this._addTree(center.x - 6, center.z - 16);
+
+    // Scattered rock formations among the beds
+    this._addRocks(center);
   }
 
   _addHedge(config) {
@@ -194,31 +220,49 @@ export class Garden {
   }
 
   _addTree(x, z) {
-    // Trunk
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.2, 2, 6),
-      createMaterial('wood', { color: 0x8B6914 })
-    );
-    trunk.position.set(x, 1, z);
-    trunk.castShadow = true;
-    this.mesh.add(trunk);
+    const name = GARDEN_TREE_MODELS[Math.floor(Math.random() * GARDEN_TREE_MODELS.length)];
+    const raw = this.assets.getModelInstance(name);
+    const tree = this._groundAndCenter(raw);
+    const scale = GARDEN_TREE_BASE_SCALE[name] * (0.85 + Math.random() * 0.45);
+    tree.scale.setScalar(scale);
+    tree.rotation.y = Math.random() * Math.PI * 2;
+    tree.position.set(x, 0, z);
+    this.mesh.add(tree);
 
-    // Canopy (layered cones for low-poly look)
-    const canopyMat = createMaterial('matte', { color: 0x2E8B57 });
-    const c1 = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.5, 6), canopyMat);
-    c1.position.set(x, 2.8, z);
-    c1.castShadow = true;
-    this.mesh.add(c1);
-
-    const c2 = new THREE.Mesh(new THREE.ConeGeometry(1.2, 1.2, 6), canopyMat);
-    c2.position.set(x, 3.6, z);
-    c2.castShadow = true;
-    this.mesh.add(c2);
-
-    // Physics trunk
+    // Physics trunk (unchanged)
     const shape = new CANNON.Cylinder(0.3, 0.3, 2, 6);
     const body = new CANNON.Body({ mass: 0, position: new CANNON.Vec3(x, 1, z), shape });
     this.physicsWorld.addBody(body);
+  }
+
+  _addRocks(center) {
+    const count = 4 + Math.floor(Math.random() * 3); // 4-6
+    const offsets = [...ROCK_OFFSETS].sort(() => Math.random() - 0.5).slice(0, count);
+    for (const offset of offsets) {
+      const name = ROCK_MODELS[Math.floor(Math.random() * ROCK_MODELS.length)];
+      const raw = this.assets.getModelInstance(name);
+      const rock = this._groundAndCenter(raw);
+      const scale = 0.5 + Math.random() * 0.5;
+      rock.scale.setScalar(scale);
+      rock.rotation.y = Math.random() * Math.PI * 2;
+      rock.position.set(center.x + offset.x, 0, center.z + offset.z);
+      this.mesh.add(rock);
+    }
+  }
+
+  /**
+   * Wraps a vendored model instance in a Group that recenters it on X/Z and
+   * grounds its lowest point to y=0 (the rock formation models keep their
+   * original scene-relative transform baked in and need this to be usable).
+   */
+  _groundAndCenter(instance) {
+    const box = new THREE.Box3().setFromObject(instance);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    instance.position.set(-center.x, -box.min.y, -center.z);
+    const wrapper = new THREE.Group();
+    wrapper.add(instance);
+    return wrapper;
   }
 
   update(dt) {

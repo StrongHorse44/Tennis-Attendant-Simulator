@@ -151,7 +151,7 @@ class Game {
     this.sound = new SoundSystem();
 
     // Build world
-    this.world = new World(this.scene, this.physicsWorld, this.mapData);
+    this.world = new World(this.scene, this.physicsWorld, this.mapData, this.assets);
 
     this._updateLoadingBar(60);
 

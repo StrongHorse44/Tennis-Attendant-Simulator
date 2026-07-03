@@ -4,14 +4,19 @@ import { COLORS, SIZES, GAME } from '../utils/Constants.js';
 import { createMaterial } from '../utils/Materials.js';
 import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
+// Bench model measured via Box3 (raw length ~2.37) and scaled down to match
+// the old primitive court bench's footprint (seat length 1.5).
+const BENCH_SCALE = 0.63;
+
 /**
  * Court - tennis court with surface, lines, net, fencing, and benches
  */
 export class Court {
-  constructor(scene, physicsWorld, config) {
+  constructor(scene, physicsWorld, config, assets) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.config = config;
+    this.assets = assets;
     this.mesh = new THREE.Group();
     this.id = config.id;
     this.isClay = config.type === 'clay';
@@ -401,48 +406,26 @@ export class Court {
   }
 
   _addBench(x, z) {
-    const bench = new THREE.Group();
-
-    // Seat
-    const benchTex = getSurfaceTextures('planks', 0.4, 0.1);
-    const seat = new THREE.Mesh(
-      new THREE.BoxGeometry(1.5, 0.08, 0.4),
-      createMaterial('wood', {
-        color: COLORS.bench,
-        map: benchTex.map,
-        normalMap: benchTex.normalMap,
-        normalScale: new THREE.Vector2(0.6, 0.6),
-      })
-    );
-    seat.position.y = 0.45;
-    seat.castShadow = true;
-    bench.add(seat);
-
-    // Legs
-    const legGeo = new THREE.BoxGeometry(0.08, 0.45, 0.08);
-    const legMat = createMaterial('metal', { color: 0x555555 });
-    const legs = [[-0.6, 0.225, 0.12], [0.6, 0.225, 0.12], [-0.6, 0.225, -0.12], [0.6, 0.225, -0.12]];
-    for (const [lx, ly, lz] of legs) {
-      const leg = new THREE.Mesh(legGeo, legMat);
-      leg.position.set(lx, ly, lz);
-      bench.add(leg);
-    }
-
-    // Backrest
-    const back = new THREE.Mesh(
-      new THREE.BoxGeometry(1.5, 0.4, 0.06),
-      createMaterial('wood', {
-        color: COLORS.bench,
-        map: benchTex.map,
-        normalMap: benchTex.normalMap,
-        normalScale: new THREE.Vector2(0.6, 0.6),
-      })
-    );
-    back.position.set(0, 0.7, -0.15);
-    bench.add(back);
-
+    const raw = this.assets.getModelInstance('bench');
+    const bench = this._groundAndCenter(raw);
+    bench.scale.setScalar(BENCH_SCALE);
     bench.position.set(x, 0, z);
     this.mesh.add(bench);
+  }
+
+  /**
+   * Wraps a vendored model instance in a Group that recenters it on X/Z and
+   * grounds its lowest point to y=0, so it can be positioned/scaled as if it
+   * were a primitive centered at its own origin.
+   */
+  _groundAndCenter(instance) {
+    const box = new THREE.Box3().setFromObject(instance);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    instance.position.set(-center.x, -box.min.y, -center.z);
+    const wrapper = new THREE.Group();
+    wrapper.add(instance);
+    return wrapper;
   }
 
   _addLabel(center) {

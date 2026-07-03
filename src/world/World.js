@@ -7,14 +7,33 @@ import { Garden } from './Garden.js';
 import { createMaterial } from '../utils/Materials.js';
 import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
+// Vendored car models (visual only — physics blockers are unchanged boxes)
+const CAR_MODELS = ['sedan', 'suv', 'suv-luxury', 'hatchback', 'taxi', 'van'];
+
+// Base uniform scale to bring each vendored tree model (native scale varies
+// per asset) to a comparable height to the primitives it replaces (~4-6
+// units), measured via THREE.Box3 during development:
+//   tree-big raw height ~0.767, tree-small ~0.700, low-poly-tree ~2.296
+const TREE_BASE_SCALE = {
+  'tree-big': 7.15,
+  'tree-small': 5.4,
+  'low-poly-tree': 1.96,
+};
+
+// Bench/table models measured via Box3 (raw length ~2.37 / ~3.70) and scaled
+// down to roughly match the footprint of the old primitive geometry.
+const BENCH_SCALE = 0.7; // patio bench, seat ~2.0 long -> ~1.66
+const TABLE_SCALE = 0.65; // patio table, ~3.7 long -> ~2.4 (incl. old chairs' span)
+
 /**
  * World - loads map.json and builds the entire club environment
  */
 export class World {
-  constructor(scene, physicsWorld, mapData) {
+  constructor(scene, physicsWorld, mapData, assets) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.mapData = mapData;
+    this.assets = assets;
     this.courts = [];
     this.buildings = [];
     this.garden = null;
@@ -117,9 +136,26 @@ export class World {
     }
   }
 
+  /**
+   * Wraps a vendored model instance in a Group that recenters it on X/Z and
+   * grounds its lowest point to y=0 (some vendored models keep their
+   * original scene-relative transform baked in, e.g. the rock formations).
+   * Callers can then freely set position/rotation/scale on the returned
+   * wrapper as if it were a primitive centered at its own origin.
+   */
+  _groundAndCenter(instance) {
+    const box = new THREE.Box3().setFromObject(instance);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    instance.position.set(-center.x, -box.min.y, -center.z);
+    const wrapper = new THREE.Group();
+    wrapper.add(instance);
+    return wrapper;
+  }
+
   _buildCourts() {
     for (const courtConfig of this.mapData.areas.courts) {
-      const court = new Court(this.scene, this.physicsWorld, courtConfig);
+      const court = new Court(this.scene, this.physicsWorld, courtConfig, this.assets);
       this.courts.push(court);
     }
   }
@@ -257,7 +293,7 @@ export class World {
 
   _buildGarden() {
     const gardenConfig = this.mapData.areas.garden;
-    this.garden = new Garden(this.scene, this.physicsWorld, gardenConfig);
+    this.garden = new Garden(this.scene, this.physicsWorld, gardenConfig, this.assets);
   }
 
   _buildEquipmentShed() {
@@ -398,107 +434,17 @@ export class World {
   }
 
   _addPatioTable(x, z) {
-    const group = new THREE.Group();
-
-    // Table top
-    const tableTex = getSurfaceTextures('planks', 0.4, 0.4);
-    const top = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.8, 0.8, 0.08, 8),
-      createMaterial('wood', {
-        color: 0xDEB887,
-        map: tableTex.map,
-        normalMap: tableTex.normalMap,
-        normalScale: new THREE.Vector2(0.6, 0.6),
-      })
-    );
-    top.position.y = 0.75;
-    top.castShadow = true;
-    group.add(top);
-
-    // Table leg
-    const leg = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.08, 0.75, 6),
-      createMaterial('metal', { color: 0x888888 })
-    );
-    leg.position.y = 0.375;
-    group.add(leg);
-
-    // Umbrella pole
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.03, 0.03, 2.0, 6),
-      createMaterial('metal', { color: 0x888888 })
-    );
-    pole.position.y = 1.75;
-    group.add(pole);
-
-    // Umbrella
-    const umbrella = new THREE.Mesh(
-      new THREE.ConeGeometry(1.2, 0.5, 8),
-      createMaterial('matte', { color: 0xB22222 })
-    );
-    umbrella.position.y = 2.5;
-    umbrella.castShadow = true;
-    group.add(umbrella);
-
-    // Chairs (2)
-    for (const offset of [-0.9, 0.9]) {
-      const chair = new THREE.Mesh(
-        new THREE.BoxGeometry(0.4, 0.05, 0.4),
-        createMaterial('wood', { color: 0xDEB887 })
-      );
-      chair.position.set(offset, 0.45, 0);
-      group.add(chair);
-
-      const chairLeg = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.03, 0.03, 0.45, 4),
-        createMaterial('metal', { color: 0x888888 })
-      );
-      chairLeg.position.set(offset, 0.225, 0);
-      group.add(chairLeg);
-    }
-
-    group.position.set(x, 0, z);
-    this.scene.add(group);
+    const raw = this.assets.getModelInstance('table');
+    const table = this._groundAndCenter(raw);
+    table.scale.setScalar(TABLE_SCALE);
+    table.position.set(x, 0, z);
+    this.scene.add(table);
   }
 
   _addPatioBench(x, z) {
-    const bench = new THREE.Group();
-
-    const benchTex = getSurfaceTextures('planks', 0.5, 0.15);
-    const seat = new THREE.Mesh(
-      new THREE.BoxGeometry(2.0, 0.08, 0.5),
-      createMaterial('wood', {
-        color: 0x8B6914,
-        map: benchTex.map,
-        normalMap: benchTex.normalMap,
-        normalScale: new THREE.Vector2(0.6, 0.6),
-      })
-    );
-    seat.position.y = 0.45;
-    bench.add(seat);
-
-    const back = new THREE.Mesh(
-      new THREE.BoxGeometry(2.0, 0.5, 0.08),
-      createMaterial('wood', {
-        color: 0x8B6914,
-        map: benchTex.map,
-        normalMap: benchTex.normalMap,
-        normalScale: new THREE.Vector2(0.6, 0.6),
-      })
-    );
-    back.position.set(0, 0.7, -0.2);
-    bench.add(back);
-
-    const legGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.45, 4);
-    const legMat = createMaterial('metal', { color: 0x555555 });
-    for (const lx of [-0.8, 0.8]) {
-      for (const lz of [-0.15, 0.15]) {
-        const leg = new THREE.Mesh(legGeo, legMat);
-        leg.position.set(lx, 0.225, lz);
-        bench.add(leg);
-      }
-    }
-
+    const raw = this.assets.getModelInstance('bench');
+    const bench = this._groundAndCenter(raw);
+    bench.scale.setScalar(BENCH_SCALE);
     bench.position.set(x, 0, z);
     this.scene.add(bench);
   }
@@ -545,52 +491,26 @@ export class World {
     const colorIdx = config.color || 0;
     const color = COLORS.car[colorIdx % COLORS.car.length];
 
-    const car = new THREE.Group();
+    const modelName = CAR_MODELS[Math.floor(Math.random() * CAR_MODELS.length)];
+    const raw = this.assets.getModelInstance(modelName);
+    const car = this._groundAndCenter(raw);
 
-    // Body
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(1.8, 0.8, 3.5),
-      createMaterial('plastic', { color, roughness: 0.4 })
-    );
-    body.position.y = 0.7;
-    body.castShadow = true;
-    car.add(body);
-
-    // Cabin
-    const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(1.6, 0.6, 1.8),
-      createMaterial('plastic', { color, roughness: 0.4 })
-    );
-    cabin.position.set(0, 1.3, -0.2);
-    cabin.castShadow = true;
-    car.add(cabin);
-
-    // Windows
-    const winMat = createMaterial('glass', {
-      color: 0x87CEEB,
-      transparent: true,
-      opacity: 0.6,
+    // Paint tint from the old car color palette. Kenney cars have a
+    // dedicated "paint<Color>" body material distinct from the plastic
+    // trim/window/light materials, so it can be identified reliably by
+    // name. Clone it before tinting — instances share materials otherwise.
+    raw.traverse((obj) => {
+      if (obj.isMesh && obj.material && /^paint/i.test(obj.material.name || '')) {
+        obj.material = obj.material.clone();
+        obj.material.color.set(color);
+      }
     });
-    const frontWin = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 0.05), winMat);
-    frontWin.position.set(0, 1.25, -1.1);
-    car.add(frontWin);
-
-    // Wheels
-    const wheelGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.15, 8);
-    const wheelMat = createMaterial('matte', { color: 0x222222 });
-    const wheelPositions = [[-0.9, 0.25, -1.0], [0.9, 0.25, -1.0], [-0.9, 0.25, 1.0], [0.9, 0.25, 1.0]];
-    for (const [wx, wy, wz] of wheelPositions) {
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-      wheel.position.set(wx, wy, wz);
-      wheel.rotation.z = Math.PI / 2;
-      car.add(wheel);
-    }
 
     car.position.set(config.x, 0, config.z);
-    car.rotation.y = config.rotation || 0;
+    car.rotation.y = (config.rotation || 0) + (Math.random() - 0.5) * 0.1; // ±0.05 rad jitter
     this.scene.add(car);
 
-    // Physics blocker
+    // Physics blocker (unchanged)
     const shape = new CANNON.Box(new CANNON.Vec3(1.0, 0.8, 1.8));
     const physBody = new CANNON.Body({
       mass: 0,
@@ -647,21 +567,17 @@ export class World {
   }
 
   _addPerimeterTree(x, z) {
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.18, 1.8, 5),
-      createMaterial('wood', { color: 0x8B6914 })
-    );
-    trunk.position.set(x, 0.9, z);
-    trunk.castShadow = true;
-    this.scene.add(trunk);
+    // Weighted toward tree-big along the perimeter
+    const roll = Math.random();
+    const name = roll < 0.6 ? 'tree-big' : (roll < 0.8 ? 'tree-small' : 'low-poly-tree');
 
-    const canopy = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2, 6, 5),
-      createMaterial('matte', { color: 0x228B22 })
-    );
-    canopy.position.set(x, 2.5, z);
-    canopy.castShadow = true;
-    this.scene.add(canopy);
+    const raw = this.assets.getModelInstance(name);
+    const tree = this._groundAndCenter(raw);
+    const scale = TREE_BASE_SCALE[name] * (0.85 + Math.random() * 0.45);
+    tree.scale.setScalar(scale);
+    tree.rotation.y = Math.random() * Math.PI * 2;
+    tree.position.set(x, 0, z);
+    this.scene.add(tree);
   }
 
   update(dt) {

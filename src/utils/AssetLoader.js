@@ -1,4 +1,5 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 /**
@@ -8,7 +9,13 @@ export class AssetLoader {
   constructor() {
     this.cache = new Map();
     this.modelCache = new Map();
+    // Vendored market-assets models are Draco-compressed; wire up a locally
+    // vendored decoder (CDN paths aren't reachable, and GLTFLoader throws
+    // without a DRACOLoader when it hits KHR_draco_mesh_compression).
+    this.dracoLoader = new DRACOLoader();
+    this.dracoLoader.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
     this.gltfLoader = new GLTFLoader();
+    this.gltfLoader.setDRACOLoader(this.dracoLoader);
   }
 
   async loadJSON(path) {
