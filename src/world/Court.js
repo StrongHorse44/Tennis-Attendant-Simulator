@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
 import { createMaterial } from '../utils/Materials.js';
+import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
 /**
  * Court - tennis court with surface, lines, net, fencing, and benches
@@ -182,7 +183,13 @@ export class Court {
     const surfaceColor = type === 'clay' ? COLORS.clayCourt : COLORS.hardCourt;
 
     // Court surface
-    const surfaceOptions = { color: surfaceColor };
+    const surfaceTex = getSurfaceTextures(type === 'clay' ? 'clay' : 'concrete', w / 4, d / 4);
+    const surfaceOptions = {
+      color: surfaceColor,
+      map: surfaceTex.map,
+      normalMap: surfaceTex.normalMap,
+      normalScale: new THREE.Vector2(0.4, 0.4),
+    };
     if (type !== 'clay') surfaceOptions.roughness = 0.85;
     const surface = new THREE.Mesh(
       new THREE.BoxGeometry(w, 0.15, d),
@@ -196,7 +203,13 @@ export class Court {
     if (this.isClay) {
       const buffer = SIZES.clayCourtBuffer || 0;
       if (buffer > 0) {
-        const bufferMat = createMaterial('matte', { color: surfaceColor });
+        const bufferTex = getSurfaceTextures('clay', buffer / 4, d / 4);
+        const bufferMat = createMaterial('matte', {
+          color: surfaceColor,
+          map: bufferTex.map,
+          normalMap: bufferTex.normalMap,
+          normalScale: new THREE.Vector2(0.4, 0.4),
+        });
         if (!this.config.adjacentLeft) {
           const leftBuffer = new THREE.Mesh(
             new THREE.BoxGeometry(buffer, 0.15, d),
@@ -391,9 +404,15 @@ export class Court {
     const bench = new THREE.Group();
 
     // Seat
+    const benchTex = getSurfaceTextures('planks', 0.4, 0.1);
     const seat = new THREE.Mesh(
       new THREE.BoxGeometry(1.5, 0.08, 0.4),
-      createMaterial('wood', { color: COLORS.bench })
+      createMaterial('wood', {
+        color: COLORS.bench,
+        map: benchTex.map,
+        normalMap: benchTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     seat.position.y = 0.45;
     seat.castShadow = true;
@@ -412,7 +431,12 @@ export class Court {
     // Backrest
     const back = new THREE.Mesh(
       new THREE.BoxGeometry(1.5, 0.4, 0.06),
-      createMaterial('wood', { color: COLORS.bench })
+      createMaterial('wood', {
+        color: COLORS.bench,
+        map: benchTex.map,
+        normalMap: benchTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     back.position.set(0, 0.7, -0.15);
     bench.add(back);

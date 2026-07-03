@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES } from '../utils/Constants.js';
 import { createMaterial } from '../utils/Materials.js';
+import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
 /**
  * Building - pro shop and clubhouse structures
@@ -29,7 +30,13 @@ export class Building {
     const h = SIZES.proShopHeight;
 
     // Walls
-    const wallMat = createMaterial('rough', { color: COLORS.proShopWall });
+    const wallTex = getSurfaceTextures('stucco', w / 4, h / 4);
+    const wallMat = createMaterial('rough', {
+      color: COLORS.proShopWall,
+      map: wallTex.map,
+      normalMap: wallTex.normalMap,
+      normalScale: new THREE.Vector2(0.4, 0.4),
+    });
 
     // Back wall
     const backWall = new THREE.Mesh(
@@ -87,9 +94,15 @@ export class Building {
     this.mesh.add(header);
 
     // Roof
+    const roofTex = getSurfaceTextures('shingles', (w + 1) / 4, (d + 1) / 4);
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(w + 1, 0.3, d + 1),
-      createMaterial('wood', { color: COLORS.proShopRoof })
+      createMaterial('wood', {
+        color: COLORS.proShopRoof,
+        map: roofTex.map,
+        normalMap: roofTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     roof.position.set(center.x, h + 0.15, center.z);
     roof.castShadow = true;
@@ -106,9 +119,15 @@ export class Building {
     this.mesh.add(floor);
 
     // Counter
+    const counterTex = getSurfaceTextures('planks', 1, 0.25);
     const counter = new THREE.Mesh(
       new THREE.BoxGeometry(4, 1.1, 1),
-      createMaterial('wood', { color: COLORS.counter })
+      createMaterial('wood', {
+        color: COLORS.counter,
+        map: counterTex.map,
+        normalMap: counterTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     counter.position.set(center.x + 2, 0.55, center.z - 2);
     counter.castShadow = true;
@@ -187,9 +206,15 @@ export class Building {
     const h = height || SIZES.clubhouseHeight;
 
     // Main structure
+    const wallTex = getSurfaceTextures('stucco', w / 4, h / 4);
     const building = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
-      createMaterial('rough', { color: COLORS.clubhouseWall })
+      createMaterial('rough', {
+        color: COLORS.clubhouseWall,
+        map: wallTex.map,
+        normalMap: wallTex.normalMap,
+        normalScale: new THREE.Vector2(0.4, 0.4),
+      })
     );
     building.position.set(center.x, h / 2, center.z);
     building.castShadow = true;
@@ -197,9 +222,15 @@ export class Building {
     this.mesh.add(building);
 
     // Roof
+    const roofTex = getSurfaceTextures('shingles', (w + 1.5) / 4, (d + 1.5) / 4);
     const roof = new THREE.Mesh(
       new THREE.BoxGeometry(w + 1.5, 0.4, d + 1.5),
-      createMaterial('wood', { color: COLORS.clubhouseRoof })
+      createMaterial('wood', {
+        color: COLORS.clubhouseRoof,
+        map: roofTex.map,
+        normalMap: roofTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     roof.position.set(center.x, h + 0.2, center.z);
     roof.castShadow = true;

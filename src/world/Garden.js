@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS } from '../utils/Constants.js';
 import { createMaterial } from '../utils/Materials.js';
+import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
 /**
  * Garden - landscaping area with hedges, flower beds, and fountain
@@ -21,9 +22,15 @@ export class Garden {
     const { center } = config;
 
     // Ground cover (slightly different green)
+    const groundTex = getSurfaceTextures('grass', config.bounds.width / 4, config.bounds.depth / 4);
     const ground = new THREE.Mesh(
       new THREE.BoxGeometry(config.bounds.width, 0.05, config.bounds.depth),
-      createMaterial('matte', { color: 0x5AA83A })
+      createMaterial('matte', {
+        color: 0x5AA83A,
+        map: groundTex.map,
+        normalMap: groundTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     ground.position.set(center.x, 0.03, center.z);
     ground.receiveShadow = true;

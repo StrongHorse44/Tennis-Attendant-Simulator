@@ -5,6 +5,7 @@ import { Court } from './Court.js';
 import { Building } from './Building.js';
 import { Garden } from './Garden.js';
 import { createMaterial } from '../utils/Materials.js';
+import { getSurfaceTextures } from '../utils/TextureFactory.js';
 
 /**
  * World - loads map.json and builds the entire club environment
@@ -36,9 +37,17 @@ export class World {
 
   _buildGround() {
     // Main ground plane
+    const groundW = SIZES.mapWidth * 2;
+    const groundD = SIZES.mapDepth * 2;
+    const groundTex = getSurfaceTextures('grass', groundW / 4, groundD / 4);
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(SIZES.mapWidth * 2, SIZES.mapDepth * 2),
-      createMaterial('matte', { color: COLORS.ground })
+      new THREE.PlaneGeometry(groundW, groundD),
+      createMaterial('matte', {
+        color: COLORS.ground,
+        map: groundTex.map,
+        normalMap: groundTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = 0;
@@ -56,11 +65,16 @@ export class World {
   }
 
   _buildPaths() {
-    const pathMat = createMaterial('rough', { color: COLORS.path });
-
     for (const path of this.mapData.paths) {
       const points = path.points;
       const width = path.width || 3;
+      const jointTex = getSurfaceTextures('concrete', width / 4, width / 4);
+      const jointMat = createMaterial('rough', {
+        color: COLORS.path,
+        map: jointTex.map,
+        normalMap: jointTex.normalMap,
+        normalScale: new THREE.Vector2(0.4, 0.4),
+      });
 
       for (let i = 0; i < points.length - 1; i++) {
         const start = points[i];
@@ -70,9 +84,15 @@ export class World {
         const length = Math.sqrt(dx * dx + dz * dz);
         const angle = Math.atan2(dx, dz);
 
+        const segTex = getSurfaceTextures('concrete', width / 4, length / 4);
         const segment = new THREE.Mesh(
           new THREE.BoxGeometry(width, 0.06, length + width * 0.3),
-          pathMat
+          createMaterial('rough', {
+            color: COLORS.path,
+            map: segTex.map,
+            normalMap: segTex.normalMap,
+            normalScale: new THREE.Vector2(0.4, 0.4),
+          })
         );
         segment.position.set(
           start.x + dx / 2,
@@ -88,7 +108,7 @@ export class World {
       for (const point of points) {
         const joint = new THREE.Mesh(
           new THREE.CylinderGeometry(width / 2, width / 2, 0.06, 8),
-          pathMat
+          jointMat
         );
         joint.position.set(point.x, 0.03, point.z);
         joint.receiveShadow = true;
@@ -381,9 +401,15 @@ export class World {
     const group = new THREE.Group();
 
     // Table top
+    const tableTex = getSurfaceTextures('planks', 0.4, 0.4);
     const top = new THREE.Mesh(
       new THREE.CylinderGeometry(0.8, 0.8, 0.08, 8),
-      createMaterial('wood', { color: 0xDEB887 })
+      createMaterial('wood', {
+        color: 0xDEB887,
+        map: tableTex.map,
+        normalMap: tableTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     top.position.y = 0.75;
     top.castShadow = true;
@@ -438,16 +464,27 @@ export class World {
   _addPatioBench(x, z) {
     const bench = new THREE.Group();
 
+    const benchTex = getSurfaceTextures('planks', 0.5, 0.15);
     const seat = new THREE.Mesh(
       new THREE.BoxGeometry(2.0, 0.08, 0.5),
-      createMaterial('wood', { color: 0x8B6914 })
+      createMaterial('wood', {
+        color: 0x8B6914,
+        map: benchTex.map,
+        normalMap: benchTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     seat.position.y = 0.45;
     bench.add(seat);
 
     const back = new THREE.Mesh(
       new THREE.BoxGeometry(2.0, 0.5, 0.08),
-      createMaterial('wood', { color: 0x8B6914 })
+      createMaterial('wood', {
+        color: 0x8B6914,
+        map: benchTex.map,
+        normalMap: benchTex.normalMap,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+      })
     );
     back.position.set(0, 0.7, -0.2);
     bench.add(back);
@@ -471,9 +508,15 @@ export class World {
     if (!parking) return;
 
     // Parking surface
+    const lotTex = getSurfaceTextures('concrete', parking.bounds.width / 4, parking.bounds.depth / 4);
     const lot = new THREE.Mesh(
       new THREE.BoxGeometry(parking.bounds.width, 0.06, parking.bounds.depth),
-      createMaterial('rough', { color: 0x555555 })
+      createMaterial('rough', {
+        color: 0x555555,
+        map: lotTex.map,
+        normalMap: lotTex.normalMap,
+        normalScale: new THREE.Vector2(0.4, 0.4),
+      })
     );
     lot.position.set(parking.center.x, 0.03, parking.center.z);
     lot.receiveShadow = true;
