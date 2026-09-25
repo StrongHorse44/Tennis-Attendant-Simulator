@@ -95,8 +95,9 @@ export function detectQualityTier() {
     const minSide = Math.min(window.innerWidth || 1280, window.innerHeight || 720);
     const small = minSide < 600;
     if (cores <= 2 || mem <= 2) return 'low';
-    // Phones / tablets: medium (low only for very weak devices, handled above)
-    if (coarse || small) return 'medium';
+    // Phones / tablets: medium, but low for ≤4 GB phones — medium's MSAA half-float
+    // composer + env map has crashed mid-range mobile GPUs (lost WebGL context).
+    if (coarse || small) return mem <= 4 ? 'low' : 'medium';
     // Desktop with few cores (old laptops) -> medium
     if (cores <= 4 && mem <= 4) return 'medium';
     return 'high';

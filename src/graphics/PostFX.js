@@ -73,6 +73,8 @@ export class PostFX {
     this.camera = camera;
     this.composer = null;
     this.settings = null;
+    /** False on GPUs that can't render to half-float targets (set by Game): use 8-bit targets. */
+    this.halfFloat = true;
     this.gradePass = null;
     this.bloomPass = null;
     this.aoPass = null;
@@ -100,7 +102,7 @@ export class PostFX {
     const r = this.renderer;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
-      type: THREE.HalfFloatType,
+      type: this.halfFloat ? THREE.HalfFloatType : THREE.UnsignedByteType,
       samples: settings.msaaSamples || 0,
     });
     rt.texture.name = 'PostFX.rt';
@@ -110,7 +112,8 @@ export class PostFX {
 
     composer.addPass(new RenderPass(this.scene, this.camera));
 
-    if (settings.ao) {
+    // GTAO and bloom allocate half-float targets internally
+    if (settings.ao && this.halfFloat) {
       const ao = new GTAOPass(this.scene, this.camera, size.x, size.y);
       ao.output = GTAOPass.OUTPUT.Default;
       ao.blendIntensity = 0.75;
@@ -129,7 +132,7 @@ export class PostFX {
       this.aoPass = ao;
     }
 
-    if (settings.bloom) {
+    if (settings.bloom && this.halfFloat) {
       const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.28, 0.55, 1.25);
       composer.addPass(bloom);
       this.bloomPass = bloom;
