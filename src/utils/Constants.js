@@ -6,6 +6,7 @@ export const COLORS = {
   skyNight: 0x2C3E50,
   ground: 0x7EC850,
   path: 0xD4C5A9,
+  cartPathTint: 0xF8EAD0,     // multiplies the light concrete texture -> warm sandstone cart paths
   water: 0x5B9BD5,
 
   // Courts
@@ -16,6 +17,16 @@ export const COLORS = {
   courtFence: 0x888888,
   net: 0xEEEEEE,
   bench: 0x8B6914,
+  // Court overhaul (Court.js)
+  courtHardInner: 0x5085c4,   // US-Open blue; lifted so it lands near #2f6db3 on screen after grading
+  courtHardOuter: 0x618c66,   // green surround; lands near #3f7d55 on screen
+  courtLine: 0xf0eee6,        // painted / taped lines (kept below pure white so they don't clip)
+  courtFenceGreen: 0x2b4a36,  // powder-coated posts, rails, chain-link
+  courtWindscreen: 0x1f4a34,
+  courtCurb: 0xcfc8b8,
+  courtBenchWood: 0x9c6b3c,
+  courtLampGlow: 0xfff1d6,
+  tennisBall: 0xd4e157,
 
   // Buildings
   proShopWall: 0xF5E6CA,
@@ -24,6 +35,21 @@ export const COLORS = {
   clubhouseRoof: 0x8B4513,
   counter: 0x6B4226,
   shelf: 0xA0522D,
+  // Building overhaul (Building.js)
+  bldSiding: 0xf4e7cb,       // cream clapboard tint (pro shop)
+  bldStucco: 0xfbf1de,       // cream plaster tint (clubhouse)
+  bldTrim: 0xf2eee3,         // white trim, kept below pure white
+  bldTrimGreen: 0x2d5a3d,    // club forest green: doors, shutters, fascia
+  bldRoofGreen: 0x5a8a68,    // pro shop shingles (multiplied by grey shingle texture)
+  bldRoofSlate: 0x7c8894,    // clubhouse slate shingles
+  bldRidge: 0x3a4148,
+  bldStone: 0xb7ad9c,        // plinth
+  bldBrick: 0x9e5238,
+  bldBrass: 0xc9a54c,
+  bldCopper: 0x6fa48f,       // verdigris cupola roof
+  bldWainscot: 0x7d9c83,     // interior lower wall (sage)
+  bldInteriorWall: 0xf1e6cc,
+  bldFloorWood: 0xb98a55,
 
   // Garden
   hedge: 0x2E8B57,
@@ -42,6 +68,21 @@ export const COLORS = {
   playerPolo: 0x1E5631,
   playerShorts: 0xC2B280,
   playerShoes: 0xFFFFFF,
+  playerCollar: 0xF4E8C1,      // cream collar / trim on staff polo
+  playerCap: 0x2D5A3D,         // staff cap (club forest green)
+  clubGold: 0xC9A24A,          // brass/gold crest accents
+
+  // Golf cart (stylized club cart)
+  golfCartBody: 0xEDE8DA,      // cream-white body (kept < 0.9 albedo)
+  golfCartAccent: 0x2D5A3D,    // forest green stripe
+  golfCartCanopy: 0x2D5A3D,    // forest green canopy
+  golfCartCanopyTrim: 0xF4E8C1,
+  golfCartUpholstery: 0xD8C7A0,
+  golfCartFrame: 0x2B2E31,
+  golfCartTire: 0x1E1F21,
+  golfCartRim: 0xC4C8CC,
+  golfCartHeadlight: 0xFFF1C8,
+  golfCartTaillight: 0xE0301E,
 
   // NPCs
   npcEntitled: 0xE74C3C,
@@ -62,6 +103,22 @@ export const COLORS = {
   trashBinLid: 0x444444,
   cupHolder: 0x8B7355,
   cup: 0xF5F5DC,
+
+  // Environment art (World.js / Garden.js / Scenery.js)
+  clubGreen: 0x2d5a3d,
+  clubCream: 0xf1e6c4,
+  ironWork: 0x1f2622,
+  teak: 0xb07a48,
+  stoneCap: 0xe8e0cc,
+  pathEdging: 0xb89478,
+  shedWood: 0x4c7a55,
+  shedRoof: 0x4a5a55,
+  carPaint: [0x9e2b25, 0x2b4a7a, 0x2f5d45, 0xd8c8a4, 0xe6e4dc, 0x9ea4a8],
+  umbrellaStripe: [0x2d5a3d, 0xf1e6c4],
+  soil: 0x4a3426,
+  coolerOrange: 0xe8702a,
+  coolerWhite: 0xf2efe6,
+  binGreen: 0x2f5a3e,
 
   // UI
   uiPrimary: 0x2d5a3d,
@@ -84,6 +141,7 @@ export const SIZES = {
   clayCourtBuffer: 4,  // extra clay runoff on outer sides of clay courts (1/4 court width)
   netHeight: 1.5,
   fenceHeight: 3,
+  courtSurfaceY: 0.15,  // top of every court pad (matches the court physics box) — props on courts sit here
 
   // Buildings
   proShopWidth: 14,
@@ -129,7 +187,7 @@ export const SIZES = {
 export const GAME = {
   // Time
   dayDurationSeconds: 1800, // 30 minutes real time = 1 full day
-  startHour: 7, // 7 AM
+  startHour: 9, // 9 AM — open in warm, bright daylight
   morningEnd: 11,
   afternoonEnd: 17,
   eveningEnd: 20,
@@ -150,9 +208,7 @@ export const GAME = {
   maxInventorySlots: 3,
 
   // Physics
-  gravity: -9.82,
-  groundFriction: 0.8,
-  cartFriction: 0.4,
+  gravity: -9.82,           // contacts are frictionless (see Game.init): bodies are velocity/position driven
 
   // NPCs
   maxNPCs: 8,
@@ -165,9 +221,16 @@ export const GAME = {
   groomSpeedLimit: 5,         // max speed for quality grooming (units/s)
   groomSpeedPenalty: 8,       // above this speed, no grooming happens
   courtDegradeInterval: 120,  // seconds between court degradation ticks
-  courtDegradeAmount: 0.05,   // how much dirtiness accumulates per tick (0-1)
+  courtDegradeAmount: 0.01,   // uniform dirt per tick (0-1) while the clock runs; matches add about as much again (Court.wearAt)
+  courtOvernightDegrade: 0.12, // uniform dirt added overnight (Next day): wind, dew and debris → a morning groom
+  matchWearScale: 6,          // multiplier on match footwork / bounce wear (MatchSystem → Court.wearAt)
   groomBrushWidth: 3,         // brush sweep width in world units (half each side)
-  groomScoreThreshold: 0.85,  // coverage needed for "good" rating
+  groomScoreThreshold: 0.85,  // cleanliness needed for "excellent" (plus coverage ≥ 70%, tasks ≥ 80%)
+  groomMaskRes: 4,            // paint-mask cells per world unit (4 → 0.25 m cells, 64×112 over the playing slab)
+  groomBrushDepth: 0.55,      // depth of the brush footprint along the direction of travel (world units)
+  groomPassClean: 0.9,        // dirt removed by one full pass of the brush at a good speed
+  groomTowLength: 1.75,       // hitch pivot → brush centre (world units); the towed brush swings on this bar
+  groomTowMaxAngle: 1.2,      // radians: tow bar can't swing further than this from the cart's axis
 
   // Proximity feedback during grooming (distances are brush-center-to-fence/net)
   // Brush is 3 units wide, so brush edge is ~1.5 units closer than center
@@ -178,6 +241,15 @@ export const GAME = {
 
   // Courtside tasks
   coolerInteractRange: 2.5,   // how close cart must be to interact with cooler/bin
+
+  // Shift loop (ShiftSystem). 12 in-game hours at 24 / dayDurationSeconds h/s ≈ 15 real minutes.
+  // Wages, rush windows, ranks and checklists are data in missions.json → "shift".
+  shiftStartHour: 7,          // clock-in (the next day starts here; the night is skipped)
+  shiftClosingHour: 18.5,     // closing duties are radioed in
+  shiftEndHour: 19,           // clock-out → end-of-shift report card
+  rushDispatchScale: 2.25,    // radio dispatch timer runs this much faster inside rush windows
+  dispatchCardTimeout: 25,    // seconds before an unanswered dispatch card counts as "Busy"
+  dispatchDeclineCooldown: 30,// seconds until the next dispatch after "Busy"
 };
 
 // === Directions for waypoints ===

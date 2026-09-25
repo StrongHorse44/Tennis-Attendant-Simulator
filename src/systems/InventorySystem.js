@@ -50,6 +50,29 @@ export class InventorySystem {
   getItemNames() {
     return this.items.map(i => i.name);
   }
+
+  /** Serializable state: array of item ids. */
+  getState() {
+    return this.items.map(i => i.id);
+  }
+
+  /** Restore from an array of item ids (unknown ids are dropped, capped at maxSlots). */
+  setState(ids) {
+    this.items = [];
+    if (Array.isArray(ids)) {
+      for (const id of ids) {
+        if (this.items.length >= this.maxSlots) break;
+        const def = typeof id === 'string' ? ITEMS[id] : null;
+        if (def) this.items.push({ ...def });
+      }
+    }
+    this._notify();
+  }
+
+  clear() {
+    this.items = [];
+    this._notify();
+  }
 }
 
 // Item definitions
