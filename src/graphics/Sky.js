@@ -210,7 +210,9 @@ export class Clouds {
     }
     for (let i = 0; i < maxCount; i++) {
       const ang = rand() * Math.PI * 2;
-      const rad = 170 + rand() * 150;
+      // Beyond the front hill ring (r=215) and well above the ridges, so clouds
+      // read as sky rather than blobs sitting just over the fences.
+      const rad = 200 + rand() * 130;
       this.clouds.push({
         shape: i % 3,
         slot: Math.floor(i / 3),
@@ -218,8 +220,8 @@ export class Clouds {
         rad,
         x: Math.cos(ang) * rad,
         z: Math.sin(ang) * rad,
-        y: 48 + rand() * 32,
-        scale: 8 + rand() * 7,
+        y: 85 + rand() * 45,
+        scale: 11 + rand() * 8,
         rot: rand() * Math.PI,
         speed: 0.6 + rand() * 0.8,
       });
@@ -247,7 +249,7 @@ export class Clouds {
       _p.set(c.x, c.y, c.z);
       _q.setFromAxisAngle(_yAxis, c.rot);
       const sc = hidden ? 0 : c.scale;
-      _s.set(sc, sc * 0.8, sc);
+      _s.set(sc, sc * 0.55, sc);
       _m4.compose(_p, _q, _s);
       this.shapes[c.shape].setMatrixAt(c.slot, _m4);
     }

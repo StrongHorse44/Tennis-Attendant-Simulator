@@ -506,7 +506,7 @@ export class WeatherSystem {
 
     // Clouds: lit by the scene lights + emissive sky fill
     this._cloudCol.copy(CLOUD_WHITE).lerp(CLOUD_GREY, o).lerp(CLOUD_DARK, r).multiplyScalar(0.12 + 0.88 * day);
-    this.clouds.setColors(this._cloudCol, hor, 0.25 + 0.35 * o);
+    this.clouds.setColors(this._cloudCol, hor, 0.45 + 0.3 * o);
 
     // Stars
     if (this.camera) {
