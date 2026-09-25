@@ -768,4 +768,7 @@ class Game {
 }
 
 // Start the game
-new Game();
+const game = new Game();
+
+// Dev-only handle for debugging and automated screenshots
+if (import.meta.env.DEV) window.__game = game;
