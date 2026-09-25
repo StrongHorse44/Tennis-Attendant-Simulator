@@ -4,13 +4,20 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { getMaterial, basicMat, sharedDepthMaterial, registerNightGlow } from '../graphics/Materials.js';
 import { Textures } from '../graphics/Textures.js';
 import { Quality } from '../graphics/Quality.js';
+import {
+  BONE, BONE_DEFS, HIP_Y, KNEE_Y, ANKLE_Y, NECK_Y, SHOULDER_Y, SHOULDER_X, ELBOW_Y, WRIST_Y, LEG_X, HEAD_Y, HEAD_R,
+  RACKET_GRIP, RACKET_HEAD_OFFSET, BALL_POS,
+} from './CharacterRig.js';
+import { Animator, CLIP_DEFS, CLIP_NAMES, resolveClipName, getClipEventRacketPoint } from './CharacterAnimations.js';
 
 /**
  * CharacterModel — stylized low-poly people built from rounded primitives.
  *
- * Each character is ONE SkinnedMesh (one draw call + one shadow call) with a tiny rigid
- * skeleton (every vertex is bound 100% to one bone), so limbs animate without splitting the
- * body into many meshes. All characters share a single vertex-coloured material.
+ * Each character is ONE SkinnedMesh (one draw call + one shadow call) with a 19-bone skeleton
+ * (CharacterRig.js: hips, spine, chest, head, upper arms, forearms, hands, legs, shins, feet,
+ * plus racket and held-ball sockets). Parts are bound rigidly to one bone, except the torso,
+ * which blends spine → chest. All characters share a single vertex-coloured material.
+ * Animation: CharacterAnimations.js (baked AnimationClips + one AnimationMixer per character).
  *
  * Model space: Y up, the character faces +Z, feet at y = 0, unscaled height ≈ 1.8.
  * The character's RIGHT side is -X.
@@ -21,33 +28,9 @@ import { Quality } from '../graphics/Quality.js';
  */
 
 // ───────────────────────────── Skeleton layout ─────────────────────────────
+// (bone layout lives in CharacterRig.js so the clip baker can share it)
 
-export const BONE = {
-  root: 0, hips: 1, spine: 2, head: 3, armL: 4, armR: 5, legL: 6, legR: 7, shinL: 8, shinR: 9,
-};
-const HIP_Y = 0.78;
-const KNEE_Y = 0.42;
-const SPINE_Y = 0.9;
-const NECK_Y = 1.38;
-const SHOULDER_Y = 1.27;
-const SHOULDER_X = 0.29;
-const LEG_X = 0.1;
-const HEAD_Y = 1.58;
-const HEAD_R = 0.22;
-
-// World-space pivots of each bone in the bind pose (parents listed separately).
-const BONE_DEFS = [
-  { name: 'root', parent: -1, pos: [0, 0, 0] },
-  { name: 'hips', parent: 0, pos: [0, HIP_Y, 0] },
-  { name: 'spine', parent: 1, pos: [0, SPINE_Y, 0] },
-  { name: 'head', parent: 2, pos: [0, NECK_Y, 0] },
-  { name: 'armL', parent: 2, pos: [SHOULDER_X, SHOULDER_Y, 0] },
-  { name: 'armR', parent: 2, pos: [-SHOULDER_X, SHOULDER_Y, 0] },
-  { name: 'legL', parent: 1, pos: [LEG_X, HIP_Y, 0] },
-  { name: 'legR', parent: 1, pos: [-LEG_X, HIP_Y, 0] },
-  { name: 'shinL', parent: 6, pos: [LEG_X, KNEE_Y, 0] },
-  { name: 'shinR', parent: 7, pos: [-LEG_X, KNEE_Y, 0] },
-];
+export { BONE };
 
 // ───────────────────────────── Shared resources ─────────────────────────────
 
@@ -123,8 +106,10 @@ class PartBuilder {
    * @param {number[]} [r] [rx,ry,rz] euler XYZ
    * @param {number[]|number} [s] scale
    * @param {THREE.Matrix4} [post] extra matrix applied after (e.g. hat yaw)
+   * @param {number[]} [blend] [bone2, y0, y1]: vertices blend linearly from `bone` (model-space
+   *   y = y0) to `bone2` (y = y1) — smooth skinning across a joint (torso twist).
    */
-  add(geo, bone, color, p, r = null, s = null, post = null) {
+  add(geo, bone, color, p, r = null, s = null, post = null, blend = null) {
     if (_far) {
       // Drop details under ~3 cm (eyes, buttons, badges): invisible at LOD distance
       if (!geo.boundingSphere) geo.computeBoundingSphere();
@@ -139,7 +124,7 @@ class PartBuilder {
     _tmpObj.updateMatrix();
     const m = _tmpObj.matrix.clone();
     if (post) m.premultiply(post);
-    this.parts.push({ geo, bone, color, m });
+    this.parts.push({ geo, bone, color, m, blend });
   }
   /** Adds a cylinder spanning two points (for struts / straps). */
   addSpan(radius, a, b, bone, color, seg = 8) {
@@ -170,10 +155,19 @@ class PartBuilder {
       const c = new Float32Array(n * 3);
       const si = new Uint16Array(n * 4);
       const sw = new Float32Array(n * 4);
+      const bl = part.blend;
+      const py = g.attributes.position;
       for (let i = 0; i < n; i++) {
         c[i * 3] = _col.r; c[i * 3 + 1] = _col.g; c[i * 3 + 2] = _col.b;
         si[i * 4] = part.bone;
-        sw[i * 4] = 1;
+        if (bl) {
+          const w = Math.min(1, Math.max(0, (py.getY(i) - bl[1]) / (bl[2] - bl[1])));
+          si[i * 4 + 1] = bl[0];
+          sw[i * 4] = 1 - w;
+          sw[i * 4 + 1] = w;
+        } else {
+          sw[i * 4] = 1;
+        }
       }
       g.setAttribute('color', new THREE.BufferAttribute(c, 3));
       g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
@@ -228,11 +222,12 @@ function buildGeometry(style) {
   const hairC = style.hairColor ?? HAIR_COLORS.brown;
   const B = BONE;
 
-  // ── Legs (thigh on leg bone, shin + shoe on shin bone) ──
+  // ── Legs (thigh on leg bone, shin + sock on shin bone, shoe on foot bone) ──
   for (const side of [1, -1]) {
     const x = side * LEG_X;
     const legBone = side > 0 ? B.legL : B.legR;
     const shinBone = side > 0 ? B.shinL : B.shinR;
+    const footBone = side > 0 ? B.footL : B.footR;
     const thighColor = style.bottom === 'pants' ? bottomColor : skin;
     b.add(P.capsule(0.07, 0.27), legBone, thighColor, [x, (HIP_Y + KNEE_Y) / 2, 0]);
     if (style.bottom === 'shorts' || style.bottom === undefined) {
@@ -246,9 +241,9 @@ function buildGeometry(style) {
       b.add(P.cyl(0.068, 0.068, 0.09, 10), shinBone, style.socks ?? 0xF2F0EA, [x, 0.14, 0]);
     }
     // Shoe: rounded upper + contrasting sole + toe accent
-    b.add(P.rbox(0.15, 0.1, 0.27, 0.045), shinBone, shoe, [x, 0.065, 0.035]);
-    b.add(P.rbox(0.16, 0.035, 0.28, 0.015), shinBone, style.shoeSole ?? 0xB9B4AA, [x, 0.018, 0.035]);
-    b.add(P.rbox(0.152, 0.03, 0.1, 0.012), shinBone, style.shoeAccent ?? 0x2D5A3D, [x, 0.07, -0.02]);
+    b.add(P.rbox(0.15, 0.1, 0.27, 0.045), footBone, shoe, [x, 0.065, 0.035]);
+    b.add(P.rbox(0.16, 0.035, 0.28, 0.015), footBone, style.shoeSole ?? 0xB9B4AA, [x, 0.018, 0.035]);
+    b.add(P.rbox(0.152, 0.03, 0.1, 0.012), footBone, style.shoeAccent ?? 0x2D5A3D, [x, 0.07, -0.02]);
   }
 
   // ── Hips: shorts / skirt / pants seat + belt ──
@@ -268,62 +263,68 @@ function buildGeometry(style) {
     b.add(P.cyl(0.008, 0.008, 0.09, 5), B.hips, 0x1C1D1F, [-0.205, HIP_Y + 0.14, 0.05]);
   }
 
-  // ── Torso (spine) ──
-  b.add(P.capsule(0.2, 0.2, 3, 12), B.spine, shirt, [0, 1.1, 0], null, [1.1, 1, 0.74]);
+  // ── Torso (lower half on the spine bone, blending into the chest bone) ──
+  b.add(P.capsule(0.2, 0.2, 3, 12), B.spine, shirt, [0, 1.1, 0], null, [1.1, 1, 0.74], null, [B.chest, 0.97, 1.17]);
   if (style.polo !== false) {
     const collar = style.collar ?? shade(shirt, 0.55);
     // Collar ring + two front flaps + placket with buttons
-    b.add(P.torus(0.085, 0.03, 6, 16), B.spine, collar, [0, 1.36, 0.0], [Math.PI / 2 - 0.25, 0, 0], [1.05, 1, 1]);
-    b.add(P.rbox(0.07, 0.045, 0.02, 0.009), B.spine, collar, [0.045, 1.335, 0.118], [0.5, 0, -0.3]);
-    b.add(P.rbox(0.07, 0.045, 0.02, 0.009), B.spine, collar, [-0.045, 1.335, 0.118], [0.5, 0, 0.3]);
-    b.add(P.rbox(0.045, 0.13, 0.02, 0.008), B.spine, collar, [0, 1.25, 0.142], [0.18, 0, 0]);
-    b.add(P.sphere(0.009, 6, 4), B.spine, 0xF2F0EA, [0, 1.27, 0.153]);
-    b.add(P.sphere(0.009, 6, 4), B.spine, 0xF2F0EA, [0, 1.22, 0.153]);
+    b.add(P.torus(0.085, 0.03, 6, 16), B.chest, collar, [0, 1.36, 0.0], [Math.PI / 2 - 0.25, 0, 0], [1.05, 1, 1]);
+    b.add(P.rbox(0.07, 0.045, 0.02, 0.009), B.chest, collar, [0.045, 1.335, 0.118], [0.5, 0, -0.3]);
+    b.add(P.rbox(0.07, 0.045, 0.02, 0.009), B.chest, collar, [-0.045, 1.335, 0.118], [0.5, 0, 0.3]);
+    b.add(P.rbox(0.045, 0.13, 0.02, 0.008), B.chest, collar, [0, 1.25, 0.142], [0.18, 0, 0]);
+    b.add(P.sphere(0.009, 6, 4), B.chest, 0xF2F0EA, [0, 1.27, 0.153]);
+    b.add(P.sphere(0.009, 6, 4), B.chest, 0xF2F0EA, [0, 1.22, 0.153]);
   } else {
     // Crew neck trim
-    b.add(P.torus(0.08, 0.02, 6, 16), B.spine, shade(shirt, -0.15), [0, 1.37, 0.0], [Math.PI / 2 - 0.2, 0, 0], [1.05, 1, 1]);
+    b.add(P.torus(0.08, 0.02, 6, 16), B.chest, shade(shirt, -0.15), [0, 1.37, 0.0], [Math.PI / 2 - 0.2, 0, 0], [1.05, 1, 1]);
   }
   if (style.stripe) {
     // Chest stripe (sporty) — thin band hugging the torso front
-    b.add(P.rbox(0.4, 0.035, 0.02, 0.01), B.spine, style.stripe, [0, 1.17, 0.145]);
+    b.add(P.rbox(0.4, 0.035, 0.02, 0.01), B.chest, style.stripe, [0, 1.17, 0.145]);
   }
   if (style.staff) {
     // Name badge + small club crest on the chest
-    b.add(P.rbox(0.09, 0.045, 0.012, 0.006), B.spine, 0xF4E8C1, [0.1, 1.2, 0.147], [0.12, 0, 0]);
-    b.add(P.cyl(0.022, 0.022, 0.01, 10), B.spine, 0xC9A24A, [-0.1, 1.21, 0.146], [Math.PI / 2 + 0.12, 0, 0]);
+    b.add(P.rbox(0.09, 0.045, 0.012, 0.006), B.chest, 0xF4E8C1, [0.1, 1.2, 0.147], [0.12, 0, 0]);
+    b.add(P.cyl(0.022, 0.022, 0.01, 10), B.chest, 0xC9A24A, [-0.1, 1.21, 0.146], [Math.PI / 2 + 0.12, 0, 0]);
   }
   if (style.necklace) {
-    b.add(P.torus(0.1, 0.013, 5, 18), B.spine, style.necklace, [0, 1.345, 0.02], [Math.PI / 2 - 0.4, 0, 0]);
+    b.add(P.torus(0.1, 0.013, 5, 18), B.chest, style.necklace, [0, 1.345, 0.02], [Math.PI / 2 - 0.4, 0, 0]);
   }
 
-  // ── Arms (sleeve + arm + hand on each arm bone) ──
+  // ── Arms (sleeve + upper arm on the arm bone, forearm, hand) ──
   for (const side of [1, -1]) {
     const bone = side > 0 ? B.armL : B.armR;
+    const fore = side > 0 ? B.foreArmL : B.foreArmR;
+    const hand = side > 0 ? B.handL : B.handR;
     const x = side * (SHOULDER_X + 0.005);
     b.add(P.sphere(0.085, 10, 8), bone, shirt, [side * (SHOULDER_X - 0.02), SHOULDER_Y - 0.01, 0], null, [1, 0.9, 1]);
     b.add(P.cyl(0.074, 0.066, 0.17, 10), bone, style.sleeveColor ?? shirt, [x, SHOULDER_Y - 0.1, 0], [0, 0, side * 0.04]);
     if (style.sleeveTrim) {
       b.add(P.cyl(0.068, 0.068, 0.025, 10), bone, style.sleeveTrim, [x + side * 0.004, SHOULDER_Y - 0.18, 0]);
     }
-    b.add(P.capsule(0.044, 0.36, 3, 8), bone, skin, [x + side * 0.008, 0.99, 0.0]);
-    b.add(P.sphere(0.056, 10, 8), bone, skin, [x + side * 0.01, 0.765, 0.01], null, [0.9, 1.15, 1]);
+    b.add(P.capsule(0.046, 0.19, 3, 8), bone, skin, [x + side * 0.006, (SHOULDER_Y - 0.06 + ELBOW_Y) / 2, 0.0]);
+    b.add(P.sphere(0.045, 8, 6), bone, skin, [x + side * 0.008, ELBOW_Y, 0.0]);                         // elbow
+    b.add(P.capsule(0.043, 0.17, 3, 8), fore, skin, [x + side * 0.009, (ELBOW_Y + WRIST_Y) / 2 + 0.005, 0.0]);
+    b.add(P.sphere(0.056, 10, 8), hand, skin, [x + side * 0.01, 0.765, 0.01], null, [0.9, 1.15, 1]);
     if (style.wristband && side < 0) {
-      b.add(P.cyl(0.054, 0.054, 0.05, 10), bone, style.wristband, [x + side * 0.009, 0.84, 0]);
+      b.add(P.cyl(0.054, 0.054, 0.05, 10), fore, style.wristband, [x + side * 0.009, 0.84, 0]);
     }
   }
 
-  // ── Racket in the right hand (-X), hanging head-down and slightly forward ──
-  if (style.racket) {
-    const hx = -(SHOULDER_X + 0.015);
-    const post = new THREE.Matrix4().makeTranslation(hx, 0.76, 0.02)
-      .multiply(new THREE.Matrix4().makeRotationX(-0.35))
-      .multiply(new THREE.Matrix4().makeTranslation(-hx, -0.76, -0.02));
-    const frame = style.racket;
-    b.add(P.cyl(0.02, 0.018, 0.2, 8), B.armR, 0x1C1C1C, [hx, 0.73, 0.02], null, null, post);          // grip
-    b.add(P.cyl(0.012, 0.012, 0.12, 6), B.armR, frame, [hx, 0.58, 0.02], null, null, post);            // throat
-    b.add(P.torus(0.118, 0.014, 5, 20), B.armR, frame, [hx, 0.4, 0.02], [0, Math.PI / 2, 0], [1, 1.25, 1], post);
-    b.add(P.cyl(0.112, 0.112, 0.006, 16), B.armR, 0xEDEAD8, [hx, 0.4, 0.02], [0, 0, Math.PI / 2], [1.25, 1, 1], post);
+  // ── Racket on its own bone in the right hand (-X): head down along the arm, strings facing +Z.
+  // Every character carries one; it is hidden (bone scaled to 0) unless style.racket is set or
+  // Character.setRacketVisible(true) is called.
+  {
+    const [hx, gy, gz] = RACKET_GRIP;
+    const frame = style.racket || 0x2B2B2B;
+    const hy = gy + RACKET_HEAD_OFFSET[1];
+    b.add(P.cyl(0.02, 0.018, 0.2, 8), B.racket, 0x1C1C1C, [hx, gy - 0.03, gz]);                         // grip
+    b.add(P.cyl(0.012, 0.012, 0.12, 6), B.racket, frame, [hx, gy - 0.18, gz]);                          // throat
+    b.add(P.torus(0.118, 0.014, 5, 20), B.racket, frame, [hx, hy, gz], null, [1, 1.25, 1]);             // head
+    b.add(P.cyl(0.112, 0.112, 0.006, 16), B.racket, 0xEDEAD8, [hx, hy, gz], [Math.PI / 2, 0, 0], [1, 1, 1.25]); // strings
   }
+  // ── Tennis ball held in the left hand (hidden unless shown) ──
+  b.add(P.sphere(0.034, 10, 8), B.ball, 0xD4E157, BALL_POS);
 
   // ── Head ──
   b.add(P.cyl(0.062, 0.068, 0.14, 10), B.head, skinDark, [0, NECK_Y + 0.03, 0]);
@@ -441,9 +442,25 @@ function buildGeometry(style) {
 
 // ───────────────────────────── Character ─────────────────────────────
 
+const _lookV = new THREE.Vector3();
+const _lookQ = new THREE.Quaternion();
+const _steerQ = new THREE.Quaternion();
+const _axisY = new THREE.Vector3(0, 1, 0);
+const _axisZ = new THREE.Vector3(0, 0, 1);
+const _racketHead = new THREE.Vector3().fromArray(RACKET_HEAD_OFFSET);
+const TWO_PI = Math.PI * 2;
+
 /**
- * A skinned, animated character. `root` is a Group to add to your entity group.
- * Call `update(dt, opts)` each frame (no allocations).
+ * A skinned, animated character. `root` is a Group to add to your entity group (it may be
+ * scaled; clips are authored in unscaled model space). Animation runs through an `Animator`
+ * (one THREE.AnimationMixer + shared baked clips, see CharacterAnimations.js).
+ *
+ * Typical use:
+ *   character.setLocomotion(move01, cyclesPerSecond, run01); character.update(dt);
+ *   character.play('talk');                      // looping clip replaces locomotion
+ *   character.play('forehand', { timeScale: 1.2 }); // one-shot, fades back to the base
+ *   character.onClipEvent('forehand', 'contact', cb);
+ *   character.stop();                            // back to idle/walk/run
  */
 export class Character {
   /**
@@ -470,10 +487,14 @@ export class Character {
       this.bones.push(bone);
     }
     const B = this.bones;
-    this.hips = B[BONE.hips]; this.spine = B[BONE.spine]; this.head = B[BONE.head];
+    this.hips = B[BONE.hips]; this.spine = B[BONE.spine]; this.chest = B[BONE.chest]; this.head = B[BONE.head];
     this.armL = B[BONE.armL]; this.armR = B[BONE.armR];
+    this.foreArmL = B[BONE.foreArmL]; this.foreArmR = B[BONE.foreArmR];
+    this.handL = B[BONE.handL]; this.handR = B[BONE.handR];
+    this.racketBone = B[BONE.racket]; this.ballBone = B[BONE.ball];
     this.legL = B[BONE.legL]; this.legR = B[BONE.legR];
     this.shinL = B[BONE.shinL]; this.shinR = B[BONE.shinR];
+    this.footL = B[BONE.footL]; this.footR = B[BONE.footR];
     this._hipBaseY = this.hips.position.y;
 
     this._style = style;
@@ -489,29 +510,39 @@ export class Character {
     mesh.add(B[0]);
     mesh.updateMatrixWorld(true);
     mesh.bind(new THREE.Skeleton(this.bones));
-    // Generous bounds so animated limbs never pop out of the frustum test.
-    mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.95, 0), 1.25);
+    // Generous bounds so animated limbs (overhead serve, raised racket) never pop out of the frustum test.
+    mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.05, 0), 1.65);
     mesh.userData.dynamic = true;
     this.skinned = mesh;
 
     this.root = new THREE.Group();
     this.root.add(mesh);
 
-    // Animation state
-    this.walkPhase = 0;
-    this.walkBlend = 0;
-    this.talkBlend = 0;
+    // Props hidden by scaling their bone to zero (no extra draw calls, no geometry swap)
+    this._racketVisible = !!style.racket;
+    this._ballVisible = false;
+    this.racketBone.scale.setScalar(this._racketVisible ? 1 : 0);
+    this.ballBone.scale.setScalar(0);
+
+    this.anim = new Animator(mesh);
+    this.anim.onBallOnEnd = () => { this._ballVisible = true; };
+
+    // Frame-rate control: update the mixer every Nth call (far / low tier); dt accumulates.
+    this.updateEvery = 1;
+    this._frame = Math.floor(Math.random() * 4);
+    this._accDt = 0;
+
     this.t = 0;
     this.seed = (cacheKey ? hashString(cacheKey) : Math.random()) * 10;
     this.seated = false;
+    this._look = null;          // world-space target (Vector3, copied)
+    this._lookTarget = new THREE.Vector3();
+    this._lookW = 0;
+    this._lookYaw = 0;
+    this._steer = 0;
+    this._breathe = 1;
   }
 
-  /**
-   * @param {number} dt
-   * @param {number} moving  0..1 walk intensity (0 = idle)
-   * @param {number} cadence  walk cycles speed (radians/s of the gait phase)
-   * @param {'idle'|'talking'|'playing'} [mode]
-   */
   /**
    * Swap between the full and the low-detail (about half the triangles) body geometry.
    * Same attributes, bones and material, so this costs no shader program change.
@@ -529,83 +560,187 @@ export class Character {
     if (this.skinned.geometry !== g) this.skinned.geometry = g;
   }
 
-  update(dt, moving, cadence = 9, mode = 'idle') {
-    if (this.seated) return;
+  // ── Clip playback ──
+
+  /**
+   * Play a clip by name (see CLIP_NAMES). Looping clips (idle variants excluded) become the base
+   * pose that replaces locomotion; one-shots play once and fade back to the base.
+   * @param {string} name
+   * @param {{fade?:number, loop?:boolean, timeScale?:number, then?:string, onDone?:Function,
+   *          startAt?:number, fadeOut?:number}} [opts]
+   * @returns {number} duration in seconds at the given timeScale (0 if unknown)
+   */
+  play(name, opts) { return this.anim.play(name, opts); }
+
+  /** Return to locomotion (idle / walk / run). */
+  stop(fade = 0.25) { this.anim.stop(fade); }
+
+  /** Name of the clip currently in charge ('idle' | 'walk' | 'run' | a played clip). */
+  get currentClip() { return this.anim.current; }
+
+  isPlaying(name) { return this.anim.isPlaying(name); }
+
+  /**
+   * Subscribe to a clip event. Events: forehand/backhand 'contact', serve 'release' + 'contact',
+   * pickup_ball 'grab', split_step 'land', every one-shot 'end'. clip '*' = any clip.
+   * @returns {Function} unsubscribe
+   */
+  onClipEvent(clip, event, cb) { return this.anim.onClipEvent(clip, event, cb); }
+
+  /** Clip length in seconds (timeScale 1). */
+  getClipDuration(name) { const n = resolveClipName(name); return n ? CLIP_DEFS[n].duration : 0; }
+
+  /** Time (s, timeScale 1) of a clip event, e.g. getClipEventTime('forehand', 'contact') → 0.52. */
+  getClipEventTime(name, event = 'contact') {
+    const n = resolveClipName(name);
+    return n && CLIP_DEFS[n].events ? (CLIP_DEFS[n].events[event] ?? null) : null;
+  }
+
+  /**
+   * Locomotion blend. move: 0 idle .. 1 walking; cyclesPerSecond: gait cycles (2 steps) per
+   * second; run: 0..1 blend from walk to run.
+   */
+  setLocomotion(move, cyclesPerSecond = 1.2, run = 0) { this.anim.setLocomotion(move, cyclesPerSecond, run); }
+
+  /** Clip stride (model units per cycle for walk/run, model units per second for shuffles). */
+  getClipStride(name) { const n = resolveClipName(name); return n ? (CLIP_DEFS[n].stride ?? CLIP_DEFS[n].speed ?? 0) : 0; }
+
+  // ── Props / facing / sockets ──
+
+  /** Yaw of the character inside its parent group (radians; 0 faces +Z). */
+  setFacing(yaw) { this.root.rotation.y = yaw; }
+
+  setRacketVisible(v) { this._racketVisible = !!v; this.racketBone.scale.setScalar(v ? 1 : 0); }
+  get racketVisible() { return this._racketVisible; }
+
+  /** Tennis ball in the left hand (serve / pick-up clips drive it themselves while playing). */
+  setBallVisible(v) { this._ballVisible = !!v; }
+  get ballVisible() { return this.anim.ballOverride ?? this._ballVisible; }
+
+  /** World position of the racket (right) hand. */
+  getRacketHandWorldPosition(out = new THREE.Vector3()) {
+    this.handR.updateWorldMatrix(true, false);
+    return out.setFromMatrixPosition(this.handR.matrixWorld);
+  }
+
+  /** World position of the racket head centre (where the strings meet the ball). */
+  getRacketHeadWorldPosition(out = new THREE.Vector3()) {
+    this.racketBone.updateWorldMatrix(true, false);
+    return out.copy(_racketHead).applyMatrix4(this.racketBone.matrixWorld);
+  }
+
+  /** World position of the held ball (left hand). */
+  getBallHandWorldPosition(out = new THREE.Vector3()) {
+    this.ballBone.updateWorldMatrix(true, false);
+    return out.setFromMatrixPosition(this.ballBone.matrixWorld);
+  }
+
+  /**
+   * Where the racket head will be at a clip event if the clip were played from where the
+   * character stands now (uses the current root transform: position, facing and scale).
+   * E.g. getContactPointWorld('forehand') → place the ball there at contact time.
+   */
+  getContactPointWorld(name, out = new THREE.Vector3(), event = 'contact') {
+    const p = getClipEventRacketPoint(name, event);
+    if (!p) return null;
+    this.root.updateWorldMatrix(true, false);
+    return out.copy(p).applyMatrix4(this.root.matrixWorld);
+  }
+
+  /** Turn the head toward a world point (null to release). The vector is copied. */
+  lookAt(target) {
+    if (target) { this._lookTarget.copy(target); this._look = this._lookTarget; } else this._look = null;
+  }
+
+  /** Steering input while seated in the cart (-1..1, + = left). */
+  setSteer(v) { this._steer = v; }
+
+  // ── Per-frame ──
+
+  /**
+   * @param {number} dt
+   * @param {number} [moving]   legacy: 0..1 walk intensity (calls setLocomotion)
+   * @param {number} [cadence]  legacy: gait phase speed in radians/s (2π = one cycle)
+   * @param {'idle'|'talking'|'playing'} [mode] legacy: 'talking' plays the talk clip
+   */
+  update(dt, moving, cadence = 9, mode) {
+    if (moving !== undefined) this.setLocomotion(moving > 0.01 ? moving : 0, cadence / TWO_PI, 0);
+    if (mode === 'talking' && this.anim.base !== 'talk') this.play('talk', { fade: 0.3 });
+    else if (mode === 'idle' && this.anim.base === 'talk') this.stop(0.3);
+
     this.t += dt;
+    this._accDt += dt;
+    if (++this._frame < this.updateEvery) return;
+    this._frame = 0;
+    const step = Math.min(this._accDt, 0.25);
+    this._accDt = 0;
+
+    this.anim.update(step);
+    this._postProcess(step);
+  }
+
+  /** Procedural layers on top of the clips: breathing, head look-at, steering, props. */
+  _postProcess(dt) {
     const t = this.t + this.seed;
-    const k = Math.min(1, dt * 8);
-    this.walkBlend += (moving - this.walkBlend) * k;
-    this.talkBlend += ((mode === 'talking' ? 1 : 0) - this.talkBlend) * Math.min(1, dt * 5);
-    if (moving > 0.01) this.walkPhase += dt * cadence;
 
-    const wb = this.walkBlend;
-    const ib = 1 - wb;
-    const tb = this.talkBlend;
-    const s = Math.sin(this.walkPhase);
-    const c = Math.cos(this.walkPhase);
+    // Breathing (the mixer never touches scale)
+    const idleish = this.anim.current === 'idle' || this.anim.base === 'sit' || this.anim.base === 'talk';
+    this._breathe += ((idleish ? 1 : 0.35) - this._breathe) * Math.min(1, dt * 3);
+    const br = Math.sin(t * 2.1) * this._breathe;
+    this.chest.scale.set(1 + br * 0.012, 1 + br * 0.014, 1 + br * 0.02);
 
-    // Legs + knees
-    const stride = 0.55 * wb;
-    this.legL.rotation.x = s * stride;
-    this.legR.rotation.x = -s * stride;
-    this.shinL.rotation.x = Math.max(0, Math.sin(this.walkPhase + 0.9)) * 0.85 * wb;
-    this.shinR.rotation.x = Math.max(0, -Math.sin(this.walkPhase + 0.9)) * 0.85 * wb;
-    this.legL.rotation.z = 0;
-    this.legR.rotation.z = 0;
-
-    // Hips bob + sway
-    const breath = Math.sin(t * 2.1);
-    this.hips.position.y = this._hipBaseY + (Math.abs(c) - 0.6) * 0.06 * wb;
-    this.hips.rotation.y = -s * 0.08 * wb;
-    this.hips.rotation.z = c * 0.03 * wb + Math.sin(t * 0.35) * 0.015 * ib;
-
-    // Spine: counter-twist, forward lean, breathing
-    this.spine.rotation.y = s * 0.16 * wb;
-    this.spine.rotation.x = 0.07 * wb + breath * 0.012 * ib;
-    this.spine.rotation.z = -this.hips.rotation.z * 0.8;
-    this.spine.scale.set(1 + breath * 0.012 * ib, 1 + breath * 0.018 * ib, 1 + breath * 0.02 * ib);
-
-    // Arms: swing opposite to legs; idle hang; talking gestures
-    const armSwing = 0.5 * wb;
-    const gest = Math.sin(t * 3.3) * 0.5 + 0.5;
-    const gest2 = Math.sin(t * 2.1 + 1.3);
-    this.armL.rotation.x = -s * armSwing + breath * 0.02 * ib - tb * (0.35 + 0.35 * Math.max(0, gest2));
-    this.armR.rotation.x = s * armSwing + breath * 0.02 * ib - tb * (0.55 + 0.35 * gest);
-    this.armL.rotation.z = 0.07 + 0.04 * wb + tb * 0.18 * Math.max(0, gest2);
-    this.armR.rotation.z = -0.07 - 0.04 * wb - tb * (0.2 + 0.12 * gest);
-    this.armL.rotation.y = 0;
-    this.armR.rotation.y = 0;
-
-    if (mode === 'playing') {
-      const sw = Math.sin(t * 3);
-      this.armR.rotation.x = -0.6 + sw * 0.9;
-      this.armR.rotation.z = -0.3 - Math.sin(t * 1.5) * 0.25;
-      this.spine.rotation.y = sw * 0.35;
+    // Head look-at (yaw only, in the chest frame)
+    let yaw = 0;
+    const lw = this._look ? 1 : 0;
+    this._lookW += (lw - this._lookW) * Math.min(1, dt * 4);
+    if (this._look) {
+      this.root.updateWorldMatrix(true, false);
+      _lookV.copy(this._look);
+      this.root.worldToLocal(_lookV);
+      yaw = Math.atan2(_lookV.x, _lookV.z);
+      yaw = Math.max(-1.15, Math.min(1.15, yaw));
+      this._lookYaw += (yaw - this._lookYaw) * Math.min(1, dt * 6);
+    }
+    if (this._lookW > 0.01) {
+      // Subtract what the clip already turned the upper body, so the head ends up on target
+      const partial = this._lookYaw * this._lookW;
+      _lookQ.setFromAxisAngle(_axisY, partial * 0.75);
+      this.head.quaternion.premultiply(_lookQ);
+      _lookQ.setFromAxisAngle(_axisY, partial * 0.25);
+      this.chest.quaternion.premultiply(_lookQ);
     }
 
-    // Head: gentle look-around when idle, nod when talking, steady when walking
-    this.head.rotation.y = Math.sin(t * 0.43) * 0.3 * ib * (1 - tb) + Math.sin(t * 1.3) * 0.08 * tb;
-    this.head.rotation.x = Math.sin(t * 0.61) * 0.05 * ib + Math.sin(t * 5.2) * 0.07 * tb - 0.03 * wb;
-    this.head.rotation.z = Math.sin(t * 0.37) * 0.04 * ib + 0.06 * tb * Math.sin(t * 0.8);
+    // Steering (seated in the cart): both arms rotate about the wheel axis
+    if (this.seated && Math.abs(this._steer) > 0.001) {
+      _steerQ.setFromAxisAngle(_axisZ, this._steer * 0.3);
+      this.armL.quaternion.premultiply(_steerQ);
+      this.armR.quaternion.premultiply(_steerQ);
+      _steerQ.setFromAxisAngle(_axisY, this._steer * 0.12);
+      this.head.quaternion.premultiply(_steerQ);
+    }
+
+    const bv = this.anim.ballOverride ?? this._ballVisible;
+    this.ballBone.scale.setScalar(bv ? 1 : 0);
   }
 
-  /** Static seated pose (driving the cart). Update() is skipped while seated. */
+  /** Seated in the cart: plays the looping 'drive' clip (keep calling update()). */
   setSeated(on) {
+    if (on === this.seated) return;
     this.seated = on;
-    this.hips.position.y = this._hipBaseY;
-    this.hips.rotation.set(0, 0, 0);
-    this.spine.rotation.set(on ? -0.08 : 0, 0, 0);
-    this.spine.scale.set(1, 1, 1);
-    this.head.rotation.set(on ? 0.05 : 0, 0, 0);
-    this.legL.rotation.set(on ? -Math.PI / 2 : 0, 0, on ? 0.08 : 0);
-    this.legR.rotation.set(on ? -Math.PI / 2 : 0, 0, on ? -0.08 : 0);
-    this.shinL.rotation.set(on ? Math.PI / 2 - 0.1 : 0, 0, 0);
-    this.shinR.rotation.set(on ? Math.PI / 2 - 0.1 : 0, 0, 0);
-    // Right hand (-X) to the wheel, left arm resting forward
-    this.armR.rotation.set(on ? -1.05 : 0, 0, on ? 0.18 : 0);
-    this.armL.rotation.set(on ? -0.75 : 0, 0, on ? -0.08 : 0);
+    if (on) {
+      this.anim.autoIdleVariants = false;
+      this.play('drive', { fade: 0 });
+    } else {
+      this.anim.autoIdleVariants = true;
+      this.stop(0);
+      this._steer = 0;
+    }
+    this.anim.update(1 / 30);
+    this._postProcess(1 / 30);
   }
 }
+
+export { CLIP_NAMES };
 
 // ───────────────────────────── Blob (contact) shadows ─────────────────────────────
 

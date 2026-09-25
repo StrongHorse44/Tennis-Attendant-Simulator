@@ -31,6 +31,11 @@ const PLAYER_STYLE = {
 
 const _offset = new THREE.Vector3();
 
+// Gait: model units travelled per cycle by the walk / run clips (see CLIP_DEFS stride)
+const WALK_STRIDE = 1.45;
+const RUN_STRIDE = 2.4;
+const MAX_CYCLES = 2.6; // cap the leg cadence at top speed so the sprint stays readable
+
 /**
  * Player - attendant character with walking/driving states
  */
@@ -60,6 +65,17 @@ export class Player {
 
     this.character = new Character(PLAYER_STYLE, 'player');
     this.mesh.add(this.character.root);
+    // Seated in the cart the game loop no longer calls update(): tick the driving clip from
+    // the body's own render callback instead (no main.js wiring). See enterCart().
+    this._seatTickAt = 0;
+    this._seatTick = () => {
+      const now = performance.now();
+      const dt = (now - this._seatTickAt) / 1000;
+      if (dt < 0.004) return; // extra render passes (GTAO / shadows) in the same frame
+      this._seatTickAt = now;
+      if (this.cart) this.character.setSteer(-(this.cart.steerAngle || 0) / 0.45);
+      this.character.update(Math.min(dt, 0.05));
+    };
 
     // Legacy limb handles
     this.leftLeg = this.character.legL;
@@ -100,6 +116,8 @@ export class Player {
 
     const cs = SIZES.cartScale;
     this.character.setSeated(true);
+    this._seatTickAt = performance.now();
+    this.character.skinned.onBeforeRender = this._seatTick;
     (cart.seatAnchor || cart.mesh).add(this.mesh);
     this.mesh.position.copy(SEAT_POS);
     this.mesh.rotation.set(0, Math.PI, 0);
@@ -124,6 +142,7 @@ export class Player {
 
     // Back into the world, standing, facing away from the cart
     this.scene.add(this.mesh);
+    this.character.skinned.onBeforeRender = THREE.Object3D.prototype.onBeforeRender;
     this.character.setSeated(false);
     const s = SIZES.playerScale;
     this.mesh.scale.set(s, s, s);
@@ -157,9 +176,16 @@ export class Player {
       this.animTime += dt * inputLen * 8;
     }
 
-    // Walk / idle animation (bones), cadence scales with stick deflection
-    const moving = inputLen > 0.1 ? Math.min(1, 0.45 + inputLen * 0.6) : 0;
-    this.character.update(dt, moving, 7 + inputLen * 5.5, 'idle');
+    // Locomotion clips: idle → walk → run by stick deflection, cadence matched to ground speed
+    if (inputLen > 0.1) {
+      const run = THREE.MathUtils.smoothstep(inputLen, 0.5, 0.85);
+      const modelSpeed = (this.speed * inputLen) / SIZES.playerScale;
+      const stride = WALK_STRIDE + (RUN_STRIDE - WALK_STRIDE) * run;
+      this.character.setLocomotion(1, Math.min(MAX_CYCLES, modelSpeed / stride), run);
+    } else {
+      this.character.setLocomotion(0);
+    }
+    this.character.update(dt);
 
     // Sync mesh to physics (feet on the ground: sphere centre minus its radius)
     const r = SIZES.playerRadius * SIZES.playerScale;

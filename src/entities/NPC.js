@@ -7,6 +7,7 @@ import { getGeometry, mergeParts, makeMatrix, roundedBox, sphereGeo } from '../g
 import {
   Character, BlobShadows, CameraTracker, hashString, SKIN_TONES, HAIR_COLORS,
 } from './CharacterModel.js';
+import { findSeats, claimSeat, releaseSeat, SIT_SEAT_HEIGHT } from './Seats.js';
 
 /**
  * Hand-authored looks for the shipped NPCs (keyed by npcs.json id). NPCs not listed here get a
@@ -70,6 +71,28 @@ const TAG_CONST_DIST = 7;    // closer than this the tag shrinks to keep a const
 
 const _emojiTextures = new Map();
 
+// Reaction emoji → reaction clip (MissionSystem shows 😊 / 😤 / 🤷 after a choice)
+const REACTION_CLIPS = {
+  '\uD83D\uDE0A': 'react_happy', '\uD83D\uDE00': 'react_happy', '\uD83D\uDE03': 'react_happy', '\uD83C\uDF89': 'react_happy', '\uD83D\uDC4D': 'react_happy',
+  '\uD83D\uDE24': 'react_annoyed', '\uD83D\uDE20': 'react_annoyed', '\uD83D\uDE21': 'react_annoyed', '\uD83D\uDE12': 'react_annoyed',
+  '\uD83E\uDD37': 'shrug', '\uD83E\uDD14': 'shrug',
+};
+const MOOD_CLIPS = { satisfied: 'react_happy', unsatisfied: 'react_annoyed', neutral: 'shrug' };
+
+// Idle variants per archetype (entitled members check their watch a lot)
+const IDLE_VARIANTS = {
+  entitled: ['idle_watch', 'idle_watch', 'idle_look', 'idle_shift'],
+  friendly: ['idle_look', 'idle_shift', 'idle_look'],
+  clueless: ['idle_look', 'idle_look', 'idle_shift', 'idle_watch'],
+};
+
+const WALK_STRIDE = 1.45;   // model units per walk cycle (CLIP_DEFS.walk.stride)
+const RUN_STRIDE = 2.4;
+const SIT_CHANCE = 0.3;      // chance an idle NPC near a free seat goes to sit
+const SIT_CHANCE_BENCH_WP = 0.75; // …when its current waypoint is a *_bench waypoint
+const SEAT_SEARCH_RADIUS = 9;
+const _tmpV = new THREE.Vector3();
+
 /**
  * NPC - club member with wandering, dialogue, and task functionality
  */
@@ -102,6 +125,21 @@ export class NPC {
     this.reactionSprite = null;
     this.reactionTimer = 0;
 
+    // Sitting (benches) and tennis ('playing') state
+    this._seatTarget = null;     // seat we are walking to
+    this._sitSeat = null;        // seat we are on / getting up from (drives the mesh offset)
+    this._sitBlend = 0;
+    this._sitTimer = 0;
+    this._wanderTime = 0;
+    this._lastWaypointKey = null;
+    this.playing = null;         // { courtId, side } while in the 'playing' state
+    this._playMove = null;       // { x, z, speed, face, onArrive }
+    this._playClip = null;
+    this._faceYaw = null;
+    this._resumePlaying = false;
+    this._camDist = 10;
+    this._reactHold = 0;
+
     CameraTracker.install(scene);
     this._blobs = BlobShadows.get(scene);
     this._blobSlot = this._blobs.alloc();
@@ -128,12 +166,21 @@ export class NPC {
         if (!first) first = wp;
         if (k.startsWith(a) && /^\d+$/.test(k.slice(a.length))) numbered.push(wp);
       }
-      if (numbered.length) return numbered[Math.floor(Math.random() * numbered.length)];
-      if (first) return first;
+      if (numbered.length) {
+        const wp = numbered[Math.floor(Math.random() * numbered.length)];
+        this._lastWaypointKey = Object.keys(this.waypoints).find(k => this.waypoints[k] === wp) || null;
+        return wp;
+      }
+      if (first) {
+        this._lastWaypointKey = Object.keys(this.waypoints).find(k => this.waypoints[k] === first) || null;
+        return first;
+      }
     }
     // Fallback to a random waypoint
     const keys = Object.keys(this.waypoints);
-    return this.waypoints[keys[Math.floor(Math.random() * keys.length)]];
+    const key = keys[Math.floor(Math.random() * keys.length)];
+    this._lastWaypointKey = key;
+    return this.waypoints[key];
   }
 
   /** Deterministic fallback look for NPCs without a hand-authored style. */
@@ -171,6 +218,7 @@ export class NPC {
     this.style = style;
 
     this.character = new Character(style, `npc:${this.id}:${this.data.shirtColor}`);
+    this.character.anim.idleVariants = IDLE_VARIANTS[this.archetype] || IDLE_VARIANTS.friendly;
     const s = style.scale ?? 0.87;
     this.character.root.scale.setScalar(s);
     this.mesh.add(this.character.root);
@@ -318,6 +366,17 @@ export class NPC {
     this.reactionSprite.position.y = this._headTop() + 0.9;
     if (!this.reactionSprite.parent) this.mesh.add(this.reactionSprite);
     this.reactionTimer = 2.0;
+
+    // Body language to match
+    const clip = REACTION_CLIPS[emoji] || MOOD_CLIPS[this.mood];
+    if (clip) this.react(clip);
+  }
+
+  /** Play a reaction clip ('react_happy' | 'react_annoyed' | 'shrug' | 'wave' | 'greet' …). */
+  react(clip) {
+    if (this.state === 'sitting') this._standUp();
+    const d = this.character.play(clip, { fade: 0.2 });
+    if (this.state === 'wandering') this._reactHold = d; // stand still while reacting
   }
 
   update(dt, playerPos) {
@@ -349,6 +408,9 @@ export class NPC {
       case 'talking':
         this._faceTarget(playerPos, dt);
         break;
+      case 'sitting':
+        this._updateSitting(dt);
+        break;
       case 'playing':
         this._updatePlaying(dt);
         break;
@@ -360,15 +422,32 @@ export class NPC {
       if (this.body.position.y > SIZES.npcRadius + 0.02) this.body.velocity.y = Math.min(this.body.velocity.y, -6);
     }
 
-    // Sync mesh to physics (feet on the ground: sphere centre minus its radius)
-    this.mesh.position.set(
-      this.body.position.x,
-      Math.max(0, this.body.position.y - SIZES.npcRadius),
-      this.body.position.z
-    );
+    // Sync mesh to physics (feet on the ground: sphere centre minus its radius); while sitting
+    // (or getting up) the mesh eases between the body and the seat.
+    const gx = this.body.position.x, gz = this.body.position.z;
+    const gy = Math.max(0, this.body.position.y - SIZES.npcRadius);
+    const sitTarget = this.state === 'sitting' ? 1 : 0;
+    const ds = sitTarget - this._sitBlend;
+    this._sitBlend += Math.sign(ds) * Math.min(Math.abs(ds), dt * 2.2);
+    if (this._sitSeat && this._sitBlend > 0) {
+      const k = this._sitBlend * this._sitBlend * (3 - 2 * this._sitBlend);
+      const seat = this._sitSeat;
+      this.mesh.position.set(
+        gx + (seat.x - gx) * k,
+        gy + (seat.y - SIT_SEAT_HEIGHT * this.modelScale - gy) * k,
+        gz + (seat.z - gz) * k,
+      );
+    } else {
+      this.mesh.position.set(gx, gy, gz);
+      if (this._sitSeat && sitTarget === 0) { releaseSeat(this._sitSeat, this); this._sitSeat = null; }
+    }
 
-    const mode = this.state === 'talking' ? 'talking' : (this.state === 'playing' ? 'playing' : 'idle');
-    this.character.update(dt, this._moving, 7.5, mode);
+    // Animation: talking looks at the player; mixer rate drops with camera distance
+    if (this.state === 'talking' && playerPos) this.character.lookAt(_tmpV.set(playerPos.x, this.mesh.position.y + 1.5, playerPos.z));
+    const cd = this._camDist;
+    const low = Quality.tier === 'low';
+    this.character.updateEvery = cd > 30 ? (low ? 5 : 4) : cd > 16 ? (low ? 3 : 2) : (low && cd > 10 ? 2 : 1);
+    this.character.update(dt);
 
     const bs = 0.95 * this.modelScale;
     this._blobs.set(this._blobSlot, this.mesh.position.x, this.mesh.position.z, bs, bs, 0, Math.max(this.mesh.position.y + 0.02, 0.065));
@@ -421,32 +500,75 @@ export class NPC {
 
   _updateIdle(dt) {
     this.wanderTimer -= dt;
+    this.character.setLocomotion(0);
 
     if (this.wanderTimer <= 0) {
+      const seat = this._pickSeat();
       this.state = 'wandering';
-      this.currentTarget = this._getPreferredWaypoint();
+      this._wanderTime = 0;
+      if (seat) {
+        this._seatTarget = seat;
+        this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
+      } else {
+        this.currentTarget = this._getPreferredWaypoint();
+      }
       this.wanderTimer = Math.random() * 8 + 4;
     }
   }
 
+  /** A free seat near us, sometimes (more likely when we stopped at a *_bench waypoint). */
+  _pickSeat() {
+    const chance = /_bench$/i.test(this._lastWaypointKey || '') ? SIT_CHANCE_BENCH_WP : SIT_CHANCE;
+    if (Math.random() > chance) return null;
+    const seats = findSeats(this.scene);
+    let best = null, bestD = SEAT_SEARCH_RADIUS * SEAT_SEARCH_RADIUS;
+    const px = this.body.position.x, pz = this.body.position.z;
+    for (const seat of seats) {
+      if (seat.taken) continue;
+      const dx = seat.x - px, dz = seat.z - pz;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; best = seat; }
+    }
+    if (best && claimSeat(best, this)) return best;
+    return null;
+  }
+
   _updateWandering(dt) {
     if (!this.currentTarget) {
+      this._cancelSeatTarget();
       this.state = 'idle';
+      return;
+    }
+    this._wanderTime += dt;
+    if (this._reactHold > 0) {
+      this._reactHold -= dt;
+      this.body.velocity.set(0, this.body.velocity.y, 0);
+      this.character.setLocomotion(0);
       return;
     }
 
     const dx = this.currentTarget.x - this.body.position.x;
     const dz = this.currentTarget.z - this.body.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
+    const seat = this._seatTarget;
 
-    if (dist < 1.5) {
-      this.state = 'idle';
+    if ((seat && dist < 0.22) || (!seat && dist < 1.5)) {
       this.body.velocity.set(0, this.body.velocity.y, 0);
       this.wanderTimer = Math.random() * 8 + 4;
+      if (seat) this._sitDown(seat);
+      else this.state = 'idle';
+      return;
+    }
+    // Stuck (hedge, cart, player): give up after a while
+    if (this._wanderTime > 30) {
+      this._cancelSeatTarget();
+      this.state = 'idle';
+      this.body.velocity.set(0, this.body.velocity.y, 0);
       return;
     }
 
-    const speed = SIZES.npcSpeed;
+    let speed = SIZES.npcSpeed;
+    if (seat) speed = Math.min(speed, 0.35 + dist * 1.4); // settle precisely in front of the seat
     this.body.velocity.x = (dx / dist) * speed;
     this.body.velocity.z = (dz / dist) * speed;
 
@@ -455,10 +577,152 @@ export class NPC {
 
     this.animTime += dt * 6;
     this._moving = 1;
+    const cps = (speed / this.modelScale) / WALK_STRIDE;
+    this.character.setLocomotion(speed > 0.05 ? 1 : 0, cps, 0);
+  }
+
+  _cancelSeatTarget() {
+    if (this._seatTarget && this._seatTarget !== this._sitSeat) releaseSeat(this._seatTarget, this);
+    this._seatTarget = null;
+  }
+
+  _sitDown(seat) {
+    this._seatTarget = null;
+    if (this._sitSeat && this._sitSeat !== seat) releaseSeat(this._sitSeat, this);
+    this._sitSeat = seat;
+    this.state = 'sitting';
+    this._sitTimer = 12 + Math.random() * 22;
+    this.character.setLocomotion(0);
+    this.character.play('sit', { fade: 0.5 });
+  }
+
+  _updateSitting(dt) {
+    this.body.velocity.set(0, this.body.velocity.y, 0);
+    if (this._sitSeat) this._turnToward(this._sitSeat.yaw, dt, 7);
+    this._sitTimer -= dt;
+    if (this._sitTimer <= 0) this._standUp();
+  }
+
+  /** Get up from the bench (the mesh eases back to the body over ~0.45 s). */
+  _standUp() {
+    if (this.state !== 'sitting') return;
+    this.state = 'idle';
+    this.wanderTimer = Math.random() * 4 + 2;
+    this.character.stop(0.45);
+  }
+
+  // ── Tennis ('playing') state — match logic lives elsewhere; these are the body controls ──
+
+  /**
+   * Enter the 'playing' state: racket out, 'ready' stance, no wandering. Other states
+   * (talking to the player, reactions) still work and return here afterwards.
+   * @param {string} courtId
+   * @param {string} [side] e.g. 'north' | 'south' (stored for the match logic)
+   */
+  startPlaying(courtId, side = null) {
+    if (this.state === 'sitting') this._standUp();
+    this._cancelSeatTarget();
+    if (!this.playing) this._racketWasVisible = this.character.racketVisible;
+    this.playing = { courtId, side };
+    this.state = 'playing';
+    this._playMove = null;
+    this._playClip = null;
+    this.currentTarget = null;
+    this.character.setRacketVisible(true);
+    this.character.anim.autoIdleVariants = false;
+    this.character.setLocomotion(0);
+    this._setPlayClip('ready');
+  }
+
+  /** Leave the 'playing' state and go back to idling / wandering. */
+  stopPlaying() {
+    if (!this.playing && this.state !== 'playing') return;
+    this.playing = null;
+    this._playMove = null;
+    this._playClip = null;
+    this._faceYaw = null;
+    this._resumePlaying = false;
+    this.character.setRacketVisible(this._racketWasVisible ?? !!this.style.racket);
+    this.character.setBallVisible(false);
+    this.character.anim.autoIdleVariants = true;
+    this.character.stop(0.3);
+    this.body.velocity.set(0, this.body.velocity.y, 0);
+    if (this.state === 'playing') {
+      this.state = 'idle';
+      this.wanderTimer = Math.random() * 4 + 2;
+    }
+  }
+
+  /**
+   * While playing: move the body to (x, z). Sideways moves relative to `face` use the shuffle
+   * clips, longer / faster ones run; on arrival the NPC settles back into 'ready'.
+   * @param {number} x
+   * @param {number} z
+   * @param {{speed?:number, face?:number|null, onArrive?:Function}} [opts] speed in m/s;
+   *   face = yaw to keep facing (e.g. toward the net), default: the travel direction
+   */
+  moveTo(x, z, opts = {}) {
+    this._playMove = { x, z, speed: opts.speed ?? 3, face: opts.face ?? null, onArrive: opts.onArrive || null };
+  }
+
+  /** Yaw (radians, 0 = +Z) the NPC turns to while playing / idle-playing. immediate = snap. */
+  setFacing(yaw, immediate = false) {
+    this._faceYaw = yaw;
+    if (immediate) this.mesh.rotation.y = yaw;
+  }
+
+  /** Convenience: play a tennis clip ('forehand' | 'backhand' | 'serve' | 'split_step' | 'pickup_ball'). */
+  swing(clip, opts) { return this.character.play(clip, opts); }
+
+  _setPlayClip(name, timeScale = 1) {
+    if (name === 'run') {
+      if (this._playClip !== 'run') this.character.stop(0.2);
+    } else if (this._playClip !== name) {
+      this.character.play(name, { fade: 0.2, timeScale });
+    } else if (timeScale !== 1) {
+      const e = this.character.anim._entries.get(name);
+      if (e) e.action.timeScale = timeScale;
+    }
+    this._playClip = name;
   }
 
   _updatePlaying(dt) {
     this.animTime += dt * 3;
+    const mv = this._playMove;
+    if (mv) {
+      const dx = mv.x - this.body.position.x;
+      const dz = mv.z - this.body.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < 0.08) {
+        this.body.velocity.set(0, this.body.velocity.y, 0);
+        this._playMove = null;
+        this.character.setLocomotion(0);
+        this._setPlayClip('ready');
+        if (mv.onArrive) { try { mv.onArrive(); } catch (e) { console.error(e); } }
+      } else {
+        const v = Math.min(mv.speed, 0.4 + dist * 5);
+        this.body.velocity.x = (dx / dist) * v;
+        this.body.velocity.z = (dz / dist) * v;
+        const yaw = mv.face ?? Math.atan2(dx, dz);
+        this._turnToward(yaw, dt, 10);
+        // Direction of travel in the character's frame (+x = its left)
+        const r = this.mesh.rotation.y, c = Math.cos(r), s = Math.sin(r);
+        const lx = dx * c - dz * s, lz = dx * s + dz * c;
+        const modelSpeed = v / this.modelScale;
+        if (Math.abs(lx) > Math.abs(lz) * 1.2 && v < 4.5) {
+          this._setPlayClip(lx > 0 ? 'shuffle_left' : 'shuffle_right', Math.min(2.4, Math.max(0.6, modelSpeed / 0.6)));
+        } else {
+          this._setPlayClip('run');
+          const run = THREE.MathUtils.smoothstep(v, 1.8, 3.2);
+          this.character.setLocomotion(1, Math.min(2.6, modelSpeed / (WALK_STRIDE + (RUN_STRIDE - WALK_STRIDE) * run)), run);
+        }
+        this._moving = 1;
+      }
+    } else {
+      this.body.velocity.set(0, this.body.velocity.y, 0);
+      if (this._playClip === 'run') this._setPlayClip('ready');
+    }
+    if (this._faceYaw !== null && !mv) this._turnToward(this._faceYaw, dt, 8);
   }
 
   _turnToward(target, dt, rate) {
@@ -476,13 +740,28 @@ export class NPC {
   }
 
   startTalking() {
+    if (this.state === 'talking') return;
+    this._resumePlaying = this.state === 'playing';
+    if (this.state === 'sitting') this._standUp();
+    if (this.state === 'wandering') this._cancelSeatTarget();
     this.state = 'talking';
     this.body.velocity.set(0, this.body.velocity.y, 0);
+    this.character.setLocomotion(0);
+    this.character.play('talk', { fade: 0.35 });
   }
 
   stopTalking() {
+    this.character.lookAt(null);
+    if (this._resumePlaying && this.playing) {
+      this._resumePlaying = false;
+      this.state = 'playing';
+      this._playClip = null;
+      this._setPlayClip('ready');
+      return;
+    }
     this.state = 'idle';
     this.wanderTimer = Math.random() * 5 + 3;
+    this.character.stop(0.4);
   }
 
   distanceTo(point) {
