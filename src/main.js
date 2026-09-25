@@ -14,6 +14,7 @@ import { GolfCart } from './entities/GolfCart.js';
 import { NPC } from './entities/NPC.js';
 import { Joystick } from './ui/Joystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
+import { injectTheme } from './ui/theme.js';
 import { HUD } from './ui/HUD.js';
 import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
 import { Quality } from './graphics/Quality.js';
@@ -158,6 +159,22 @@ class Game {
     this.renderer.info.autoReset = false;         // reset once per frame so stats include every pass
     setMaxAnisotropy(this.renderer.capabilities.getMaxAnisotropy());
 
+    // Many phone GPUs can't render into half-float targets. Post FX and the PMREM
+    // env map need that, so detect it once and fall back (8-bit composer, no env map)
+    // instead of rendering into an incomplete framebuffer (a blank screen).
+    const ext = this.renderer.extensions;
+    this.gpuCaps = {
+      halfFloatRT: this.renderer.capabilities.isWebGL2 &&
+        (ext.has('EXT_color_buffer_half_float') || ext.has('EXT_color_buffer_float')),
+    };
+
+    // A GPU reset (driver crash, memory pressure, backgrounded tab) loses the WebGL
+    // context and every GPU-backed canvas. Catch it instead of leaving a white screen.
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this._onContextLost();
+    });
+
     // Setup scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(COLORS.sky);
@@ -172,6 +189,7 @@ class Game {
 
     // Post-processing (composer is skipped entirely on 'low')
     this.postFX = new PostFX(this.renderer, this.scene, this.camera);
+    this.postFX.halfFloat = this.gpuCaps.halfFloatRT;
     this.postFX.setSize(window.innerWidth, window.innerHeight);
     this.renderStats = { calls: 0, triangles: 0 };
     this._shadowFocus = new THREE.Vector3();
@@ -248,6 +266,7 @@ class Game {
 
     // Setup weather (lighting, sky, shadows, env map)
     this.weather = new WeatherSystem(this.scene, this.renderer);
+    this.weather.envMapSupported = this.gpuCaps.halfFloatRT; // PMREM renders half-float targets
     this.weather.setCamera(this.camera);
 
     // Setup UI
@@ -1398,8 +1417,8 @@ class Game {
     this.input.setEnabled(false);
     this.sound.setPaused(true);
     if (this.dialogueBox && this.dialogueBox.setPaused) this.dialogueBox.setPaused(true);
-    // The report card is its own modal; everything else opens the pause menu
-    if (this.pauseMenu && reason !== 'report') this.pauseMenu.open();
+    // The report card and the GPU-reset panel are their own modals; everything else opens the pause menu
+    if (this.pauseMenu && reason !== 'report' && reason !== 'gpu') this.pauseMenu.open();
   }
 
   resume() {
@@ -1419,6 +1438,7 @@ class Game {
   togglePause() {
     if (!this._ready) return;
     if (this.pauseReason === 'report') return; // the report card's "Next day" resumes
+    if (this.pauseReason === 'gpu') return;    // only a reload recovers from a lost context
     if (this.paused) {
       if (this.pauseMenu && this.pauseMenu.handleEscape()) return; // stepped back from a sub-view
       this.resume();
@@ -1514,7 +1534,55 @@ class Game {
     return this._shadowFocus;
   }
 
+  /**
+   * The WebGL context was lost (GPU reset). GPU-backed resources, including the
+   * procedural canvas textures, are gone, so recovering in place isn't reliable.
+   * Save, step quality down one tier for the next load, and offer a reload.
+   */
+  _onContextLost() {
+    if (this._contextLost) return;
+    this._contextLost = true;
+    try { if (!this.paused) this.pause('gpu'); } catch (e) { /* keep going */ }
+    try { this.saveGame(); } catch (e) { /* ignore */ }
+    const order = ['high', 'medium', 'low'];
+    const next = order[Math.min(order.indexOf(Quality.tier) + 1, order.length - 1)] || 'low';
+    try { localStorage.setItem('courtcall.quality', next); } catch (e) { /* ignore */ }
+    console.warn(`WebGL context lost; graphics set to ${next} for the next load`);
+    this._showGpuResetPanel(next);
+  }
+
+  _showGpuResetPanel(tier) {
+    if (document.getElementById('cc-gpu-reset')) return;
+    injectTheme();
+    const wrap = document.createElement('div');
+    wrap.id = 'cc-gpu-reset';
+    Object.assign(wrap.style, {
+      position: 'fixed', inset: '0', zIndex: '2000', display: 'flex',
+      alignItems: 'center', justifyContent: 'center', padding: '16px',
+      background: 'rgba(12, 28, 19, 0.82)',
+    });
+    const panel = document.createElement('div');
+    panel.className = 'cc-panel';
+    Object.assign(panel.style, { maxWidth: '360px', padding: '22px', textAlign: 'center' });
+    const title = document.createElement('div');
+    title.className = 'cc-title';
+    title.style.fontSize = '22px';
+    title.textContent = 'Graphics need a restart';
+    const text = document.createElement('p');
+    Object.assign(text.style, { margin: '10px 0 18px', lineHeight: '1.5', fontSize: '15px' });
+    text.textContent = `Your device reset its graphics. Your progress is saved, and graphics quality is now set to ${tier[0].toUpperCase()}${tier.slice(1)} so it runs smoother.`;
+    const btn = document.createElement('button');
+    btn.className = 'cc-btn cc-btn--primary';
+    btn.textContent = 'Reload';
+    btn.addEventListener('click', () => window.location.reload());
+    panel.append(title, text, btn);
+    wrap.appendChild(panel);
+    for (const ev of ['pointerdown', 'touchstart', 'mousedown']) wrap.addEventListener(ev, (e) => e.stopPropagation());
+    document.body.appendChild(wrap);
+  }
+
   _render(dt) {
+    if (this._contextLost) return;
     const r = this.renderer;
     r.info.reset();
     if (r.shadowMap.enabled) r.shadowMap.needsUpdate = true;

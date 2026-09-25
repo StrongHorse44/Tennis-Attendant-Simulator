@@ -1698,6 +1698,8 @@ export class HUD {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, size, size);
 
+    // GPU-backed 2D canvases lose their pixels when the GPU resets; rebuild on restore
+    cv.addEventListener('contextrestored', () => { this._mapStaticFor = null; });
     this._mapStatic = cv;
   }
 

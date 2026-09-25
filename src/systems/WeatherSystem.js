@@ -624,7 +624,7 @@ export class WeatherSystem {
 
   _updateEnvMap(dt) {
     this._envCooldown -= dt;
-    if (!this.renderer || !this.settings.envMap) return;
+    if (!this.renderer || !this.settings.envMap || this.envMapSupported === false) return;
     let dT = Math.abs(this.timeOfDay - this._envLastT);
     if (dT > 12) dT = 24 - dT;
     const dO = Math.abs(this._overcast - this._envLastO);
