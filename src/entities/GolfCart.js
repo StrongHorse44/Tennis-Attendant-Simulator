@@ -571,6 +571,16 @@ export class GolfCart {
     this.body.quaternion.vmult(_fwd, _fwd);
     const fwd = _fwd;
 
+    // Blocked (nosed into a wall, net or the shed): bleed the tracked speed down to what the
+    // body actually achieved, so reversing away responds at once instead of first having to
+    // cancel a full "phantom" top speed (~3 s of pushing into the wall).
+    if (Math.abs(this.currentSpeed) > 1) {
+      const actual = this.body.velocity.x * fwd.x + this.body.velocity.z * fwd.z;
+      if (Math.abs(actual) < Math.abs(this.currentSpeed) * 0.5) {
+        this.currentSpeed += (actual - this.currentSpeed) * Math.min(1, dt * 8);
+      }
+    }
+
     // Drive: track speed internally so ground friction can't eat our velocity
     if (forward < -0.1) {
       // Accelerate forward

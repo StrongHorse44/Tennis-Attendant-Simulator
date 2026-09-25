@@ -3,6 +3,8 @@ import * as CANNON from 'cannon-es';
 import { COLORS, SIZES } from '../utils/Constants.js';
 import { Court } from './Court.js';
 import { Building } from './Building.js';
+import { Clubhouse, FitnessCenter, PoolHouse } from './ClubBuildings.js';
+import { CameraTracker } from '../entities/CharacterModel.js';
 import { Garden } from './Garden.js';
 import { Scenery, bakeParts } from './Scenery.js';
 import { EnvState } from '../graphics/EnvState.js';
@@ -70,6 +72,12 @@ class FlatBuilder {
       this.pos.push(cx + Math.cos(a) * r, 0, cz + Math.sin(a) * r);
     }
     for (let s = 0; s < seg; s++) this._tri(c, c + 1 + s, c + 1 + ((s + 1) % seg));
+  }
+  /** Convex quad (any winding) from four [x, z] corners. */
+  quad(p0, p1, p2, p3) {
+    const i = this.pos.length / 3;
+    for (const q of [p0, p1, p2, p3]) this.pos.push(q[0], 0, q[1]);
+    this._tri(i, i + 1, i + 2); this._tri(i, i + 2, i + 3);
   }
   rect(cx, cz, hx, hz, rotY = 0) {
     const c = Math.cos(rotY), s = Math.sin(rotY);
@@ -260,6 +268,7 @@ export class World {
     this._buildCourtJunctions();
     this._buildProShop();
     this._buildClubhouse();
+    this._buildClubBuildings();
     this._buildGarden();
     this._buildEquipmentShed();
     this._buildPatio();
@@ -303,8 +312,18 @@ export class World {
       if (A.patio.clubhouse) {
         const ch = A.patio.clubhouse;
         addRect(ch.center.x, ch.center.z, (ch.width || SIZES.clubhouseWidth) / 2 + 1.5, (ch.depth || SIZES.clubhouseDepth) / 2 + 1.5, 'building');
+        const wg = ch.wing;
+        if (wg && wg.center) addRect(wg.center.x, wg.center.z, wg.width / 2 + 1.5, wg.depth / 2 + 1.5, 'building');
       }
     }
+    // Club buildings (fitness centre, pool house) and the pool deck
+    for (const id of ['fitnessCenter', 'poolHouse']) {
+      const a = A[id];
+      if (!a || !a.center) continue;
+      const b = a.building || a.bounds;
+      addRect(a.center.x, a.center.z, b.width / 2 + 1.5, b.depth / 2 + 1.5, 'building');
+    }
+    if (A.pool && A.pool.center) addRect(A.pool.center.x, A.pool.center.z, A.pool.bounds.width / 2 + 0.8, A.pool.bounds.depth / 2 + 0.8, 'patio');
     if (A.garden) addRect(A.garden.center.x, A.garden.center.z, A.garden.bounds.width / 2, A.garden.bounds.depth / 2, 'garden');
     if (A.equipmentShed) {
       const s = A.equipmentShed;
@@ -464,12 +483,88 @@ export class World {
         edge.disc(p.x, p.z, width / 2 + EDGE_EXTRA / 2, 24);
       }
     }
+    this._fillPathNotches(top, edge);
     const m = this._pathMaterials();
     const pathMesh = staticMesh(top.toGeometry(LAYER.path, PATH_TILE), m.top, false, true);
     pathMesh.name = 'CartPaths';
     const edgeMesh = staticMesh(edge.toGeometry(LAYER.edge, 1.6), m.edge, false, true);
     edgeMesh.name = 'PathEdging';
     this.staticRoot.add(pathMesh, edgeMesh);
+  }
+
+  /**
+   * Round joints leave a small concave notch between the round outer corner (or round end cap)
+   * of one path and a neighbouring path that runs alongside it (e.g. the court loop and the
+   * perimeter path touch edge-to-edge at the NE/SE corners). Wherever the square (mitered)
+   * corner of a joint would lie on another path's pavement, fill that corner square so the
+   * union has no wedge-shaped hole. Corners out in the open keep their rounded look.
+   */
+  _fillPathNotches(top, edge) {
+    const paths = this.mapData.paths;
+    const TOL = 0.35;
+    // Is (x, z) on (or within TOL of) the pavement of any path other than `self`?
+    const onOtherPath = (x, z, self) => {
+      for (const q of paths) {
+        if (q === self) continue;
+        const r = (q.width || 3) / 2 + TOL;
+        const pts = q.points;
+        if (pts.length === 1 && Math.hypot(x - pts[0].x, z - pts[0].z) < r) return true;
+        for (let i = 0; i < pts.length - 1; i++) {
+          if (distToSeg(x, z, pts[i].x, pts[i].z, pts[i + 1].x, pts[i + 1].z) < r) return true;
+        }
+      }
+      return false;
+    };
+    // Adds the square between p, p+a·h, p+a·h+b·h, p+b·h (a, b unit vectors) to both layers.
+    const fill = (px, pz, ax, az, bx, bz, h) => {
+      const he = h + EDGE_EXTRA / 2;
+      top.quad([px, pz], [px + ax * h, pz + az * h], [px + (ax + bx) * h, pz + (az + bz) * h], [px + bx * h, pz + bz * h]);
+      edge.quad([px, pz], [px + ax * he, pz + az * he], [px + (ax + bx) * he, pz + (az + bz) * he], [px + bx * he, pz + bz * he]);
+    };
+    const dir = (a, b) => {
+      const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz);
+      return L < 1e-6 ? null : [dx / L, dz / L];
+    };
+    let filled = 0;
+    for (const path of paths) {
+      const pts = path.points;
+      const h = (path.width || 3) / 2;
+      const n = pts.length;
+      for (let i = 0; i < n; i++) {
+        const p = pts[i];
+        const dIn = i > 0 ? dir(pts[i - 1], p) : null;
+        const dOut = i < n - 1 ? dir(p, pts[i + 1]) : null;
+        if (dIn && dOut) {
+          // Interior joint: only the outer side has a round-vs-square gap
+          const cross = dIn[0] * dOut[1] - dIn[1] * dOut[0];
+          if (Math.abs(cross) < 1e-3) continue;              // straight through
+          const s = cross > 0 ? -1 : 1;                        // outer side normal sign
+          const n1 = [-dIn[1] * s, dIn[0] * s], n2 = [-dOut[1] * s, dOut[0] * s];
+          // mitered corner point (clamped for very sharp turns)
+          const mx = n1[0] + n2[0], mz = n1[1] + n2[1];
+          const ml = Math.hypot(mx, mz) || 1;
+          const k = Math.min(2.5, 2 / ml) * h;                  // miter length = h / cos(θ/2)
+          const cx = p.x + (mx / ml) * k, cz = p.z + (mz / ml) * k;
+          if (!onOtherPath(cx, cz, path)) continue;
+          const he = h + EDGE_EXTRA / 2, ke = k * he / h;
+          top.quad([p.x, p.z], [p.x + n1[0] * h, p.z + n1[1] * h], [cx, cz], [p.x + n2[0] * h, p.z + n2[1] * h]);
+          edge.quad([p.x, p.z], [p.x + n1[0] * he, p.z + n1[1] * he], [p.x + (mx / ml) * ke, p.z + (mz / ml) * ke], [p.x + n2[0] * he, p.z + n2[1] * he]);
+          filled++;
+        } else {
+          // End cap: square off each half whose corner lands on another path
+          const d = dOut ? [-dOut[0], -dOut[1]] : dIn;          // pointing out of the path end
+          if (!d) continue;
+          for (const s of [-1, 1]) {
+            const nx = -d[1] * s, nz = d[0] * s;
+            const cx = p.x + (d[0] + nx) * h, cz = p.z + (d[1] + nz) * h;
+            if (!onOtherPath(cx, cz, path)) continue;
+            fill(p.x, p.z, d[0], d[1], nx, nz, h);
+            filled++;
+          }
+        }
+      }
+    }
+    this.pathNotchFills = filled;
   }
 
   // ───────────────────────────── courts & buildings (other modules) ─────────────────────────────
@@ -527,9 +622,23 @@ export class World {
   _buildClubhouse() {
     const patioConfig = this.mapData.areas.patio;
     if (patioConfig && patioConfig.clubhouse) {
-      const clubhouse = new Building(this.scene, this.physicsWorld, 'clubhouse', patioConfig.clubhouse);
+      const clubhouse = new Clubhouse(this.scene, this.physicsWorld, patioConfig.clubhouse);
       this.buildings.push(clubhouse);
     }
+  }
+
+  /** Fitness & wellness centre and the pool house + pool (map.json areas.fitnessCenter / poolHouse / pool). */
+  _buildClubBuildings() {
+    const A = this.mapData.areas;
+    const ok = (a) => a && a.center && Number.isFinite(a.center.x) && Number.isFinite(a.center.z) && (a.building || a.bounds);
+    if (ok(A.fitnessCenter)) this.buildings.push(new FitnessCenter(this.scene, this.physicsWorld, A.fitnessCenter));
+    if (ok(A.poolHouse)) this.buildings.push(new PoolHouse(this.scene, this.physicsWorld, A.poolHouse, ok(A.pool) ? A.pool : null));
+  }
+
+  /** The building whose rooms contain (x, z), or null. */
+  buildingAt(x, z) {
+    for (const b of this.buildings) if (b.isInside(x, z)) return b;
+    return null;
   }
 
   _buildGarden() {
@@ -665,7 +774,8 @@ export class World {
     const rise = 1.15;
 
     // Slab + apron (concrete, world UV)
-    const slabGeo = mergeParts([P(roundedBox(w + 0.5, 0.12, d + 1.7, 0.03), makeMatrix(cx, 0.06, cz + 0.6))]);
+    // Low (0.08) so carts roll straight in from the apron without a physics step
+    const slabGeo = mergeParts([P(roundedBox(w + 0.5, 0.08, d + 1.7, 0.03), makeMatrix(cx, 0.04, cz + 0.6))]);
     worldBoxUV(slabGeo, PATH_TILE);
     this.staticRoot.add(staticMesh(slabGeo, this._pathMaterials().top, false, true));
 
@@ -683,10 +793,12 @@ export class World {
       return g;
     });
     woodParts.push(P(gable, makeMatrix(cx, h, back)), P(gable, makeMatrix(cx, h, front)));
-    // Door leaves hinged at the front corners, swung open ~105°
+    // Door leaves hinged at the front corners, swung all the way back against the side
+    // walls so the drive-in bay and its apron are completely clear
     const leafW = w / 2 - 0.05, leafH = h - 0.25;
+    const DOOR_SWING = Math.PI - 0.07;
     for (const side of [-1, 1]) {
-      const dirX = side * Math.sin(0.26), dirZ = Math.cos(0.26);
+      const dirX = side * Math.sin(DOOR_SWING), dirZ = Math.cos(DOOR_SWING);
       const ry = Math.atan2(-dirZ, dirX);
       const hx = cx + side * (w / 2 + 0.09), hz = front + 0.05;
       woodParts.push(P(boxGeo(leafW, leafH, 0.07), makeMatrix(hx + dirX * leafW / 2, leafH / 2 + 0.12, hz + dirZ * leafW / 2, ry)));
@@ -716,12 +828,13 @@ export class World {
     ];
     for (const sx of [-1, 1]) {
       for (const z of [back, front]) trim.push(P(boxGeo(0.2, h, 0.2), makeMatrix(cx + sx * (w / 2 + 0.02), h / 2, z), C));
-      // side window
-      trim.push(P(boxGeo(0.06, 0.8, 1.0), makeMatrix(cx + sx * (w / 2 + 0.08), 1.6, cz - 0.2), C));
-      trim.push(P(boxGeo(0.07, 0.62, 0.82), makeMatrix(cx + sx * (w / 2 + 0.09), 1.6, cz - 0.2), 0x2c3a40));
-      trim.push(P(boxGeo(0.08, 0.05, 0.82), makeMatrix(cx + sx * (w / 2 + 0.1), 1.6, cz - 0.2), C));
+      // side window (behind the folded-back door leaf)
+      const winZ = back + 0.72;
+      trim.push(P(boxGeo(0.06, 0.8, 0.9), makeMatrix(cx + sx * (w / 2 + 0.08), 1.6, winZ), C));
+      trim.push(P(boxGeo(0.07, 0.62, 0.72), makeMatrix(cx + sx * (w / 2 + 0.09), 1.6, winZ), 0x2c3a40));
+      trim.push(P(boxGeo(0.08, 0.05, 0.72), makeMatrix(cx + sx * (w / 2 + 0.1), 1.6, winZ), C));
       // door Z-braces (both faces)
-      const dirX = sx * Math.sin(0.26), dirZ = Math.cos(0.26);
+      const dirX = sx * Math.sin(DOOR_SWING), dirZ = Math.cos(DOOR_SWING);
       const ry = Math.atan2(-dirZ, dirX);
       const hx = cx + sx * (w / 2 + 0.09), hz = front + 0.05;
       const mid = (t, y, off) => [hx + dirX * leafW * t + Math.sin(ry) * off, y, hz + dirZ * leafW * t + Math.cos(ry) * off];
@@ -792,8 +905,25 @@ export class World {
       this.physicsWorld.addBody(sideBody);
     }
 
-    // Planters by the doors
+    // Planters behind the shed
     for (const sx of [-1, 1]) this.scenery.addFlowerClump(cx + sx * (w / 2 + 0.55), 0, back - 0.55, sx < 0 ? 0xf2c14e : 0xe8e1f0, 1.1);
+
+    // "Brush hitch" parking bay painted on the apron (shed_apron path in map.json): an
+    // outlined box with chevrons pointing into the open bay. Attach/Detach triggers anywhere
+    // on the apron or inside the shed (CourtMaintenanceSystem.isNearEquipmentShed).
+    const paint = new FlatBuilder();
+    const bayW = 3.2, bz0 = front + 0.55, bz1 = front + 4.1, lw = 0.07;
+    paint.rect(cx - bayW / 2, (bz0 + bz1) / 2, lw, (bz1 - bz0) / 2);
+    paint.rect(cx + bayW / 2, (bz0 + bz1) / 2, lw, (bz1 - bz0) / 2);
+    paint.rect(cx, bz1, bayW / 2 + lw, lw);
+    for (const oz of [1.2, 2.3]) {          // chevrons (tip toward the shed)
+      const tz = bz0 + oz;
+      for (const sx of [-1, 1]) {
+        const ang = -sx * 0.62;
+        paint.rect(cx + sx * 0.36, tz + 0.26, 0.44, 0.075, ang);
+      }
+    }
+    this.staticRoot.add(staticMesh(paint.toGeometry(LAYER.paint, 4), mat(0xf0ece2, { roughness: 0.55, polygonOffset: -1, name: 'paint' }), false, true));
   }
 
   // ───────────────────────────── patio ─────────────────────────────
@@ -1502,6 +1632,16 @@ export class World {
 
   /** @param {number} dt @param {{x:number,y:number,z:number}} [focus] player / cart world position */
   update(dt, focus) {
+    // Building cutaways + interior visibility; indoorBlend eases the follow camera in/up indoors
+    const cam = CameraTracker.valid ? CameraTracker.position : null;
+    let indoor = false;
+    for (let i = 0; i < this.buildings.length; i++) {
+      const b = this.buildings[i];
+      if (b.updateView(focus, cam)) indoor = true;
+      if (b.update) b.update(dt);
+    }
+    const k = Math.min(1, dt * 3);
+    this.indoorBlend = (this.indoorBlend || 0) + ((indoor ? 1 : 0) - (this.indoorBlend || 0)) * k;
     if (focus) {
       const cf = this._carryFocus || (this._carryFocus = new THREE.Vector3());
       cf.set(focus.x, focus.y + 2.4, focus.z);

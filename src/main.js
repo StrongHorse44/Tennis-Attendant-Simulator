@@ -11,7 +11,7 @@ import { SoundSystem } from './systems/SoundSystem.js';
 import { World } from './world/World.js';
 import { Player } from './entities/Player.js';
 import { GolfCart } from './entities/GolfCart.js';
-import { NPC } from './entities/NPC.js';
+import { NPC, configureArchetypes } from './entities/NPC.js';
 import { Joystick } from './ui/Joystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
 import { injectTheme } from './ui/theme.js';
@@ -28,9 +28,10 @@ import { PauseMenu } from './ui/PauseMenu.js';
 import { ShiftSystem } from './systems/ShiftSystem.js';
 import { ShiftReport } from './ui/ShiftReport.js';
 import { MissionMarkers } from './systems/MissionMarkers.js';
-import { buildWorldFacts, DETECTABLE_AREAS } from './systems/MissionValidation.js';
+import { buildWorldFacts, DETECTABLE_AREAS, INDOOR_AREAS, OUTDOOR_EXTRA_AREAS } from './systems/MissionValidation.js';
 import { ITEMS } from './systems/InventorySystem.js';
 import { MatchSystem } from './systems/MatchSystem.js';
+import { ItemProps } from './world/ItemProps.js';
 
 /** Seconds of unpaused play between autosaves. */
 const AUTOSAVE_INTERVAL = 30;
@@ -362,6 +363,12 @@ class Game {
     // Register NPCs with mission system
     this.missionSystem.registerNPCs(this.npcs);
 
+    // Errand items as real props: waiting at the pickup spot, carried, set down on delivery
+    this.itemProps = new ItemProps(this.scene, {
+      missions: this.missionSystem, inventory: this.inventory, player: this.player, cart: this.cart, mapData: this.mapData,
+    });
+    this.missionSystem.onItemDelivered = (mission, item, location) => this.itemProps.onDelivered(mission, item, location);
+
     // Member tennis matches on the court schedule (public/data/schedule.json)
     this.matches = new MatchSystem({
       scene: this.scene, physicsWorld: this.physicsWorld, courts: this.world.courts, npcs: this.npcs,
@@ -584,6 +591,7 @@ class Game {
 
   _spawnNPCs() {
     const waypoints = this.mapData.waypoints;
+    configureArchetypes(this.npcData.archetypes); // name-tag / dialogue colours per archetype
 
     for (const npcDef of this.npcData.npcs) {
       try {
@@ -619,7 +627,7 @@ class Game {
       if (wp && Number.isFinite(wp.x) && Number.isFinite(wp.z)) points.set(id, { x: wp.x, z: wp.z, h });
     };
     for (const c of areas.courts || []) add(c.id, c.center, MARKER_HEIGHT_COURT);
-    for (const id of DETECTABLE_AREAS) if (areas[id]) add(id, areas[id].center, MARKER_HEIGHT[id] || 3.4);
+    for (const id of DETECTABLE_AREAS) if (areas[id]) add(id, areas[id].center, areas[id].markerHeight || MARKER_HEIGHT[id] || 3.4);
     return points;
   }
 
@@ -1047,10 +1055,18 @@ class Game {
       }
     }
 
+    // Rooms inside the club buildings win over the patio / outdoor areas around them
+    for (let i = 0; i < INDOOR_AREAS.length; i++) {
+      if (this._inArea(pos, areas[INDOOR_AREAS[i]], 0)) return INDOOR_AREAS[i];
+    }
+
     if (this._inArea(pos, areas.proShop, 2)) return 'proShop';
     if (this._inArea(pos, areas.patio, 2)) return 'patio';
     if (this._inArea(pos, areas.garden, 2)) return 'garden';
     if (this._inArea(pos, areas.equipmentShed, 2)) return 'equipmentShed';
+    for (let i = 0; i < OUTDOOR_EXTRA_AREAS.length; i++) {
+      if (this._inArea(pos, areas[OUTDOOR_EXTRA_AREAS[i]], 1)) return OUTDOOR_EXTRA_AREAS[i];
+    }
 
     return null;
   }
@@ -1190,8 +1206,14 @@ class Game {
     const inCart = this.player.isInCart;
     // Portrait phones: pull back a little so the narrow frame isn't a corridor
     const portrait = this.camera.aspect < 0.8;
-    const dist = (inCart ? SIZES.cameraDistance + 2 : SIZES.cameraDistance) + (portrait ? 1.5 : 0);
-    const height = (inCart ? SIZES.cameraHeight + 1 : SIZES.cameraHeight) + (portrait ? 0.8 : 0);
+    let dist = (inCart ? SIZES.cameraDistance + 2 : SIZES.cameraDistance) + (portrait ? 1.5 : 0);
+    let height = (inCart ? SIZES.cameraHeight + 1 : SIZES.cameraHeight) + (portrait ? 0.8 : 0);
+    // Indoors (World.indoorBlend eases 0→1): closer and higher, looking down into the cut-away rooms
+    const indoor = this.world ? this.world.indoorBlend || 0 : 0;
+    if (indoor > 0.001) {
+      dist += (SIZES.cameraIndoorDistance + (portrait ? 1 : 0) - dist) * indoor;
+      height += (SIZES.cameraIndoorHeight + (portrait ? 1 : 0) - height) * indoor;
+    }
     this._camDesired.set(
       target.x - Math.sin(yaw) * dist,
       target.y + height,
@@ -1350,6 +1372,7 @@ class Game {
     // Update mission system, objective markers and the shift clock
     this.missionSystem.update(dt, playerWorldPos);
     this.missionMarkers.update(dt, playerWorldPos, this.camera.position);
+    if (this.itemProps) this.itemProps.update(dt);
     this.shift.update(dt, !this.dialogueSystem.isActive() && !this.courtMaintenance.isGrooming());
 
     // Update HUD

@@ -4,33 +4,30 @@ import { COLORS, SIZES } from '../utils/Constants.js';
 import { getMaterial, basicMat, registerNightGlow, registerWet } from '../graphics/Materials.js';
 import { Textures, createCanvasTexture, seededRandom } from '../graphics/Textures.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+import { InteriorArt } from './InteriorArt.js';
 import {
   getGeometry, boxGeo, cylinderGeo, sphereGeo, icoGeo, mergeParts, makeMatrix,
 } from '../graphics/GeometryUtils.js';
 
 /**
- * Building — pro shop and clubhouse.
+ * Building — shared kit for the club's enterable buildings, plus the pro shop.
+ * (Clubhouse, fitness centre and pool house live in ClubBuildings.js and extend Building.)
  *
- * Built from primitives but merged by material: each building is ~10 draw calls
- * (walls, trim/props, metal, window glass, store glass, lamps, signs, awnings, roof, contact shadow).
- * Physics bodies are identical to the original blockout (walls with a door gap for the pro shop,
- * one solid box for the clubhouse) plus four thin colonnade columns in front of the clubhouse.
- *
- * Pro shop cutaway: when the camera is following the player inside the pro shop, the roof layer
- * (shingles, soffit/ceiling, gable, roof sign, ceiling lights) stops drawing but keeps casting its
- * shadow, so the interior (task board, counter, racket wall) stays readable. Detection runs from
- * onBeforeRender of the pro shop's walls/floor, so no game-loop wiring is needed.
+ * Built from primitives but merged by material: each building's shell is ~10 draw calls
+ * (walls, trim/props, metal, window glass, store glass, lamps, signs, awnings, roof, contact shadow),
+ * and its interior another handful (floors, partitions, furniture) that is hidden when the camera
+ * is far away. See the Building class doc for the cutaway (roof + upper band of the walls).
  */
 
-const P = (geometry, matrix, color) => ({ geometry, matrix, color });
-const M = makeMatrix;
+export const P = (geometry, matrix, color) => ({ geometry, matrix, color });
+export const M = makeMatrix;
 /** base (Matrix4) * local transform */
-const at = (base, x, y, z, ry = 0, s = 1, rx = 0, rz = 0) => base.clone().multiply(M(x, y, z, ry, s, rx, rz));
+export const at = (base, x, y, z, ry = 0, s = 1, rx = 0, rz = 0) => base.clone().multiply(M(x, y, z, ry, s, rx, rz));
 
-const HALF_PI = Math.PI / 2;
+export const HALF_PI = Math.PI / 2;
 
 // Palette (with fallbacks so the file stays self-contained)
-const C = {
+export const C = {
   siding: COLORS.bldSiding ?? 0xf4e7cb,
   stucco: COLORS.bldStucco ?? 0xfbf1de,
   trim: COLORS.bldTrim ?? 0xf2eee3,
@@ -62,7 +59,7 @@ const C = {
 // ───────────────────────────── geometry helpers ─────────────────────────────
 
 /** World-space box projection UVs (geometry must already be in world space). */
-function boxUV(geo, tile = 2) {
+export function boxUV(geo, tile = 2) {
   const p = geo.attributes.position, n = geo.attributes.normal;
   let uv = geo.attributes.uv;
   if (!uv || uv.count !== p.count) {
@@ -84,7 +81,7 @@ function boxUV(geo, tile = 2) {
  * Split a straight wall into boxes around rectangular openings.
  * axis 'x': wall runs along x from a0..a1 at z = fixed. axis 'z': along z at x = fixed.
  */
-function wallPieces(axis, a0, a1, fixed, t, yA, yB, openings = [], color) {
+export function wallPieces(axis, a0, a1, fixed, t, yA, yB, openings = [], color, cut = null) {
   const cuts = [a0, a1];
   for (const o of openings) { if (o.a > a0 && o.a < a1) cuts.push(o.a); if (o.b > a0 && o.b < a1) cuts.push(o.b); }
   cuts.sort((p, q) => p - q);
@@ -94,7 +91,9 @@ function wallPieces(axis, a0, a1, fixed, t, yA, yB, openings = [], color) {
     if (e - s < 1e-4) continue;
     const mid = (s + e) / 2;
     const o = openings.find(op => mid > op.a && mid < op.b);
-    const spans = o ? [[yA, Math.min(yB, o.y0)], [Math.max(yA, o.y1), yB]] : [[yA, yB]];
+    let spans = o ? [[yA, Math.min(yB, o.y0)], [Math.max(yA, o.y1), yB]] : [[yA, yB]];
+    // Split at the cutaway height so the upper band can be hidden separately (see Building.cutY)
+    if (cut !== null) spans = spans.flatMap(([ya, yb]) => (ya < cut - 1e-3 && yb > cut + 1e-3 ? [[ya, cut], [cut, yb]] : [[ya, yb]]));
     for (const [ya, yb] of spans) {
       if (yb - ya < 1e-3) continue;
       const cy = (ya + yb) / 2, hy = yb - ya;
@@ -109,10 +108,10 @@ function wallPieces(axis, a0, a1, fixed, t, yA, yB, openings = [], color) {
 const _e1 = new THREE.Vector3(), _e2 = new THREE.Vector3(), _n = new THREE.Vector3();
 const _s = new THREE.Vector3(), _eave = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
-const V = (x, y, z) => new THREE.Vector3(x, y, z);
+export const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 /** Accumulates flat-shaded polygons (roof planes) with slope-aligned UVs. */
-class SurfaceBuilder {
+export class SurfaceBuilder {
   constructor() { this.p = []; this.n = []; this.uv = []; }
 
   /**
@@ -204,7 +203,7 @@ const _mid = new THREE.Vector3(), _scl = new THREE.Vector3();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 /** Matrix for a unit box stretched from a to b (thickness th x width wd), optionally rolled 45° (ridge caps). */
-function segMatrix(a, b, th, wd, roll = 0) {
+export function segMatrix(a, b, th, wd, roll = 0) {
   _dir.subVectors(b, a);
   const L = _dir.length();
   _dir.divideScalar(L || 1);
@@ -218,7 +217,7 @@ function segMatrix(a, b, th, wd, roll = 0) {
  * Chamfered box (flat bevels on every edge and corner): ~130 vertices instead of ~900 for a
  * RoundedBoxGeometry, which matters because the pro shop merges a few hundred of these.
  */
-function bevelBox(w, h, d, c = 0.03) {
+export function bevelBox(w, h, d, c = 0.03) {
   const cc = Math.max(0.002, Math.min(c, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
   return getGeometry(`bld-bevel|${w}|${h}|${d}|${cc}`, () => {
     const pts = [];
@@ -233,7 +232,7 @@ function bevelBox(w, h, d, c = 0.03) {
 }
 
 /** Triangular prism (pediment / gable end): base width 2*hw, height rise, depth along +z from 0..depth. */
-function prismGeo(hw, rise, depth) {
+export function prismGeo(hw, rise, depth) {
   return getGeometry(`bld-prism|${hw}|${rise}|${depth}`, () => {
     const s = new THREE.Shape();
     s.moveTo(-hw, 0); s.lineTo(hw, 0); s.lineTo(0, rise); s.closePath();
@@ -242,7 +241,7 @@ function prismGeo(hw, rise, depth) {
 }
 
 /** Flat-shaded 4-sided pyramid (unit base radius, unit height, centred on its mid-height). */
-function pyramidGeo() {
+export function pyramidGeo() {
   return getGeometry('bld-pyramid', () => {
     const g = new THREE.ConeGeometry(1, 1, 4, 1).toNonIndexed();
     g.computeVertexNormals();
@@ -251,7 +250,7 @@ function pyramidGeo() {
 }
 
 /** Plane mapped to a sub-rectangle of a texture (u0,v0,u1,v1). */
-function atlasPlane(key, w, h, u0, v0, u1, v1) {
+export function atlasPlane(key, w, h, u0, v0, u1, v1) {
   return getGeometry(`bld-ap|${key}|${w}|${h}`, () => {
     const g = new THREE.PlaneGeometry(w, h);
     const uv = g.attributes.uv;
@@ -261,7 +260,7 @@ function atlasPlane(key, w, h, u0, v0, u1, v1) {
 }
 
 /** Disc mapped to a sub-rectangle of a texture. */
-function atlasDisc(key, r, u0, v0, u1, v1) {
+export function atlasDisc(key, r, u0, v0, u1, v1) {
   return getGeometry(`bld-ad|${key}|${r}`, () => {
     const g = new THREE.CircleGeometry(r, 28);
     const uv = g.attributes.uv;
@@ -274,7 +273,7 @@ function atlasDisc(key, r, u0, v0, u1, v1) {
 
 const ATLAS_PX = 1024;
 /** Sign atlas regions in 1024px canvas coordinates [x, y, w, h] (y from top). */
-const ATLAS = {
+export const ATLAS = {
   proShop: [0, 0, 1024, 220],
   club: [0, 232, 1024, 200],
   crest: [0, 444, 300, 300],
@@ -284,20 +283,20 @@ const ATLAS = {
   apparel: [0, 878, 500, 110],
 };
 
-function regionUV(r) {
+export function regionUV(r) {
   const [x, y, w, h] = r;
   const pad = 2;
   return [(x + pad) / ATLAS_PX, 1 - (y + h - pad) / ATLAS_PX, (x + w - pad) / ATLAS_PX, 1 - (y + pad) / ATLAS_PX];
 }
 
-function signPlane(name, width) {
+export function signPlane(name, width) {
   const r = ATLAS[name];
   const hgt = width * (r[3] / r[2]);
   const [u0, v0, u1, v1] = regionUV(r);
   return { geo: atlasPlane(name, width, +hgt.toFixed(4), u0, v0, u1, v1), h: hgt };
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+export function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -307,7 +306,7 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawBoard(ctx, [x, y, w, h], title, sub) {
+export function drawBoard(ctx, [x, y, w, h], title, sub) {
   ctx.fillStyle = '#2d5a3d';
   roundRect(ctx, x, y, w, h, h * 0.08);
   ctx.fill();
@@ -340,7 +339,7 @@ function drawBoard(ctx, [x, y, w, h], title, sub) {
   try { ctx.letterSpacing = '0px'; } catch (e) { /* noop */ }
 }
 
-function drawCrest(ctx, [x, y, w]) {
+export function drawCrest(ctx, [x, y, w]) {
   const cx = x + w / 2, cy = y + w / 2, R = w * 0.47;
   ctx.fillStyle = '#2d5a3d';
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
@@ -516,7 +515,7 @@ function glassMaps() {
   };
 }
 
-function glassPane(w, h, variant) {
+export function glassPane(w, h, variant) {
   const u0 = (variant % 2) * 0.5 + 0.004, v0 = (variant >> 1) * 0.5 + 0.004;
   return atlasPlane(`glass${variant}`, +w.toFixed(3), +h.toFixed(3), u0, v0, u0 + 0.492, v0 + 0.492);
 }
@@ -546,7 +545,7 @@ function awningTexture() {
   }, { key: 'bld-awning', repeat: [1, 1] });
 }
 
-function contactTexture() {
+export function contactTexture() {
   return createCanvasTexture(64, (ctx, S, rand, H) => {
     const g = ctx.createLinearGradient(0, 0, S, 0);
     g.addColorStop(0, 'rgba(255,255,255,1)');
@@ -560,7 +559,7 @@ function contactTexture() {
 
 // ───────────────────────────── materials ─────────────────────────────
 
-const Mat = {
+export const Mat = {
   prop: () => getMaterial('bld-prop', () => registerWet(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 }), 0.4)),
   metal: () => getMaterial('bld-metal', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.34, metalness: 0.7 })),
   siding: () => getMaterial('bld-siding', () => registerWet(new THREE.MeshStandardMaterial({ color: C.siding, map: Textures.siding(), roughness: 0.78 }), 0.45)),
@@ -619,10 +618,44 @@ const Mat = {
     return m;
   },
   ghost: () => getMaterial('bld-ghost', () => new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false })),
+  // ── interiors (textures in InteriorArt.js) ──
+  tile: () => getMaterial('bld-tile', () => {
+    const tex = InteriorArt.tile();
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 0.35, emissive: 0xffe2b8, emissiveMap: tex });
+    registerNightGlow(m, 0.22, 0.08);
+    return m;
+  }),
+  rubber: () => getMaterial('bld-rubber', () => {
+    const tex = InteriorArt.rubber();
+    const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: 0xffe2b8, emissiveMap: tex });
+    registerNightGlow(m, 0.3, 0.12);
+    return m;
+  }),
+  carpet: () => getMaterial('bld-carpet', () => {
+    const tex = InteriorArt.carpet();
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 0.95, emissive: 0xffe2b8, emissiveMap: tex });
+    registerNightGlow(m, 0.26, 0.1);
+    return m;
+  }),
+  deck: () => getMaterial('bld-deck', () => registerWet(new THREE.MeshStandardMaterial({
+    vertexColors: true, map: Textures.pavers({ repeat: [1, 1] }), roughness: 0.85,
+  }), 0.7)),
+  mirror: () => getMaterial('bld-mirror', () => new THREE.MeshStandardMaterial({
+    color: 0xdfe6ea, roughness: 0.04, metalness: 0.95, envMapIntensity: 1.6,
+  })),
+  deco: () => getMaterial('bld-deco', () => {
+    const tex = InteriorArt.atlas();
+    const m = new THREE.MeshStandardMaterial({
+      map: tex, roughness: 0.5, emissive: 0xffffff, emissiveMap: tex, polygonOffset: true,
+      polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    });
+    registerNightGlow(m, 0.4, 0.1);
+    return m;
+  }),
 };
 
 /** Awning shell (local: wall at z=0, top edge at y=0, spans x ±W/2). */
-function awningGeo(W, D, drop, val) {
+export function awningGeo(W, D, drop, val) {
   return getGeometry(`bld-awning|${W}|${D}|${drop}|${val}`, () => {
     const pos = [], uv = [];
     const quad = (a, b, c, d, ua, ub, uc, ud) => { pos.push(...a, ...b, ...c, ...a, ...c, ...d); uv.push(...ua, ...ub, ...uc, ...ua, ...uc, ...ud); };
@@ -639,7 +672,7 @@ function awningGeo(W, D, drop, val) {
 }
 
 /** Soft contact-shadow frame hugging a rectangular footprint. ys = y per side {front, back, left, right}. */
-function contactFrameGeo(x0, x1, z0, z1, o, ys) {
+export function contactFrameGeo(x0, x1, z0, z1, o, ys) {
   const pos = [], uv = [];
   const side = (i0, i1, o1, o0, y) => {
     const v = [[...i0, 0], [...i1, 0], [...o1, 1], [...o0, 1]];
@@ -657,40 +690,280 @@ function contactFrameGeo(x0, x1, z0, z1, o, ys) {
   return g;
 }
 
-// Cutaway probe distances (m, horizontal from the camera): the follow camera sits ~8 m behind the player.
-const CUT_SAMPLES = [7.2, 8.2];
+/** Beyond this camera distance (m) a building's interior group is hidden (unless cut away). */
+const INTERIOR_VIEW_DIST = 32;
+
+/** Index count a part adds to a mergeParts() geometry (non-indexed parts get an identity index). */
+function partIndexCount(g) { return g.index ? g.index.count : g.attributes.position.count; }
+
+const _pc = new THREE.Vector3();
+/** World-space y of a part's bounding-box centre (decides its cutaway band). */
+function partCenterY(p) {
+  const g = p.geometry;
+  if (!g.boundingBox) g.computeBoundingBox();
+  g.boundingBox.getCenter(_pc);
+  if (p.matrix) _pc.applyMatrix4(p.matrix);
+  return _pc.y;
+}
+
+/**
+ * Material + shadow flags for each part list. `interior` lists never cast (they sit under the
+ * roof's shadow anyway), which also keeps the shadow pass cheap.
+ */
+const LIST_SPEC = {
+  walls: { cast: true },
+  interior: { mat: () => Mat.interior(), cast: false, uvTile: 2.5 },
+  floor: { mat: () => Mat.floor(), cast: false, uvTile: 1.2 },
+  tile: { mat: () => Mat.tile(), cast: false, uvTile: 1.2 },
+  rubber: { mat: () => Mat.rubber(), cast: false, uvTile: 2 },
+  carpet: { mat: () => Mat.carpet(), cast: false, uvTile: 1.5 },
+  deck: { mat: () => Mat.deck(), cast: false, uvTile: 2.4 },
+  trim: { mat: () => Mat.prop(), cast: true },
+  metal: { mat: () => Mat.metal(), cast: true },
+  glass: { mat: () => Mat.glass(), cast: false },
+  mirror: { mat: () => Mat.mirror(), cast: false, receive: false },
+  store: { mat: () => Mat.storeGlass(), cast: false, receive: false, renderOrder: 2, noAO: true },
+  lamp: { mat: () => Mat.lamp(), cast: false, receive: false },
+  signs: { mat: () => Mat.signs(), cast: false },
+  deco: { mat: () => Mat.deco(), cast: false },
+  awning: { mat: () => Mat.awning(), cast: true },
+};
 
 // ───────────────────────────── Building ─────────────────────────────
 
+/**
+ * Base class for every enterable club building. Subclasses (see ClubBuildings.js) implement
+ * `_build(config)`; the pro shop is built here.
+ *
+ * Cutaway: every building has a cut height (`cutY`). Wall, trim and furniture parts whose centre
+ * sits above it are merged *after* the lower parts in the same geometry, so hiding the upper band
+ * is just `geometry.setDrawRange(0, lowerCount)` (no extra draw calls while outside). A ghost twin
+ * (shared buffers, drawRange = upper band, colorWrite off) keeps casting the upper band's shadow.
+ * The roof layer (roof, ceiling, roof trim/signs) is hidden entirely. World.update() calls
+ * `updateView(followTarget, cameraPos)` every frame: the cutaway is on while the followed player
+ * stands in one of `this.rooms` (or the camera is inside the footprint), and the interior group
+ * (floors, partitions, furniture) is hidden when the camera is far away and outside.
+ */
 export class Building {
   constructor(scene, physicsWorld, type, config) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.type = type;
+    this.config = config;
     this.mesh = new THREE.Group();
     this.mesh.name = `Building:${type}`;
-    /** Roof layer hidden while the camera looks into the pro shop (null for the clubhouse). */
-    this.roofGroup = null;
+    /** Floors, partitions and furniture (hidden when the camera is far away and outside). */
+    this.interiorGroup = new THREE.Group();
+    this.interiorGroup.name = `${type}:interior`;
+    this.mesh.add(this.interiorGroup);
+    /** Roof layer hidden while the camera looks into the building. */
+    this.roofGroup = new THREE.Group();
+    this.roofGroup.name = `${type}:roof`;
+    this.mesh.add(this.roofGroup);
     this.cutawayActive = false;
+    this.cutY = Infinity;
+    /** Interior rectangles {x0, x1, z0, z1} (the followed player standing in one → cutaway). */
+    this.rooms = [];
+    /** Outer footprint rectangles (camera inside one below roofTop → cutaway). */
+    this.footprints = [];
+    this.roofTop = 8;
+    this.center = new THREE.Vector3(config && config.center ? config.center.x : 0, 0, config && config.center ? config.center.z : 0);
     this._roofMeshes = [];
-    this._rand = seededRandom(type === 'proShop' ? 11 : 23);
+    this._splits = [];
+    this._body = null;
+    this._rand = seededRandom(type === 'proShop' ? 11 : type === 'clubhouse' ? 23 : 37 + type.length);
 
-    if (type === 'proShop') {
-      this._buildProShop(config);
-    } else if (type === 'clubhouse') {
-      this._buildClubhouse(config);
-    }
+    if (type === 'proShop') this._buildProShop(config);
+    else this._build(config);
 
+    this._addGhostPrewarm();
     this.scene.add(this.mesh);
+  }
+
+  /** Subclasses build here. */
+  _build() {}
+
+  /** True when (x, z) is inside one of the building's rooms (optional margin grows each rect). */
+  isInside(x, z, margin = 0) {
+    for (let i = 0; i < this.rooms.length; i++) {
+      const r = this.rooms[i];
+      if (x > r.x0 - margin && x < r.x1 + margin && z > r.z0 - margin && z < r.z1 + margin) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Per-frame view update (World.update). target: followed player/cart position; cam: last
+   * rendered camera position (may be null). Returns true when the target is indoors.
+   */
+  updateView(target, cam) {
+    const inside = !!target && this.isInside(target.x, target.z);
+    let cut = inside;
+    if (!cut && cam && cam.y < this.roofTop) {
+      for (let i = 0; i < this.footprints.length; i++) {
+        const r = this.footprints[i];
+        if (cam.x > r.x0 && cam.x < r.x1 && cam.z > r.z0 && cam.z < r.z1) { cut = true; break; }
+      }
+    }
+    if (cut !== this.cutawayActive) this.setCutaway(cut);
+    let show = cut;
+    if (!show) {
+      if (!cam) show = true;
+      else {
+        const dx = cam.x - this.center.x, dy = cam.y, dz = cam.z - this.center.z;
+        show = dx * dx + dy * dy + dz * dz < INTERIOR_VIEW_DIST * INTERIOR_VIEW_DIST;
+      }
+    }
+    if (this.interiorGroup.visible !== show) this.interiorGroup.visible = show;
+    return inside;
+  }
+
+  /**
+   * Show/hide the upper band + roof layer. Hidden roof meshes keep casting shadows (ghost
+   * material) so the interior stays shaded; non-shadow roof pieces (signs, lamps) are just hidden.
+   */
+  setCutaway(on) {
+    this.cutawayActive = !!on;
+    for (const m of this._roofMeshes) {
+      if (m.castShadow && !m.userData.hideInCutaway) {
+        m.material = on ? Mat.ghost() : m.userData.baseMaterial;
+        m.userData.noAO = !!on;
+      } else {
+        m.visible = !on;
+      }
+    }
+    for (const sp of this._splits) {
+      sp.geo.setDrawRange(0, on ? sp.lowerCount : Infinity);
+      if (sp.ghost) sp.ghost.visible = !!on;
+    }
+  }
+
+  _addGhostPrewarm() {
+    if (Building._prewarmed) return; // one per scene is enough
+    Building._prewarmed = true;
+    // Empty mesh that keeps the ghost material's shader compiled, so the first cutaway doesn't hitch.
+    const prewarm = new THREE.Mesh(getGeometry('bld-empty', () => {
+      const e = new THREE.BufferGeometry();
+      e.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+      return e;
+    }), Mat.ghost());
+    prewarm.frustumCulled = false;
+    prewarm.name = `${this.type}:ghostPrewarm`;
+    prewarm.userData.noAO = true;
+    this.roofGroup.add(prewarm);
   }
 
   // ───────────── shared builders ─────────────
 
   _lists() {
-    return {
-      walls: [], interior: [], floor: [], trim: [], metal: [], glass: [], store: [], lamp: [], signs: [], awning: [], roof: [],
-      roofTrim: [], roofSign: [], roofLamp: [],
+    const L = { roofTrim: [], roofSign: [], roofLamp: [] };
+    for (const k of Object.keys(LIST_SPEC)) L[k] = [];
+    return L;
+  }
+
+  /**
+   * One merged mesh per list, split into a lower + upper band at this.cutY (see class doc).
+   * Returns the mesh (or null for an empty list).
+   */
+  _splitMesh(parts, material, { cast = true, receive = true, uvTile = 0, parent = this.mesh, name, ghostShadow = cast } = {}) {
+    if (!parts.length) return null;
+    const lower = [], upper = [];
+    for (const p of parts) (partCenterY(p) < this.cutY ? lower : upper).push(p);
+    if (!upper.length) return this._mesh(parts, material, { cast, receive, uvTile, parent, name });
+    let lowerCount = 0;
+    for (const p of lower) lowerCount += partIndexCount(p.geometry);
+    const geo = mergeParts(lower.concat(upper));
+    if (uvTile) boxUV(geo, uvTile);
+    geo.computeBoundingBox();
+    const m = new THREE.Mesh(geo, material);
+    m.castShadow = cast;
+    m.receiveShadow = receive;
+    m.name = name || `${this.type}:${material.name}`;
+    parent.add(m);
+    let ghost = null;
+    if (cast && ghostShadow) {
+      const g2 = new THREE.BufferGeometry();
+      for (const k of Object.keys(geo.attributes)) g2.setAttribute(k, geo.attributes[k]);
+      g2.setIndex(geo.index);
+      g2.boundingBox = geo.boundingBox;
+      g2.boundingSphere = geo.boundingSphere;
+      g2.setDrawRange(lowerCount, Infinity);
+      ghost = new THREE.Mesh(g2, Mat.ghost());
+      ghost.castShadow = true;
+      ghost.receiveShadow = false;
+      ghost.visible = false;
+      ghost.userData.noAO = true;
+      ghost.name = `${m.name}:ghost`;
+      parent.add(ghost);
+    }
+    this._splits.push({ geo, lowerCount, ghost });
+    return m;
+  }
+
+  /**
+   * Build every list of `L` (walls use `wallMat`). interior=true → parented to the interior group,
+   * nothing casts. Returns { key: mesh }.
+   */
+  _emit(L, { interior = false, wallMat = null, wallTile = 2, prefix = this.type, metalAsTrim = false } = {}) {
+    const out = {};
+    if (metalAsTrim && L.metal.length) { L.trim.push(...L.metal); L.metal.length = 0; }
+    const parent = interior ? this.interiorGroup : this.mesh;
+    for (const [k, spec] of Object.entries(LIST_SPEC)) {
+      const parts = L[k];
+      if (!parts || !parts.length) continue;
+      const material = k === 'walls' ? (wallMat || Mat.stucco()) : spec.mat();
+      const m = this._splitMesh(parts, material, {
+        cast: interior ? false : spec.cast, receive: spec.receive !== false, ghostShadow: k === 'walls',
+        uvTile: k === 'walls' ? wallTile : (spec.uvTile || 0), parent, name: `${prefix}:${interior ? 'in-' : ''}${k}`,
+      });
+      if (!m) continue;
+      if (spec.renderOrder) m.renderOrder = spec.renderOrder;
+      if (spec.noAO) m.userData.noAO = true;
+      out[k] = m;
+    }
+    return out;
+  }
+
+  /** Roof layer meshes (always fully hidden in cutaway). sb: SurfaceBuilder with the roof planes. */
+  _emitRoof(L, sb, roofMat) {
+    const g = this.roofGroup;
+    if (sb) this._roofMeshes.push(this._roofSurface(sb, roofMat, g));
+    const trim = this._mesh(L.roofTrim, Mat.prop(), { parent: g, name: `${this.type}:roofTrim` });
+    if (trim && sb) trim.userData.hideInCutaway = true; // the roof surface's ghost carries the shadow
+    this._roofMeshes.push(trim);
+    this._roofMeshes.push(this._mesh(L.roofSign, Mat.signs(), { cast: false, parent: g, name: `${this.type}:roofSign` }));
+    this._roofMeshes.push(this._mesh(L.roofLamp, Mat.lamp(), { cast: false, receive: false, parent: g, name: `${this.type}:ceilingLights` }));
+    this._roofMeshes = this._roofMeshes.filter(Boolean);
+    for (const m of this._roofMeshes) m.userData.baseMaterial = m.material;
+  }
+
+  // ───────────── physics (one compound static body per building) ─────────────
+
+  _physBox(x, y, z, hw, hh, hd) {
+    if (!this._body) {
+      this._body = new CANNON.Body({ mass: 0 });
+      this._body.position.set(this.center.x, 0, this.center.z);
+      this.physicsWorld.addBody(this._body);
+    }
+    const b = this._body;
+    b.addShape(new CANNON.Box(new CANNON.Vec3(hw, hh, hd)), new CANNON.Vec3(x - b.position.x, y, z - b.position.z));
+  }
+
+  /**
+   * Physics for a straight wall: full-height boxes between the door openings (openings that
+   * start near the floor). Same axis convention as wallPieces().
+   */
+  _wallPhysics(axis, a0, a1, fixed, t, h, openings = []) {
+    const doors = openings.filter(o => o.y0 < 0.5).sort((p, q) => p.a - q.a);
+    let s = a0;
+    const seg = (from, to) => {
+      if (to - from < 0.05) return;
+      const mid = (from + to) / 2, hl = (to - from) / 2;
+      if (axis === 'x') this._physBox(mid, h / 2, fixed, hl, h / 2, t / 2);
+      else this._physBox(fixed, h / 2, mid, t / 2, h / 2, hl);
     };
+    for (const d of doors) { seg(s, d.a); s = Math.max(s, d.b); }
+    seg(s, a1);
   }
 
   _mesh(parts, material, { cast = true, receive = true, uvTile = 0, parent = this.mesh, name } = {}) {
@@ -815,47 +1088,6 @@ export class Building {
     list.push(P(cylinderGeo(0.021, 0.023, 0.28, 8), at(base, 0, -0.26, 0), 0x2a2a2a));
   }
 
-  /** (bx0..bz1) = interior footprint the followed target must be in; (ox0..oz1) = outer footprint for the camera itself. */
-  _installCutaway(bx0, bx1, bz0, bz1, ox0, ox1, oz0, oz1, hosts) {
-    const fwd = new THREE.Vector3();
-    const probe = (renderer, scene, camera) => {
-      if (!camera || !camera.isPerspectiveCamera) return;
-      const p = camera.position;
-      let inside = false;
-      if (p.y < 12) {
-        camera.getWorldDirection(fwd);
-        const hl = Math.hypot(fwd.x, fwd.z);
-        // only a follow-style camera (looking down at a target ~8 m ahead) cuts the roof away
-        if (hl > 1e-3 && fwd.y < -0.12) {
-          const nx = fwd.x / hl, nz = fwd.z / hl;
-          for (let i = 0; i < CUT_SAMPLES.length; i++) {
-            const x = p.x + nx * CUT_SAMPLES[i], z = p.z + nz * CUT_SAMPLES[i];
-            if (x > bx0 && x < bx1 && z > bz0 && z < bz1) { inside = true; break; }
-          }
-        }
-        if (!inside && p.x > ox0 && p.x < ox1 && p.z > oz0 && p.z < oz1) inside = true;
-      }
-      if (inside !== this.cutawayActive) this.setCutaway(inside);
-    };
-    for (const h of hosts) if (h) h.onBeforeRender = probe;
-  }
-
-  /**
-   * Show/hide the pro shop roof layer. Hidden roof meshes keep casting shadows (ghost material)
-   * so the interior stays shaded; non-shadow roof pieces (sign, ceiling lights) are just hidden.
-   */
-  setCutaway(on) {
-    this.cutawayActive = !!on;
-    for (const m of this._roofMeshes) {
-      if (m.castShadow) {
-        m.material = on ? Mat.ghost() : m.userData.baseMaterial;
-        m.userData.noAO = !!on;
-      } else {
-        m.visible = !on;
-      }
-    }
-  }
-
   // ───────────── pro shop ─────────────
 
   _buildProShop(config) {
@@ -878,13 +1110,16 @@ export class Building {
     ];
     const openings = [{ a: cx - doorWidth / 2, b: cx + doorWidth / 2, y0: 0, y1: doorH }, ...win];
     const L = this._lists();
+    const I = this._lists(); // interior (hidden when far away)
     const r = this._rand;
+    const cut = F + 2.5;
+    this.cutY = cut;
 
     // ── Shell ──
-    L.walls.push(...wallPieces('x', X0, X1, zf, T, 0, wallTop, openings));
-    L.walls.push(...wallPieces('x', X0, X1, zb, T, 0, wallTop));
-    L.walls.push(...wallPieces('z', zb + ht, zf - ht, x0, T, 0, wallTop));
-    L.walls.push(...wallPieces('z', zb + ht, zf - ht, x1, T, 0, wallTop));
+    L.walls.push(...wallPieces('x', X0, X1, zf, T, 0, wallTop, openings, undefined, cut));
+    L.walls.push(...wallPieces('x', X0, X1, zb, T, 0, wallTop, [], undefined, cut));
+    L.walls.push(...wallPieces('z', zb + ht, zf - ht, x0, T, 0, wallTop, [], undefined, cut));
+    L.walls.push(...wallPieces('z', zb + ht, zf - ht, x1, T, 0, wallTop, [], undefined, cut));
 
     // Stone plinth (door gap), corner boards, frieze
     L.trim.push(...wallPieces('x', X0 - 0.06, X1 + 0.06, Z1 + 0.01, 0.1, 0, 0.42, [{ a: cx - doorWidth / 2, b: cx + doorWidth / 2, y0: 0, y1: 1 }], C.stone));
@@ -892,7 +1127,8 @@ export class Building {
     L.trim.push(...wallPieces('z', Z0 + 0.04, Z1 - 0.04, X0 - 0.01, 0.1, 0, 0.42, [], C.stone));
     L.trim.push(...wallPieces('z', Z0 + 0.04, Z1 - 0.04, X1 + 0.01, 0.1, 0, 0.42, [], C.stone));
     for (const [X, sx] of [[X0, 1], [X1, -1]]) for (const [Z, sz] of [[Z0, 1], [Z1, -1]]) {
-      L.trim.push(P(bevelBox(0.2, h - 0.4, 0.2, 0.02), M(X + sx * 0.07, 0.42 + (h - 0.4) / 2, Z + sz * 0.07), C.trim));
+      L.trim.push(P(bevelBox(0.2, cut - 0.42, 0.2, 0.02), M(X + sx * 0.07, (0.42 + cut) / 2, Z + sz * 0.07), C.trim));
+      L.trim.push(P(bevelBox(0.2, h + 0.02 - cut, 0.2, 0.02), M(X + sx * 0.07, (cut + h + 0.02) / 2, Z + sz * 0.07), C.trim));
     }
     const fy = (3.72 + ceilY) / 2, fh = ceilY - 3.72;
     L.trim.push(P(boxGeo(X1 - X0 + 0.1, fh, 0.05), M(cx, fy, Z1 + 0.015), C.trim));
@@ -963,10 +1199,10 @@ export class Building {
     // ── Interior ──
     const li = 0.03, xi0 = x0 + ht, xi1 = x1 - ht, zi0 = zb + ht, zi1 = zf - ht;
     for (const [yA, yB, col] of [[F, 1.0, C.wainscot], [1.0, ceilY, C.interior]]) {
-      L.interior.push(...wallPieces('x', xi0, xi1, zi0 + li / 2, li, yA, yB, [], col));
-      L.interior.push(...wallPieces('z', zi0 + li, zi1 - li, xi0 + li / 2, li, yA, yB, [], col));
-      L.interior.push(...wallPieces('z', zi0 + li, zi1 - li, xi1 - li / 2, li, yA, yB, [], col));
-      L.interior.push(...wallPieces('x', xi0, xi1, zi1 - li / 2, li, yA, yB, openings, C.interior));
+      L.interior.push(...wallPieces('x', xi0, xi1, zi0 + li / 2, li, yA, yB, [], col, cut));
+      L.interior.push(...wallPieces('z', zi0 + li, zi1 - li, xi0 + li / 2, li, yA, yB, [], col, cut));
+      L.interior.push(...wallPieces('z', zi0 + li, zi1 - li, xi1 - li / 2, li, yA, yB, [], col, cut));
+      L.interior.push(...wallPieces('x', xi0, xi1, zi1 - li / 2, li, yA, yB, openings, C.interior, cut));
     }
     const ii0 = xi0 + li, ii1 = xi1 - li, jz0 = zi0 + li, jz1 = zi1 - li; // interior surfaces
     // chair rail, baseboard, crown
@@ -976,107 +1212,107 @@ export class Building {
       L.trim.push(P(boxGeo(dd, hh, jz1 - jz0 - 2 * dd), M(ii1 - dd / 2, y, cz), col));
     }
     // floor (+ threshold) and entry rug
-    L.floor.push(P(boxGeo(xi1 - xi0, F, zi1 - zi0), M(cx, F / 2, cz)));
-    L.floor.push(P(boxGeo(doorWidth, F, T), M(cx, F / 2, zf)));
+    I.floor.push(P(boxGeo(xi1 - xi0, F, zi1 - zi0), M(cx, F / 2, cz)));
+    I.floor.push(P(boxGeo(doorWidth, F, T), M(cx, F / 2, zf)));
     // Floor physics (top at F) so feet stand on the boards, not 8 cm inside them
     this._addWallPhysics(cx, F - 0.1, (zi0 + zf + ht) / 2, (xi1 - xi0) / 2, 0.1, (zf + ht - zi0) / 2);
-    L.trim.push(P(bevelBox(2.4, 0.012, 1.7, 0.004), M(cx, F + 0.006, zi1 - 1.1), 0xe9dcb8));
-    L.trim.push(P(bevelBox(2.1, 0.022, 1.4, 0.006), M(cx, F + 0.011, zi1 - 1.1), C.green));
+    I.trim.push(P(bevelBox(2.4, 0.012, 1.7, 0.004), M(cx, F + 0.006, zi1 - 1.1), 0xe9dcb8));
+    I.trim.push(P(bevelBox(2.1, 0.022, 1.4, 0.006), M(cx, F + 0.011, zi1 - 1.1), C.green));
 
     // Task board (cork board from the sign atlas) with a brass picture light
     if (config.taskBoard) {
       const tb = config.taskBoard;
       const bz = jz0;
       const board = signPlane('board', 1.5);
-      L.trim.push(P(bevelBox(1.66, board.h + 0.16, 0.06, 0.02), M(tb.x, tb.y, bz + 0.03), C.woodDark));
-      L.signs.push(P(board.geo, M(tb.x, tb.y, bz + 0.065)));
-      L.metal.push(P(boxGeo(0.06, 0.2, 0.05), M(tb.x, tb.y + board.h / 2 + 0.2, bz + 0.03), C.brass));
-      L.metal.push(P(cylinderGeo(0.045, 0.045, 0.9, 10), M(tb.x, tb.y + board.h / 2 + 0.3, bz + 0.2, 0, 1, 0, HALF_PI), C.brass));
-      L.lamp.push(P(boxGeo(0.8, 0.02, 0.06), M(tb.x, tb.y + board.h / 2 + 0.26, bz + 0.2)));
-      L.metal.push(P(boxGeo(1, 1, 1), segMatrix(V(tb.x, tb.y + board.h / 2 + 0.28, bz + 0.05), V(tb.x, tb.y + board.h / 2 + 0.3, bz + 0.18), 0.03, 0.03), C.brass));
+      I.trim.push(P(bevelBox(1.66, board.h + 0.16, 0.06, 0.02), M(tb.x, tb.y, bz + 0.03), C.woodDark));
+      I.signs.push(P(board.geo, M(tb.x, tb.y, bz + 0.065)));
+      I.metal.push(P(boxGeo(0.06, 0.2, 0.05), M(tb.x, tb.y + board.h / 2 + 0.2, bz + 0.03), C.brass));
+      I.metal.push(P(cylinderGeo(0.045, 0.045, 0.9, 10), M(tb.x, tb.y + board.h / 2 + 0.3, bz + 0.2, 0, 1, 0, HALF_PI), C.brass));
+      I.lamp.push(P(boxGeo(0.8, 0.02, 0.06), M(tb.x, tb.y + board.h / 2 + 0.26, bz + 0.2)));
+      I.metal.push(P(boxGeo(1, 1, 1), segMatrix(V(tb.x, tb.y + board.h / 2 + 0.28, bz + 0.05), V(tb.x, tb.y + board.h / 2 + 0.3, bz + 0.18), 0.03, 0.03), C.brass));
     }
 
     // Back-wall shelving unit (to the right of the task board)
     {
       const sx = cx - 1.4, sw = 2.4, sd = 0.45, sz = jz0 + sd / 2;
-      for (const s of [-1, 1]) L.trim.push(P(bevelBox(0.06, 2.3, sd, 0.015), M(sx + s * (sw / 2 - 0.03), F + 1.15, sz), C.woodDark));
-      L.trim.push(P(boxGeo(sw, 2.3, 0.02), M(sx, F + 1.15, jz0 + 0.01), 0x8a6a48));
+      for (const s of [-1, 1]) I.trim.push(P(bevelBox(0.06, 2.3, sd, 0.015), M(sx + s * (sw / 2 - 0.03), F + 1.15, sz), C.woodDark));
+      I.trim.push(P(boxGeo(sw, 2.3, 0.02), M(sx, F + 1.15, jz0 + 0.01), 0x8a6a48));
       const shelfYs = [0.35, 0.9, 1.45, 2.0, 2.3];
-      for (const y of shelfYs) L.trim.push(P(bevelBox(sw - 0.1, 0.04, sd - 0.02, 0.01), M(sx, F + y, sz), C.wood));
+      for (const y of shelfYs) I.trim.push(P(bevelBox(sw - 0.1, 0.04, sd - 0.02, 0.01), M(sx, F + y, sz), C.wood));
       const shoe = [0xf4f1e8, 0xf28c28, 0x3b6ea8, 0xe0e0dc, 0x2d5a3d, 0xc23b4e];
-      for (let i = 0; i < 4; i++) L.trim.push(P(bevelBox(0.44, 0.16, 0.3, 0.02), M(sx - 0.8 + i * 0.52, F + 0.37 + 0.08, sz), shoe[i]));
-      for (let i = 0; i < 4; i++) L.trim.push(P(bevelBox(0.44, 0.16, 0.3, 0.02), M(sx - 0.8 + i * 0.52, F + 0.37 + 0.24, sz), shoe[(i + 2) % 6]));
+      for (let i = 0; i < 4; i++) I.trim.push(P(bevelBox(0.44, 0.16, 0.3, 0.02), M(sx - 0.8 + i * 0.52, F + 0.37 + 0.08, sz), shoe[i]));
+      for (let i = 0; i < 4; i++) I.trim.push(P(bevelBox(0.44, 0.16, 0.3, 0.02), M(sx - 0.8 + i * 0.52, F + 0.37 + 0.24, sz), shoe[(i + 2) % 6]));
       for (let i = 0; i < 12; i++) {
-        L.trim.push(P(cylinderGeo(0.04, 0.04, 0.22, 10), M(sx - 1.0 + i * 0.18, F + 0.92 + 0.11, sz + 0.05), C.ball));
-        L.trim.push(P(cylinderGeo(0.042, 0.042, 0.03, 10), M(sx - 1.0 + i * 0.18, F + 0.92 + 0.235, sz + 0.05), 0x5d6266));
+        I.trim.push(P(cylinderGeo(0.04, 0.04, 0.22, 10), M(sx - 1.0 + i * 0.18, F + 0.92 + 0.11, sz + 0.05), C.ball));
+        I.trim.push(P(cylinderGeo(0.042, 0.042, 0.03, 10), M(sx - 1.0 + i * 0.18, F + 0.92 + 0.235, sz + 0.05), 0x5d6266));
       }
-      for (let i = 0; i < 7; i++) L.trim.push(P(cylinderGeo(0.05, 0.05, 0.05, 12), M(sx - 0.9 + i * 0.3, F + 1.5, sz + 0.05, 0, 1, HALF_PI), [0xf4f1e8, 0x2d5a3d, 0xc23b4e, 0x3b6ea8][i % 4]));
-      for (let i = 0; i < 3; i++) L.trim.push(P(bevelBox(0.6, 0.26, 0.32, 0.05), M(sx - 0.7 + i * 0.7, F + 2.02 + 0.13, sz), [0x2d5a3d, 0x1f3f63, 0xb8343e][i]));
+      for (let i = 0; i < 7; i++) I.trim.push(P(cylinderGeo(0.05, 0.05, 0.05, 12), M(sx - 0.9 + i * 0.3, F + 1.5, sz + 0.05, 0, 1, HALF_PI), [0xf4f1e8, 0x2d5a3d, 0xc23b4e, 0x3b6ea8][i % 4]));
+      for (let i = 0; i < 3; i++) I.trim.push(P(bevelBox(0.6, 0.26, 0.32, 0.05), M(sx - 0.7 + i * 0.7, F + 2.02 + 0.13, sz), [0x2d5a3d, 0x1f3f63, 0xb8343e][i]));
     }
 
     // Counter with register, bell, ball-can pyramid, towels
     {
       const kx = cx + 2, kz = cz - 2;
-      L.trim.push(P(bevelBox(4.0, 0.98, 0.85, 0.04), M(kx, F + 0.49, kz), C.green));
-      L.trim.push(P(bevelBox(4.2, 0.06, 1.02, 0.02), M(kx, F + 1.01, kz), C.wood));
-      for (let i = 0; i < 4; i++) L.trim.push(P(bevelBox(0.78, 0.58, 0.03, 0.01), M(kx - 1.44 + i * 0.96, F + 0.5, kz + 0.43), C.greenLight));
-      L.trim.push(P(boxGeo(4.0, 0.08, 0.05), M(kx, F + 0.04, kz + 0.41), C.woodDark));
-      L.trim.push(P(bevelBox(0.46, 0.14, 0.4, 0.03), M(kx + 0.8, F + 1.11, kz - 0.1), 0x2b2f33));
-      L.trim.push(P(bevelBox(0.42, 0.28, 0.03, 0.01), M(kx + 0.8, F + 1.32, kz - 0.25, 0, 1, -0.3), 0x2b2f33));
-      L.lamp.push(P(boxGeo(0.36, 0.22, 0.005), M(kx + 0.8, F + 1.32, kz - 0.268, Math.PI, 1, 0.3)));
-      L.trim.push(P(bevelBox(0.12, 0.05, 0.18, 0.01), M(kx + 1.3, F + 1.065, kz + 0.2), 0x2b2f33));
-      L.metal.push(P(cylinderGeo(0.07, 0.08, 0.02, 12), M(kx + 1.6, F + 1.05, kz + 0.25), C.brass));
-      L.metal.push(P(sphereGeo(0.06, 12, 6), M(kx + 1.6, F + 1.07, kz + 0.25, 0, [1, 0.7, 1]), C.brass));
+      I.trim.push(P(bevelBox(4.0, 0.98, 0.85, 0.04), M(kx, F + 0.49, kz), C.green));
+      I.trim.push(P(bevelBox(4.2, 0.06, 1.02, 0.02), M(kx, F + 1.01, kz), C.wood));
+      for (let i = 0; i < 4; i++) I.trim.push(P(bevelBox(0.78, 0.58, 0.03, 0.01), M(kx - 1.44 + i * 0.96, F + 0.5, kz + 0.43), C.greenLight));
+      I.trim.push(P(boxGeo(4.0, 0.08, 0.05), M(kx, F + 0.04, kz + 0.41), C.woodDark));
+      I.trim.push(P(bevelBox(0.46, 0.14, 0.4, 0.03), M(kx + 0.8, F + 1.11, kz - 0.1), 0x2b2f33));
+      I.trim.push(P(bevelBox(0.42, 0.28, 0.03, 0.01), M(kx + 0.8, F + 1.32, kz - 0.25, 0, 1, -0.3), 0x2b2f33));
+      I.lamp.push(P(boxGeo(0.36, 0.22, 0.005), M(kx + 0.8, F + 1.32, kz - 0.268, Math.PI, 1, 0.3)));
+      I.trim.push(P(bevelBox(0.12, 0.05, 0.18, 0.01), M(kx + 1.3, F + 1.065, kz + 0.2), 0x2b2f33));
+      I.metal.push(P(cylinderGeo(0.07, 0.08, 0.02, 12), M(kx + 1.6, F + 1.05, kz + 0.25), C.brass));
+      I.metal.push(P(sphereGeo(0.06, 12, 6), M(kx + 1.6, F + 1.07, kz + 0.25, 0, [1, 0.7, 1]), C.brass));
       const cans = [[-3, 0], [-1, 0], [1, 0], [3, 0], [-2, 1], [0, 1], [2, 1], [-1, 2], [1, 2], [0, 3]];
       for (const [i, row] of cans) {
         const px = kx - 1.2 + i * 0.05, py = F + 1.04 + row * 0.2 + 0.1;
-        L.trim.push(P(cylinderGeo(0.045, 0.045, 0.18, 10), M(px, py, kz + 0.1), C.ball));
-        L.trim.push(P(cylinderGeo(0.047, 0.047, 0.025, 10), M(px, py + 0.1, kz + 0.1), 0x5d6266));
+        I.trim.push(P(cylinderGeo(0.045, 0.045, 0.18, 10), M(px, py, kz + 0.1), C.ball));
+        I.trim.push(P(cylinderGeo(0.047, 0.047, 0.025, 10), M(px, py + 0.1, kz + 0.1), 0x5d6266));
       }
-      for (let i = 0; i < 3; i++) L.trim.push(P(bevelBox(0.4, 0.07, 0.3, 0.03), M(kx - 0.35, F + 1.075 + i * 0.07, kz + 0.15, i * 0.1), i === 1 ? 0xeae6da : 0xf4f1e8));
+      for (let i = 0; i < 3; i++) I.trim.push(P(bevelBox(0.4, 0.07, 0.3, 0.03), M(kx - 0.35, F + 1.075 + i * 0.07, kz + 0.15, i * 0.1), i === 1 ? 0xeae6da : 0xf4f1e8));
       // stool behind the counter
-      L.trim.push(P(cylinderGeo(0.2, 0.2, 0.06, 14), M(kx + 0.6, F + 0.72, kz - 0.9), C.wood));
-      for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) L.metal.push(P(cylinderGeo(0.015, 0.015, 0.7, 5), M(kx + 0.6 + a * 0.11, F + 0.35, kz - 0.9 + b * 0.11), C.iron));
+      I.trim.push(P(cylinderGeo(0.2, 0.2, 0.06, 14), M(kx + 0.6, F + 0.72, kz - 0.9), C.wood));
+      for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) I.metal.push(P(cylinderGeo(0.015, 0.015, 0.7, 5), M(kx + 0.6 + a * 0.11, F + 0.35, kz - 0.9 + b * 0.11), C.iron));
     }
 
     // Wall behind the counter: club crest + trophy shelf; bag shelf in the corner
     {
       const [u0, v0, u1, v1] = regionUV(ATLAS.crest);
-      L.signs.push(P(atlasDisc('crest', 0.55, u0, v0, u1, v1), M(cx + 2, 2.75, jz0 + 0.02)));
-      L.trim.push(P(cylinderGeo(0.6, 0.6, 0.03, 28), M(cx + 2, 2.75, jz0 + 0.005, 0, 1, HALF_PI), C.woodDark));
-      L.trim.push(P(bevelBox(2.4, 0.05, 0.3, 0.01), M(cx + 2, 1.7, jz0 + 0.15), C.wood));
+      I.signs.push(P(atlasDisc('crest', 0.55, u0, v0, u1, v1), M(cx + 2, 2.75, jz0 + 0.02)));
+      I.trim.push(P(cylinderGeo(0.6, 0.6, 0.03, 28), M(cx + 2, 2.75, jz0 + 0.005, 0, 1, HALF_PI), C.woodDark));
+      I.trim.push(P(bevelBox(2.4, 0.05, 0.3, 0.01), M(cx + 2, 1.7, jz0 + 0.15), C.wood));
       for (const [ox, s] of [[-0.8, 0.85], [0, 1.15], [0.8, 0.95]]) {
-        L.metal.push(P(cylinderGeo(0.08 * s, 0.05 * s, 0.14 * s, 12), M(cx + 2 + ox, 1.725 + 0.07 * s, jz0 + 0.15), 0x3a2a1a));
-        L.metal.push(P(cylinderGeo(0.1 * s, 0.03 * s, 0.2 * s, 14), M(cx + 2 + ox, 1.725 + 0.24 * s, jz0 + 0.15), C.brass));
-        L.metal.push(P(cylinderGeo(0.015 * s, 0.015 * s, 0.1 * s, 6), M(cx + 2 + ox, 1.725 + 0.12 * s, jz0 + 0.15), C.brass));
+        I.metal.push(P(cylinderGeo(0.08 * s, 0.05 * s, 0.14 * s, 12), M(cx + 2 + ox, 1.725 + 0.07 * s, jz0 + 0.15), 0x3a2a1a));
+        I.metal.push(P(cylinderGeo(0.1 * s, 0.03 * s, 0.2 * s, 14), M(cx + 2 + ox, 1.725 + 0.24 * s, jz0 + 0.15), C.brass));
+        I.metal.push(P(cylinderGeo(0.015 * s, 0.015 * s, 0.1 * s, 6), M(cx + 2 + ox, 1.725 + 0.12 * s, jz0 + 0.15), C.brass));
       }
       const bx = ii1 - 1.25;
-      for (const s of [-1, 1]) L.trim.push(P(bevelBox(0.06, 2.2, 0.5, 0.015), M(bx + s * 1.1, F + 1.1, jz0 + 0.25), C.woodDark));
-      for (const y of [0.45, 1.2, 1.95]) L.trim.push(P(bevelBox(2.2, 0.04, 0.48, 0.01), M(bx, F + y, jz0 + 0.25), C.wood));
+      for (const s of [-1, 1]) I.trim.push(P(bevelBox(0.06, 2.2, 0.5, 0.015), M(bx + s * 1.1, F + 1.1, jz0 + 0.25), C.woodDark));
+      for (const y of [0.45, 1.2, 1.95]) I.trim.push(P(bevelBox(2.2, 0.04, 0.48, 0.01), M(bx, F + y, jz0 + 0.25), C.wood));
       const bags = [0x2d5a3d, 0xc23b4e, 0x1f3f63, 0xf4f1e8, 0x222222, 0xf28c28];
       for (let i = 0; i < 6; i++) {
         const row = i % 3, col = i >> 2 ? 1 : 0;
-        L.trim.push(P(bevelBox(0.85, 0.28, 0.32, 0.1), M(bx - 0.5 + col * 0.95, F + [0.45, 1.2, 1.95][row] + 0.16, jz0 + 0.26), bags[i]));
+        I.trim.push(P(bevelBox(0.85, 0.28, 0.32, 0.1), M(bx - 0.5 + col * 0.95, F + [0.45, 1.2, 1.95][row] + 0.16, jz0 + 0.26), bags[i]));
       }
     }
 
     // Racket wall (left) with a RACKETS sign
     {
       const px = ii0;
-      L.trim.push(P(bevelBox(0.03, 1.75, 6.2, 0.01), M(px + 0.015, 1.8, cz), 0xc9a57a));
-      for (const zz of [cz - 3.1, cz + 3.1]) L.trim.push(P(boxGeo(0.05, 1.85, 0.08), M(px + 0.03, 1.8, zz), C.woodDark));
+      I.trim.push(P(bevelBox(0.03, 1.75, 6.2, 0.01), M(px + 0.015, 1.8, cz), 0xc9a57a));
+      for (const zz of [cz - 3.1, cz + 3.1]) I.trim.push(P(boxGeo(0.05, 1.85, 0.08), M(px + 0.03, 1.8, zz), C.woodDark));
       const cols = [0xc23b4e, 0x222222, 0x1f5fa8, 0xf4f1e8, 0xf28c28, 0x9acd32, 0x6a3d9a, 0xe0e0dc, 0xd4a017];
       for (let row = 0; row < 2; row++) {
         for (let i = 0; i < 9; i++) {
           const zz = cz - 2.6 + i * 0.65;
           const base = M(px + 0.05, 1.35 + row * 0.8, zz, HALF_PI, 1, 0, (r() - 0.5) * 0.08);
-          this._racket(L.trim, base, cols[(i + row * 4) % cols.length]);
-          L.metal.push(P(cylinderGeo(0.008, 0.008, 0.08, 4), M(px + 0.05, 1.35 + row * 0.8 + 0.39, zz, 0, 1, 0, HALF_PI), C.chrome));
+          this._racket(I.trim, base, cols[(i + row * 4) % cols.length]);
+          I.metal.push(P(cylinderGeo(0.008, 0.008, 0.08, 4), M(px + 0.05, 1.35 + row * 0.8 + 0.39, zz, 0, 1, 0, HALF_PI), C.chrome));
         }
       }
       const rs = signPlane('rackets', 1.5);
-      L.trim.push(P(bevelBox(0.04, rs.h + 0.06, 1.56, 0.01), M(px + 0.02, 3.05, cz), C.woodDark));
-      L.signs.push(P(rs.geo, M(px + 0.045, 3.05, cz, HALF_PI)));
+      I.trim.push(P(bevelBox(0.04, rs.h + 0.06, 1.56, 0.01), M(px + 0.02, 3.05, cz), C.woodDark));
+      I.signs.push(P(rs.geo, M(px + 0.045, 3.05, cz, HALF_PI)));
     }
 
     // Apparel racks + shoe cubbies (right wall)
@@ -1085,67 +1321,67 @@ export class Building {
       const shirt = [0x2d5a3d, 0xf4f1e8, 0x1f3f63, 0xf08a7a, 0xf2d15e, 0x7fb3d5, 0xffffff, 0xc23b4e];
       for (const [z0r, z1r] of [[cz - 2.7, cz - 0.3], [cz + 0.4, cz + 2.8]]) {
         const rx = px - 0.75, rzc = (z0r + z1r) / 2, len = z1r - z0r;
-        L.metal.push(P(cylinderGeo(0.018, 0.018, len, 8), M(rx, F + 1.52, rzc, 0, 1, HALF_PI), C.chrome));
+        I.metal.push(P(cylinderGeo(0.018, 0.018, len, 8), M(rx, F + 1.52, rzc, 0, 1, HALF_PI), C.chrome));
         for (const zz of [z0r, z1r]) {
-          L.metal.push(P(cylinderGeo(0.018, 0.018, 1.5, 8), M(rx, F + 0.77, zz), C.chrome));
-          L.metal.push(P(boxGeo(0.5, 0.03, 0.05), M(rx, F + 0.02, zz), C.chrome));
+          I.metal.push(P(cylinderGeo(0.018, 0.018, 1.5, 8), M(rx, F + 0.77, zz), C.chrome));
+          I.metal.push(P(boxGeo(0.5, 0.03, 0.05), M(rx, F + 0.02, zz), C.chrome));
         }
         const n = Math.floor(len / 0.17);
         for (let i = 0; i < n; i++) {
           const zz = z0r + 0.12 + i * ((len - 0.24) / (n - 1));
-          L.trim.push(P(bevelBox(0.5, 0.64, 0.035, 0.012), M(rx, F + 1.15, zz, 0, 1, 0, (r() - 0.5) * 0.05), shirt[(i * 3 + (z0r > cz ? 1 : 0)) % shirt.length]));
+          I.trim.push(P(bevelBox(0.5, 0.64, 0.035, 0.012), M(rx, F + 1.15, zz, 0, 1, 0, (r() - 0.5) * 0.05), shirt[(i * 3 + (z0r > cz ? 1 : 0)) % shirt.length]));
         }
       }
       for (const y of [2.0, 2.45]) {
-        L.trim.push(P(bevelBox(0.32, 0.04, 5.6, 0.01), M(px - 0.16, y, cz), C.wood));
+        I.trim.push(P(bevelBox(0.32, 0.04, 5.6, 0.01), M(px - 0.16, y, cz), C.wood));
         for (let i = 0; i < 9; i++) {
           const zz = cz - 2.5 + i * 0.62;
-          for (const o of [-0.06, 0.06]) L.trim.push(P(bevelBox(0.26, 0.1, 0.1, 0.035), M(px - 0.17, y + 0.07, zz + o), shirt[(i + (y > 2.2 ? 3 : 0)) % shirt.length]));
+          for (const o of [-0.06, 0.06]) I.trim.push(P(bevelBox(0.26, 0.1, 0.1, 0.035), M(px - 0.17, y + 0.07, zz + o), shirt[(i + (y > 2.2 ? 3 : 0)) % shirt.length]));
         }
       }
       const as = signPlane('apparel', 1.5);
-      L.trim.push(P(bevelBox(0.04, as.h + 0.06, 1.56, 0.01), M(px - 0.02, 3.05, cz), C.woodDark));
-      L.signs.push(P(as.geo, M(px - 0.045, 3.05, cz, -HALF_PI)));
+      I.trim.push(P(bevelBox(0.04, as.h + 0.06, 1.56, 0.01), M(px - 0.02, 3.05, cz), C.woodDark));
+      I.signs.push(P(as.geo, M(px - 0.045, 3.05, cz, -HALF_PI)));
     }
 
     // Display table, ball hopper, plants, storefront displays, OPEN sign
     {
       const tx = cx + 3.6, tz = cz + 2.0;
-      L.trim.push(P(cylinderGeo(0.1, 0.16, 0.75, 12), M(tx, F + 0.375, tz), C.woodDark));
-      L.trim.push(P(cylinderGeo(0.62, 0.62, 0.05, 24), M(tx, F + 0.77, tz), C.wood));
+      I.trim.push(P(cylinderGeo(0.1, 0.16, 0.75, 12), M(tx, F + 0.375, tz), C.woodDark));
+      I.trim.push(P(cylinderGeo(0.62, 0.62, 0.05, 24), M(tx, F + 0.77, tz), C.wood));
       const fold = [0xf4f1e8, 0x2d5a3d, 0x1f3f63, 0xf08a7a];
       for (let s = 0; s < 3; s++) {
         const a = s * 2.1, ox = Math.cos(a) * 0.3, oz = Math.sin(a) * 0.3;
-        for (let k = 0; k < 3; k++) L.trim.push(P(bevelBox(0.3, 0.05, 0.24, 0.015), M(tx + ox, F + 0.82 + k * 0.05, tz + oz, a), fold[(s + k) % 4]));
+        for (let k = 0; k < 3; k++) I.trim.push(P(bevelBox(0.3, 0.05, 0.24, 0.015), M(tx + ox, F + 0.82 + k * 0.05, tz + oz, a), fold[(s + k) % 4]));
       }
       for (const [a, col] of [[0.8, 0xf4f1e8], [2.9, C.green], [5.0, 0x1f3f63]]) {
         const ox = Math.cos(a) * 0.12, oz = Math.sin(a) * 0.12;
-        L.trim.push(P(sphereGeo(0.09, 10, 5), M(tx + ox, F + 0.8, tz + oz, 0, [1, 0.6, 1]), col));
-        L.trim.push(P(boxGeo(0.12, 0.012, 0.1), M(tx + ox + Math.cos(a) * 0.12, F + 0.8, tz + oz + Math.sin(a) * 0.12, -a), col));
+        I.trim.push(P(sphereGeo(0.09, 10, 5), M(tx + ox, F + 0.8, tz + oz, 0, [1, 0.6, 1]), col));
+        I.trim.push(P(boxGeo(0.12, 0.012, 0.1), M(tx + ox + Math.cos(a) * 0.12, F + 0.8, tz + oz + Math.sin(a) * 0.12, -a), col));
       }
       // ball hopper
       const hx = ii0 + 0.7, hz = jz1 - 0.9;
-      L.metal.push(P(cylinderGeo(0.22, 0.19, 0.46, 12, true), M(hx, F + 0.55, hz), 0x2b2f33));
-      for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) L.metal.push(P(cylinderGeo(0.012, 0.012, 0.6, 4), M(hx + a * 0.13, F + 0.3, hz + b * 0.13), 0x2b2f33));
+      I.metal.push(P(cylinderGeo(0.22, 0.19, 0.46, 12, true), M(hx, F + 0.55, hz), 0x2b2f33));
+      for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) I.metal.push(P(cylinderGeo(0.012, 0.012, 0.6, 4), M(hx + a * 0.13, F + 0.3, hz + b * 0.13), 0x2b2f33));
       for (let i = 0; i < 14; i++) {
         const a = i * 2.4, rr = 0.05 + (i % 3) * 0.05;
-        L.trim.push(P(sphereGeo(0.034, 8, 5), M(hx + Math.cos(a) * rr, F + 0.74 + (i % 4) * 0.02, hz + Math.sin(a) * rr), C.ball));
+        I.trim.push(P(sphereGeo(0.034, 8, 5), M(hx + Math.cos(a) * rr, F + 0.74 + (i % 4) * 0.02, hz + Math.sin(a) * rr), C.ball));
       }
       // plants in the front corners
       for (const px of [ii0 + 0.4, ii1 - 0.4]) {
         const pz = jz1 - 0.45;
-        L.trim.push(P(cylinderGeo(0.24, 0.18, 0.4, 12), M(px, F + 0.2, pz), 0xb8643e));
-        L.trim.push(P(cylinderGeo(0.03, 0.04, 0.9, 5), M(px, F + 0.8, pz), C.woodDark));
-        for (let k = 0; k < 5; k++) L.trim.push(P(icoGeo(0.26 - k * 0.02, 0), M(px + (r() - 0.5) * 0.3, F + 1.0 + k * 0.22, pz + (r() - 0.5) * 0.3, r() * 3), k % 2 ? C.leaf : C.leafDark));
+        I.trim.push(P(cylinderGeo(0.24, 0.18, 0.4, 12), M(px, F + 0.2, pz), 0xb8643e));
+        I.trim.push(P(cylinderGeo(0.03, 0.04, 0.9, 5), M(px, F + 0.8, pz), C.woodDark));
+        for (let k = 0; k < 5; k++) I.trim.push(P(icoGeo(0.26 - k * 0.02, 0), M(px + (r() - 0.5) * 0.3, F + 1.0 + k * 0.22, pz + (r() - 0.5) * 0.3, r() * 3), k % 2 ? C.leaf : C.leafDark));
       }
       // storefront display plinths
       for (const [k, o] of win.entries()) {
         const mid = (o.a + o.b) / 2, dz = zi1 - 0.3;
-        L.trim.push(P(bevelBox(o.b - o.a - 0.5, 0.5, 0.45, 0.03), M(mid, F + 0.25, dz), 0xe9dcb8));
-        L.trim.push(P(bevelBox(0.95, 0.3, 0.3, 0.1), M(mid - 0.9, F + 0.65, dz), k ? 0xc23b4e : C.green));
-        L.trim.push(P(bevelBox(0.97, 0.06, 0.31, 0.02), M(mid - 0.9, F + 0.68, dz), 0xf4f1e8));
-        for (let i = 0; i < 3; i++) L.trim.push(P(cylinderGeo(0.045, 0.045, 0.2, 10), M(mid + 0.1 + i * 0.12, F + 0.6, dz), C.ball));
-        this._racket(L.trim, M(mid + 0.9, F + 0.88, dz - 0.05, 0, 1, -0.12, 0.25), k ? 0x1f5fa8 : 0xc23b4e);
+        I.trim.push(P(bevelBox(o.b - o.a - 0.5, 0.5, 0.45, 0.03), M(mid, F + 0.25, dz), 0xe9dcb8));
+        I.trim.push(P(bevelBox(0.95, 0.3, 0.3, 0.1), M(mid - 0.9, F + 0.65, dz), k ? 0xc23b4e : C.green));
+        I.trim.push(P(bevelBox(0.97, 0.06, 0.31, 0.02), M(mid - 0.9, F + 0.68, dz), 0xf4f1e8));
+        for (let i = 0; i < 3; i++) I.trim.push(P(cylinderGeo(0.045, 0.045, 0.2, 10), M(mid + 0.1 + i * 0.12, F + 0.6, dz), C.ball));
+        this._racket(I.trim, M(mid + 0.9, F + 0.88, dz - 0.05, 0, 1, -0.12, 0.25), k ? 0x1f5fa8 : 0xc23b4e);
       }
       const op = signPlane('open', 0.6);
       L.signs.push(P(op.geo, M(win[0].b - 0.55, 2.15, zf - 0.02, Math.PI)));
@@ -1155,10 +1391,6 @@ export class Building {
     }
 
     // ── Roof layer (cutaway group) ──
-    const roofGroup = new THREE.Group();
-    roofGroup.name = 'proShop:roof';
-    this.roofGroup = roofGroup;
-    this.mesh.add(roofGroup);
     const rx0 = X0 - 0.55, rx1 = X1 + 0.55, rz0 = Z0 - 0.55, rz1 = Z1 + 0.55;
     const rise = ((rz1 - rz0) / 2) * 0.51;
     const sb = new SurfaceBuilder();
@@ -1190,39 +1422,18 @@ export class Building {
       L.roofTrim.push(P(cylinderGeo(0.3, 0.3, 0.02, 18), M(cx + lx, ceilY - 0.008, cz + lz), C.brass));
     }
 
-    // ── Meshes ──
-    const walls = this._mesh(L.walls, Mat.siding(), { uvTile: 1.6, name: 'proShop:walls' });
-    const interior = this._mesh(L.interior, Mat.interior(), { cast: false, uvTile: 2.5, name: 'proShop:interior' });
-    const floor = this._mesh(L.floor, Mat.floor(), { cast: false, uvTile: 1.2, name: 'proShop:floor' });
-    this._mesh(L.trim, Mat.prop(), { name: 'proShop:trim' });
-    this._mesh(L.metal, Mat.metal(), { name: 'proShop:metal' });
-    this._mesh(L.glass, Mat.glass(), { cast: false, name: 'proShop:glass' });
-    const store = this._mesh(L.store, Mat.storeGlass(), { cast: false, receive: false, name: 'proShop:storeGlass' });
-    if (store) { store.renderOrder = 2; store.userData.noAO = true; }
-    this._mesh(L.lamp, Mat.lamp(), { cast: false, receive: false, name: 'proShop:lamps' });
-    this._mesh(L.signs, Mat.signs(), { cast: false, name: 'proShop:signs' });
-    this._mesh(L.awning, Mat.awning(), { name: 'proShop:awnings' });
+    // Ceiling (seen through the door; hidden with the roof layer)
+    L.roofTrim.push(P(boxGeo(xi1 - xi0, 0.04, zi1 - zi0), M(cx, ceilY + 0.02, cz), C.ceiling));
 
-    const roofColorMat = Mat.roof(C.roofGreen);
-    this._roofMeshes.push(this._roofSurface(sb, roofColorMat, roofGroup));
-    this._roofMeshes.push(this._mesh(L.roofTrim, Mat.prop(), { parent: roofGroup, name: 'proShop:roofTrim' }));
-    this._roofMeshes.push(this._mesh(L.roofSign, Mat.signs(), { cast: false, parent: roofGroup, name: 'proShop:roofSign' }));
-    this._roofMeshes.push(this._mesh(L.roofLamp, Mat.lamp(), { cast: false, receive: false, parent: roofGroup, name: 'proShop:ceilingLights' }));
-    this._roofMeshes = this._roofMeshes.filter(Boolean);
-    for (const m of this._roofMeshes) m.userData.baseMaterial = m.material;
-    // Empty mesh that keeps the ghost material's shader compiled, so the first cutaway doesn't hitch.
-    const prewarm = new THREE.Mesh(getGeometry('bld-empty', () => {
-      const e = new THREE.BufferGeometry();
-      e.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-      return e;
-    }), Mat.ghost());
-    prewarm.frustumCulled = false;
-    prewarm.name = 'proShop:ghostPrewarm';
-    prewarm.userData.noAO = true;
-    roofGroup.add(prewarm);
+    // ── Meshes ──
+    this._emit(L, { wallMat: Mat.siding(), wallTile: 1.6, prefix: 'proShop' });
+    this._emit(I, { interior: true, prefix: 'proShop' });
+    this._emitRoof(L, sb, Mat.roof(C.roofGreen));
 
     this._contactShadow(X0, X1, Z0, Z1, { front: 0.05, back: 0.05, left: 0.05, right: 0.05 });
-    this._installCutaway(x0 + ht, x1 - ht, zb + ht, zf - ht, X0, X1, Z0, Z1, [walls, interior, floor]);
+    this.rooms.push({ x0: x0 + ht, x1: x1 - ht, z0: zb + ht, z1: zf - ht + 0.1 });
+    this.footprints.push({ x0: X0 - 0.6, x1: X1 + 0.6, z0: Z0 - 0.6, z1: Z1 + 0.6 });
+    this.roofTop = eaveY + rise + 0.5;
 
     // Physics walls (unchanged from the original layout)
     const frontLeftW = (w - doorWidth) / 2;
@@ -1232,149 +1443,6 @@ export class Building {
     // front walls (with gap)
     this._addWallPhysics(center.x - doorWidth / 2 - frontLeftW / 2, h / 2, center.z + d / 2, frontLeftW / 2, h / 2, 0.15);
     this._addWallPhysics(center.x + doorWidth / 2 + frontLeftW / 2, h / 2, center.z + d / 2, frontLeftW / 2, h / 2, 0.15);
-  }
-
-  // ───────────── clubhouse ─────────────
-
-  _buildClubhouse(config) {
-    const { center, width, depth, height } = config;
-    const w = width || SIZES.clubhouseWidth;
-    const d = depth || SIZES.clubhouseDepth;
-    const h = height || SIZES.clubhouseHeight;
-    const cx = center.x, cz = center.z;
-    const X0 = cx - w / 2, X1 = cx + w / 2, Z0 = cz - d / 2, Z1 = cz + d / 2;
-    const eaveY = h + 0.12;
-    const patioTop = 0.1; // World's patio slab in front of the clubhouse
-    const L = this._lists();
-
-    // ── Body ──
-    L.walls.push(P(boxGeo(w, h + 0.06, d), M(cx, (h + 0.06) / 2, cz)));
-    L.trim.push(P(boxGeo(w + 0.12, 0.45, d + 0.12), M(cx, 0.225, cz), C.stone));
-    L.trim.push(P(boxGeo(w + 0.16, 0.06, d + 0.16), M(cx, 0.45, cz), 0xc8bfae));
-    for (const [X, sx] of [[X0, 1], [X1, -1]]) for (const [Z, sz] of [[Z0, 1], [Z1, -1]]) {
-      L.trim.push(P(boxGeo(0.36, h - 0.45, 0.36), M(X + sx * 0.14, 0.45 + (h - 0.45) / 2, Z + sz * 0.14), C.trim));
-    }
-    const fy = eaveY - 0.08 - 0.16;
-    L.trim.push(P(boxGeo(w + 0.12, 0.3, d + 0.12), M(cx, fy, cz), C.trim));
-
-    // ── Windows ──
-    const wy = 1.65;
-    [-7, -4.4, 4.4, 7].forEach((ox, i) => this._window(L, M(cx + ox, wy, Z1, 0), 1.3, 1.6, { variant: i & 3, box: true }));
-    [-7, -3.6, 3.6, 7].forEach((ox, i) => this._window(L, M(cx + ox, wy, Z0, Math.PI), 1.3, 1.6, { variant: (i + 1) & 3, shutters: true }));
-    for (const oz of [-1.8, 1.8]) {
-      this._window(L, M(X0, wy, cz + oz, -HALF_PI), 1.3, 1.6, { variant: oz > 0 ? 2 : 0, shutters: true });
-      this._window(L, M(X1, wy, cz + oz, HALF_PI), 1.3, 1.6, { variant: oz > 0 ? 3 : 1, shutters: true });
-    }
-
-    // ── Front entrance, colonnade, pediment ──
-    const frontDoor = M(cx, patioTop, Z1, 0);
-    this._door(L, frontDoor, 1.8, 2.45, { double: true, transom: true });
-    for (const s of [-1, 1]) this._lantern(L, M(cx + s * 1.35, 2.2, Z1, 0));
-    const colZ = Z1 + 0.35;
-    const colXs = [X0 + 0.25, cx - 2.1, cx + 2.1, X1 - 0.25];
-    for (const x of colXs) {
-      L.trim.push(P(bevelBox(0.38, 0.14, 0.38, 0.02), M(x, patioTop + 0.07, colZ), C.trim));
-      L.trim.push(P(cylinderGeo(0.11, 0.135, 3.1 - patioTop - 0.14, 14), M(x, (patioTop + 0.14 + 3.1) / 2, colZ), C.trim));
-      L.trim.push(P(bevelBox(0.34, 0.12, 0.34, 0.02), M(x, 3.16, colZ), C.trim));
-      this._addWallPhysics(x, h / 2, colZ, 0.15, h / 2, 0.15);
-    }
-    L.trim.push(P(bevelBox(w + 0.3, 0.3, 0.3, 0.03), M(cx, 3.37, colZ), C.trim));
-
-    // ── Roof ──
-    const rx0 = X0 - 0.6, rx1 = X1 + 0.6, rz0 = Z0 - 0.6, rz1 = Z1 + 0.7;
-    const pitch = 0.625;
-    const rise = ((rz1 - rz0) / 2) * pitch;
-    const ridgeY = eaveY + rise, ridgeZ = (rz0 + rz1) / 2;
-    const roofAt = z => eaveY + (rz1 - z) * pitch; // front slope height
-    const sb = new SurfaceBuilder();
-    const lines = sb.hipRoof(rx0, rx1, rz0, rz1, eaveY, rise, 2.0);
-    this._roofCaps(L.trim, lines, C.ridgeSlate);
-    this._eaves(L.trim, rx0, rx1, rz0, rz1, eaveY, C.trim, C.trim);
-
-    // Cross gable over the entrance with the club sign and crest
-    const gHW = 2.4, gRise = 2.0, gOv = 0.3, gSlope = gRise / gHW;
-    const gz = rz1 + 0.08, gFront = gz + 0.42, gEave = eaveY - gOv * gSlope;
-    const gBack = rz1 - (gRise + 0.3) / pitch;
-    const g = sb.crossGableZ(cx, gHW + gOv, gBack, rz1, gFront, eaveY, gEave, eaveY + gRise, 2.0);
-    this._roofCaps(L.trim, { ridge: g.ridge }, C.ridgeSlate);
-    L.trim.push(P(prismGeo(gHW, gRise, 0.14), M(cx, eaveY - 0.06, gz - 0.14), C.trim));
-    L.trim.push(P(boxGeo(2 * gHW + 0.24, 0.14, gz - Z1 + 0.06), M(cx, eaveY - 0.07, (Z1 + gz + 0.06) / 2), C.trim));
-    for (const s of [-1, 1]) {
-      L.trim.push(P(boxGeo(1, 1, 1), segMatrix(V(cx + s * (gHW + gOv), gEave - 0.07, gFront - 0.03), V(cx, eaveY + gRise - 0.07, gFront - 0.03), 0.2, 0.06), C.trim));
-    }
-    const cs = signPlane('club', 2.7);
-    L.trim.push(P(bevelBox(2.82, cs.h + 0.1, 0.06, 0.02), M(cx, eaveY + 0.42, gz + 0.03), C.green));
-    L.signs.push(P(cs.geo, M(cx, eaveY + 0.42, gz + 0.064)));
-    {
-      const [u0, v0, u1, v1] = regionUV(ATLAS.crest);
-      L.signs.push(P(atlasDisc('crest', 0.3, u0, v0, u1, v1), M(cx, eaveY + 1.13, gz + 0.045)));
-      L.trim.push(P(cylinderGeo(0.34, 0.34, 0.04, 24), M(cx, eaveY + 1.13, gz + 0.02, 0, 1, HALF_PI), C.brass));
-    }
-
-    // Dormers on the front slope
-    for (const ox of [-5.6, 5.6]) {
-      const dx = cx + ox, fz = Z1 - 0.7, bz = fz - 1.9;
-      const dTop = 5.6, dHW = 0.8, dOv = 0.15, dRise = 0.62;
-      L.walls.push(P(boxGeo(2 * dHW, dTop - (roofAt(fz) - 0.2), fz - bz), M(dx, (dTop + roofAt(fz) - 0.2) / 2, (fz + bz) / 2)));
-      L.trim.push(P(prismGeo(dHW, dRise, 0.08), M(dx, dTop - 0.04, fz - 0.06), C.trim));
-      const dBack = rz1 - (dTop + dRise - eaveY + 0.25) / pitch;
-      const dSlope = dRise / dHW;
-      const dg = sb.gableZ(dx, dHW + dOv, dBack, fz + 0.25, dTop - dOv * dSlope, dRise + dOv * dSlope, 2.0);
-      this._roofCaps(L.trim, { ridge: dg.ridge }, C.ridgeSlate, 0.12);
-      for (const s of [-1, 1]) L.trim.push(P(boxGeo(1, 1, 1), segMatrix(V(dx + s * (dHW + dOv), dTop - dOv * dSlope - 0.05, fz + 0.23), V(dx, dTop + dRise - 0.05, fz + 0.23), 0.12, 0.04), C.trim));
-      this._window(L, M(dx, dTop - 0.52, fz, 0), 0.8, 0.62, { variant: ox < 0 ? 3 : 0 });
-    }
-
-    // Chimney (back slope)
-    {
-      const chx = cx - 6.8, chz = cz - 2.2;
-      L.trim.push(P(boxGeo(0.9, 4.4, 0.75), M(chx, 5.2, chz), C.brick));
-      L.trim.push(P(boxGeo(1.0, 0.12, 0.85), M(chx, 6.95, chz), 0x8a4630));
-      L.trim.push(P(boxGeo(1.06, 0.1, 0.9), M(chx, 7.45, chz), C.stone));
-      for (const s of [-1, 1]) L.trim.push(P(cylinderGeo(0.1, 0.12, 0.32, 10), M(chx + s * 0.22, 7.66, chz), 0xb8643e));
-    }
-
-    // Cupola + weathervane on the ridge
-    {
-      const ux = cx, uz = ridgeZ, by = ridgeY - 0.3;
-      L.trim.push(P(bevelBox(1.3, 1.5, 1.3, 0.03), M(ux, by + 0.75, uz), C.trim));
-      for (let k = 0; k < 4; k++) {
-        const base = M(ux, by + 0.85, uz, (k * Math.PI) / 2).multiply(M(0, 0, 0.65));
-        L.trim.push(P(bevelBox(0.8, 0.72, 0.03, 0.01), at(base, 0, 0, 0.01), C.green));
-        for (let s = 0; s < 5; s++) L.trim.push(P(boxGeo(0.72, 0.03, 0.02), at(base, 0, -0.28 + s * 0.14, 0.03), C.greenDark));
-      }
-      L.trim.push(P(bevelBox(1.55, 0.1, 1.55, 0.02), M(ux, by + 1.55, uz), C.trim));
-      L.trim.push(P(pyramidGeo(), M(ux, by + 1.6 + 0.45, uz, Math.PI / 4, [1.12, 0.9, 1.12]), C.copper));
-      const vy = by + 2.5;
-      L.metal.push(P(sphereGeo(0.07, 10, 6), M(ux, vy, uz), C.brass));
-      L.metal.push(P(cylinderGeo(0.018, 0.018, 0.8, 6), M(ux, vy + 0.4, uz), C.iron));
-      L.metal.push(P(boxGeo(0.5, 0.02, 0.02), M(ux, vy + 0.35, uz), C.iron));
-      L.metal.push(P(boxGeo(0.02, 0.02, 0.5), M(ux, vy + 0.35, uz), C.iron));
-      L.metal.push(P(boxGeo(0.9, 0.03, 0.03), M(ux, vy + 0.72, uz, 0.6), C.iron));
-      L.metal.push(P(pyramidGeo(), M(ux + Math.cos(0.6) * 0.47, vy + 0.72, uz - Math.sin(0.6) * 0.47, 0, [0.06, 0.16, 0.06], 0, -HALF_PI).multiply(M(0, 0, 0, Math.PI / 4)), C.iron));
-      L.metal.push(P(boxGeo(0.02, 0.2, 0.24), M(ux - Math.cos(0.6) * 0.42, vy + 0.72, uz + Math.sin(0.6) * 0.42, 0.6 + HALF_PI), C.iron));
-    }
-
-    // Back door with hood and lantern
-    const backDoor = M(cx, 0, Z0, Math.PI);
-    this._door(L, backDoor, 1.1, 2.3, { double: false, transom: false });
-    L.trim.push(P(bevelBox(1.8, 0.08, 0.75, 0.02), at(backDoor, 0, 2.72, 0.37), C.green));
-    for (const s of [-1, 1]) L.trim.push(P(boxGeo(1, 1, 1), segMatrix(V(s * 0.8, 2.3, 0.02), V(s * 0.8, 2.68, 0.66), 0.06, 0.06).premultiply(backDoor), C.trim));
-    this._lantern(L, at(backDoor, 0.95, 2.05, 0));
-
-    // ── Meshes ──
-    this._mesh(L.walls, Mat.stucco(), { uvTile: 3, name: 'clubhouse:walls' });
-    this._mesh(L.trim, Mat.prop(), { name: 'clubhouse:trim' });
-    this._mesh(L.metal, Mat.metal(), { name: 'clubhouse:metal' });
-    this._mesh(L.glass, Mat.glass(), { cast: false, name: 'clubhouse:glass' });
-    this._mesh(L.lamp, Mat.lamp(), { cast: false, receive: false, name: 'clubhouse:lamps' });
-    this._mesh(L.signs, Mat.signs(), { cast: false, name: 'clubhouse:signs' });
-    this._roofSurface(sb, Mat.roof(C.roofSlate), this.mesh);
-
-    this._contactShadow(X0, X1, Z0, Z1, { front: patioTop + 0.015, back: 0.05, left: 0.05, right: 0.05 });
-
-    // Physics (unchanged: one solid box)
-    this._addWallPhysics(center.x, h / 2, center.z, w / 2, h / 2, d / 2);
   }
 
   _contactShadow(x0, x1, z0, z1, ys) {

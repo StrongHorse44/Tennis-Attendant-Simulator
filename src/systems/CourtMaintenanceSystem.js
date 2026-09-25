@@ -259,9 +259,15 @@ export class CourtMaintenanceSystem {
    */
   isNearEquipmentShed(playerPos, shedPos) {
     if (!playerPos || !shedPos) return false;
-    const dx = playerPos.x - shedPos.x;
-    const dz = playerPos.z - shedPos.z;
-    return Math.sqrt(dx * dx + dz * dz) < 4;
+    // Generous zone: the shed footprint plus the painted drive-in apron in front of its open
+    // (+z) side, grown by SHED_REACH on every side. The cart centre sits ~1 m behind its nose,
+    // so this triggers as soon as the cart pulls onto the apron or noses up to any wall.
+    const b = this.mapData && this.mapData.areas && this.mapData.areas.equipmentShed && this.mapData.areas.equipmentShed.bounds;
+    const hw = (b && b.width ? b.width : 5) / 2, hd = (b && b.depth ? b.depth : 4) / 2;
+    const SHED_REACH = 2.6, APRON = 4.5;
+    const x0 = shedPos.x - hw - SHED_REACH, x1 = shedPos.x + hw + SHED_REACH;
+    const z0 = shedPos.z - hd - SHED_REACH, z1 = shedPos.z + hd + APRON + SHED_REACH;
+    return playerPos.x > x0 && playerPos.x < x1 && playerPos.z > z0 && playerPos.z < z1;
   }
 
   /**

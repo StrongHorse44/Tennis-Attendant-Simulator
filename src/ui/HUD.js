@@ -86,11 +86,13 @@ const MISSION_TYPE = {
   conflict: { color: '#ee8b78', label: 'Member issue' },
   errand: { color: '#7db5ee', label: 'Errand' },
   maintenance: { color: THEME.clay, label: 'Maintenance' },
+  story: { color: '#f29cc4', label: 'Member story' },
 };
 
 const MINIMAP_CSS_SIZE = 136;
 const MINIMAP_INTERVAL = 1000 / 12;   // ~12 fps redraw
 const GROOM_INTERVAL = 1000 / 10;     // ~10 fps DOM updates
+const GROOM_PANEL_KEY = 'courtcall.groomPanel'; // sessionStorage: 'compact' | 'full'
 const TOAST_MAX = 3;
 const FLOAT_POOL = 6;
 const CONFETTI_POOL = 28;
@@ -644,8 +646,91 @@ const CSS = `
   transform: translateY(-1px) rotate(-45deg);
 }
 
+/* Grooming panel: details toggle + compact strip (default on phones; see _groomCompact) */
+.cc-groom__more {
+  flex: none;
+  width: 44px; height: 44px; margin: -8px -6px -8px 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(244, 232, 193, 0.25);
+  border-radius: 999px;
+  background: rgba(244, 232, 193, 0.08);
+  color: var(--cc-cream);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.cc-groom__more .cc-ico { width: 20px; height: 20px; transition: transform 0.25s ease; transform: rotate(180deg); }
+.cc-groom--compact .cc-groom__more .cc-ico { transform: none; }
+.cc-groom__pills { display: none; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
+.cc-groom__pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-width: 0; max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 700; line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: rgba(244, 232, 193, 0.1); color: var(--cc-cream-dim);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.cc-groom__pill::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.cc-groom__pill--optimal { background: rgba(76, 175, 106, 0.24); color: #8fe0a6; }
+.cc-groom__pill--warn { background: rgba(217, 164, 65, 0.26); color: #f3cd7e; }
+.cc-groom__pill--danger, .cc-groom__pill--far { background: rgba(224, 90, 71, 0.3); color: #ffb3a6; }
+/* Compact strip (~85px tall):  [ring] [coverage bar  0%] ([cam]) [more·badge]
+                                [ring] [fence / net pill ················]   */
+.cc-hud-left--grooming .cc-groom.cc-groom--compact {
+  display: grid !important;
+  grid-template-columns: 40px minmax(0, 1fr) 44px;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 5px 6px;
+  padding: 7px 8px 8px 9px;
+}
+.cc-groom--compact .cc-groom__head, .cc-groom--compact .cc-groom__top { display: contents; }
+.cc-groom--compact .cc-groom__head > .cc-ico, .cc-groom--compact .cc-groom__title,
+.cc-groom--compact .cc-groom__timer, .cc-groom--compact .cc-groom__sec,
+.cc-groom--compact .cc-groom__cam { display: none; }
+.cc-groom--compact .cc-groom__more { grid-column: -2; grid-row: 1; margin: 0; }
+.cc-groom.cc-groom--compact .cc-ring { grid-column: 1; grid-row: 1 / span 2; width: 40px; height: 40px; }
+.cc-groom.cc-groom--compact .cc-ring__val b { font-size: 12px; }
+.cc-groom--compact .cc-ring__val span { display: none; }
+.cc-hud-left--grooming .cc-groom--compact .cc-groom__stats {
+  grid-column: 2; grid-row: 1; width: auto;
+  flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 7px;
+}
+.cc-groom--compact .cc-groom__stats .cc-bar { order: 0; flex: 1 1 30px; }
+.cc-groom--compact .cc-groom__row { order: 1; flex: none; }
+.cc-groom--compact .cc-groom__row span { display: none; }
+.cc-groom--compact .cc-speed { order: 2; flex: 1 0 100%; padding: 2px 6px; font-size: 10.5px; }
+.cc-groom--compact .cc-speed--ok { display: none; }   /* speed only when it matters */
+.cc-groom--compact .cc-groom__pills { display: flex; grid-column: 2 / -1; grid-row: 2; }
+.cc-groom__badge {
+  display: none;
+  position: absolute; top: -5px; right: -6px;
+  min-width: 18px; padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--cc-gold); color: #1d2a21;
+  font-size: 10px; font-weight: 800; line-height: 14px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.cc-groom__badge--done { background: var(--cc-ok); color: #fff; }
+.cc-groom--compact .cc-groom__more { position: relative; }
+.cc-groom--compact .cc-groom__badge:not(:empty) { display: block; }
+/* Room for the camera button too (most phones are ≥ 400px wide, and all larger screens) */
+@media (min-width: 400px) {
+  .cc-hud-left--grooming .cc-groom.cc-groom--compact { grid-template-columns: 40px minmax(0, 1fr) 44px 44px; }
+  .cc-groom--compact .cc-groom__cam { display: inline-flex; grid-column: 3; grid-row: 1; margin: 0; }
+}
+
 /* ─── Narrow screens (phones, portrait) ─── */
 @media (max-width: 640px) {
+  /* full panel header must fit ~200px: drop the title text, keep icon + timer + buttons */
+  .cc-groom__title { display: none; }
+  .cc-groom__head { gap: 6px; }
+  .cc-groom__head .cc-groom__timer { margin-right: auto; }
+  .cc-groom__timer .cc-ico { display: none; }
   .cc-toasts, .cc-toasts--below {
     top: calc(var(--cc-safe-top) + 8px);
     width: calc(100vw - 20px - var(--cc-safe-left) - var(--cc-safe-right));
@@ -718,6 +803,10 @@ const CSS = `
   .cc-hud-left--grooming .cc-check { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; }
   .cc-hud-left--grooming .cc-check li { font-size: 11.5px; min-width: 0; }
   .cc-hud-left--grooming .cc-check li > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cc-hud-left--grooming .cc-groom.cc-groom--compact {
+    width: min(320px, calc(100vw - var(--cc-safe-left) - var(--cc-safe-right) - var(--cc-minimap-size) - 44px));
+    padding: 7px 8px 8px 9px;
+  }
 }
 /* Status row: clock pill + wallet */
 .cc-hud-row { display: flex; align-items: center; gap: 8px; max-width: 100%; }
@@ -1017,7 +1106,8 @@ export class HUD {
     const head = el('div', 'cc-groom__head', g);
     icon('groom', head);
     const title = el('span', 'cc-groom__title', head);
-    title.innerHTML = '<span class="cc-wide-only">Court </span>Grooming';
+    title.textContent = 'Grooming';
+    title.title = 'Court grooming';
     const timer = el('span', 'cc-groom__timer', head);
     icon('timer', timer);
     this.groomTimerText = el('span', '', timer);
@@ -1039,6 +1129,19 @@ export class HUD {
     });
     this._groomCamBtn = cam;
 
+    // Details toggle: compact strip (clean %, coverage, proximity pill) ⇄ full panel
+    const more = el('button', 'cc-groom__more', head);
+    more.type = 'button';
+    icon('chevron', more);
+    more.addEventListener('touchstart', stop, { passive: true });
+    more.addEventListener('mousedown', stop);
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.detail > 0) more.blur();
+      this._setGroomCompact(!this._groomCompact, true);
+    });
+    this._groomMoreBtn = more;
+
     const top = el('div', 'cc-groom__top', g);
     // Cleanliness ring
     const ring = el('div', 'cc-ring', top);
@@ -1059,6 +1162,12 @@ export class HUD {
     this.groomCoverageText.textContent = '0%';
     const bar = el('div', 'cc-bar', stats);
     this.groomCoverageBar = el('div', 'cc-bar__fill', bar);
+    // Compact-mode pills: nearest fence/net distance + courtside task count
+    const pills = el('div', 'cc-groom__pills', g);
+    this._groomProxPill = el('span', 'cc-groom__pill', pills);
+    this._groomProxPill.textContent = 'Drive closer';
+    // Courtside task count rides on the details button as a badge
+    this._groomTaskBadge = el('span', 'cc-groom__badge', this._groomMoreBtn);
     this.groomSpeedIndicator = el('div', 'cc-speed cc-speed--ok', stats);
     icon('speed', this.groomSpeedIndicator);
     this._speedText = el('span', '', this.groomSpeedIndicator);
@@ -1078,6 +1187,43 @@ export class HUD {
     const tl = el('span', 'cc-label', ts);
     tl.textContent = 'Courtside tasks';
     this.groomTaskListEl = el('ul', 'cc-check', ts);
+
+    // Phones / short screens start compact; the player's choice sticks for the session
+    let saved = null;
+    try { saved = window.sessionStorage.getItem(GROOM_PANEL_KEY); } catch (e) { /* storage blocked */ }
+    const small = window.innerWidth <= 640 || window.innerHeight <= 520;
+    this._setGroomCompact(saved ? saved === 'compact' : small, false);
+    window.addEventListener('resize', () => this._fitGroomPanel());
+  }
+
+  /** Compact strip (true) or full panel (false); `remember` stores it for this session. */
+  _setGroomCompact(on, remember) {
+    this._groomCompact = !!on;
+    this.groomingOverlay.classList.toggle('cc-groom--compact', this._groomCompact);
+    const b = this._groomMoreBtn;
+    b.setAttribute('aria-expanded', this._groomCompact ? 'false' : 'true');
+    b.setAttribute('aria-label', this._groomCompact ? 'Show grooming details' : 'Hide grooming details');
+    b.title = this._groomCompact ? 'More detail' : 'Less detail';
+    if (remember) {
+      try { window.sessionStorage.setItem(GROOM_PANEL_KEY, this._groomCompact ? 'compact' : 'full'); } catch (e) { /* storage blocked */ }
+    }
+    this._fitGroomPanel();
+  }
+
+  /** Keep the (expanded) panel above the joystick: cap its height and scroll inside. */
+  _fitGroomPanel() {
+    const g = this.groomingOverlay;
+    if (!g || g.style.display === 'none') return;
+    g.style.maxHeight = '';
+    g.style.overflowY = '';
+    const joy = document.querySelector('.cc-joy');
+    const jr = joy && joy.getBoundingClientRect();
+    const floor = jr && jr.height > 0 ? jr.top - 10 : window.innerHeight - 12;
+    const r = g.getBoundingClientRect();
+    if (r.bottom > floor) {
+      g.style.maxHeight = Math.max(96, Math.floor(floor - r.top)) + 'px';
+      g.style.overflowY = 'auto';
+    }
   }
 
   _createGauge(parent, name) {
@@ -1544,7 +1690,7 @@ export class HUD {
     };
     for (const p of mapData.paths || []) for (const pt of p.points) grow(pt.x, pt.z, (p.width || 2) / 2, (p.width || 2) / 2);
     for (const c of areas.courts || []) grow(c.center.x, c.center.z, SIZES.courtWidth / 2 + 2, SIZES.courtDepth / 2 + 2);
-    for (const k of ['entrance', 'parking', 'proShop', 'garden', 'equipmentShed', 'patio']) {
+    for (const k of ['entrance', 'parking', 'proShop', 'garden', 'equipmentShed', 'patio', 'fitnessCenter', 'poolHouse', 'pool']) {
       const a = areas[k];
       if (a && a.center) grow(a.center.x, a.center.z, a.bounds ? a.bounds.width / 2 : 3, a.bounds ? a.bounds.depth / 2 : 3);
     }
@@ -1690,6 +1836,20 @@ export class HUD {
       const b = shed.bounds || { width: 5, depth: 4 };
       rect(shed.center.x, shed.center.z, b.width, b.depth, '#9a6a3f', '#5b3d22', 1, 1);
     }
+    // Club buildings: clubhouse locker wing, fitness centre, pool house + pool deck and water
+    const wing = ch && ch.wing;
+    if (wing && wing.center) building(wing.center.x, wing.center.z, wing.width, wing.depth);
+    const pool = areas.pool;
+    if (pool && pool.center && pool.bounds) {
+      rect(pool.center.x, pool.center.z, pool.bounds.width, pool.bounds.depth, '#e6dcc6', 'rgba(35,39,42,0.6)', 1, 1);
+      const wtr = pool.water;
+      if (wtr) rect(wtr.x, wtr.z, wtr.width, wtr.length, '#4cb8e6', '#f7f3ea', 1.2, 1);
+    }
+    for (const k of ['fitnessCenter', 'poolHouse']) {
+      const a = areas[k];
+      const bb = a && (a.building || a.bounds);
+      if (a && a.center && bb) building(a.center.x, a.center.z, bb.width, bb.depth);
+    }
 
     // Soft edge vignette
     const vg = ctx.createRadialGradient(size / 2, size / 2, size * 0.35, size / 2, size / 2, size * 0.75);
@@ -1782,10 +1942,11 @@ export class HUD {
     this._leftCol.classList.add('cc-hud-left--grooming');
     this._groomLast = 0;
     const C = this._groomCache;
-    C.clean = -1; C.cover = -1; C.speed = ''; C.speedOk = null; C.time = ''; C.fence = ''; C.net = ''; C.tasks = '';
+    C.clean = -1; C.cover = -1; C.speed = ''; C.speedOk = null; C.time = ''; C.fence = ''; C.net = ''; C.tasks = ''; C.pill = '';
     // Make room: collapse the task list while grooming, restore afterwards
     this._tasksWasOpen = this.taskListOpen;
     if (this.taskListOpen) this._toggleTaskList();
+    this._fitGroomPanel();
   }
 
   /** Reflect the groom-camera state on the panel button. */
@@ -1853,6 +2014,21 @@ export class HUD {
   _updateProximityDisplay(proximity) {
     this._updateGauge(this._gauges.fence, proximity.nearestFenceDist, proximity.fenceStatus, 'fence');
     this._updateGauge(this._gauges.net, proximity.nearestNetDist, proximity.netStatus, 'net');
+
+    // Compact pill: whichever of fence / net is nearer (and in range)
+    const has = (d, st) => d !== null && d !== undefined && st && st !== 'none';
+    const f = has(proximity.nearestFenceDist, proximity.fenceStatus);
+    const n = has(proximity.nearestNetDist, proximity.netStatus);
+    let name = null, dist = 0, status = 'none';
+    if (f && (!n || proximity.nearestFenceDist <= proximity.nearestNetDist)) { name = 'Fence'; dist = proximity.nearestFenceDist; status = proximity.fenceStatus; }
+    else if (n) { name = 'Net'; dist = proximity.nearestNetDist; status = proximity.netStatus; }
+    const sig = name ? name + status + dist.toFixed(1) : 'none';
+    if (sig === this._groomCache.pill) return;
+    this._groomCache.pill = sig;
+    const pill = this._groomProxPill;
+    pill.className = 'cc-groom__pill' + (name ? ' cc-groom__pill--' + status : '');
+    const hint = status === 'warn' ? ' · closer' : status === 'far' ? ' · too far' : status === 'danger' ? ' · too close!' : '';
+    pill.textContent = name ? `${name} ${dist.toFixed(1)}m${hint}` : 'Drive closer';
   }
 
   _updateGauge(g, dist, status, key) {
@@ -1893,6 +2069,11 @@ export class HUD {
     if (sig === this._groomCache.tasks) return;
     this._groomCache.tasks = sig;
 
+    let done = 0;
+    for (let i = 0; i < tasks.length; i++) if (tasks[i].completed) done++;
+    this._groomTaskBadge.textContent = tasks.length ? `${done}/${tasks.length}` : '';
+    this._groomTaskBadge.classList.toggle('cc-groom__badge--done', tasks.length > 0 && done === tasks.length);
+
     this.groomTaskListEl.innerHTML = '';
     if (tasks.length === 0) {
       const li = el('li', '', this.groomTaskListEl);
@@ -1905,6 +2086,7 @@ export class HUD {
       el('span', 'cc-check__box', li);
       el('span', '', li).textContent = task.label;
     }
+    if (!this._groomCompact) this._fitGroomPanel();
   }
 
   // ─────────────────────────── Per-frame ───────────────────────────

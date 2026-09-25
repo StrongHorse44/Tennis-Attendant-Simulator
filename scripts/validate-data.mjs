@@ -16,6 +16,72 @@ import { buildWorldFacts, validateMission, validateSchedule, hasMarkerPoint } fr
 import { ITEMS } from '../src/systems/InventorySystem.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const HEX = /^#[0-9a-f]{6}$/i;
+const POOL_KEYS = new Set(['satisfied', 'neutral', 'unsatisfied', 'idle', 'morning', 'afternoon', 'evening', 'sunny', 'cloudy', 'rainy', 'windy']);
+const TIMES = new Set(['morning', 'midday', 'afternoon', 'evening']);
+const REL_TYPES = new Set(['family', 'spouse', 'friend', 'rival', 'mentor', 'student', 'colleague', 'acquaintance']);
+
+/** Member data (npcs.json): ids, colours, small-talk pools, relationships, tennis, match lines. */
+function validateNpcs(npcs, map) {
+  const out = [];
+  const err = (msg) => out.push({ level: 'error', msg });
+  const warn = (msg) => out.push({ level: 'warn', msg });
+  const list = Array.isArray(npcs.npcs) ? npcs.npcs.filter(n => n && n.id) : [];
+  const ids = new Set(), names = new Set();
+  for (const n of list) {
+    if (ids.has(n.id)) err(`${n.id}: duplicate id`);
+    if (names.has(n.name)) err(`${n.id}: duplicate name "${n.name}" (dialogue colours are looked up by name)`);
+    ids.add(n.id); names.add(n.name);
+  }
+  const wpKeys = Object.keys((map && map.waypoints) || {}).map(k => k.toLowerCase());
+  const strings = (arr) => Array.isArray(arr) && arr.every(x => typeof x === 'string' && x.trim());
+  for (const n of list) {
+    const at = n.id;
+    if (!n.name) err(`${at}: needs a "name"`);
+    if (!HEX.test(n.shirtColor || '')) err(`${at}: shirtColor must be "#RRGGBB"`);
+    if (n.greetings !== undefined && !strings(n.greetings)) err(`${at}: greetings must be an array of strings`);
+    for (const a of Array.isArray(n.preferredAreas) ? n.preferredAreas : []) {
+      if (!wpKeys.some(k => k.includes(String(a).toLowerCase()))) warn(`${at}: preferred area "${a}" matches no map.json waypoint (they'll wander anywhere)`);
+    }
+    const pool = n.dialoguePool;
+    if (pool !== undefined) {
+      if (!pool || typeof pool !== 'object' || Array.isArray(pool)) err(`${at}: dialoguePool must be an object`);
+      else for (const [k, v] of Object.entries(pool)) {
+        if (!POOL_KEYS.has(k)) warn(`${at}: dialoguePool.${k} is never used (known: ${[...POOL_KEYS].join(', ')})`);
+        if (!strings(v)) err(`${at}: dialoguePool.${k} must be an array of non-empty strings`);
+      }
+      if (pool && !Array.isArray(pool.idle)) warn(`${at}: no dialoguePool.idle small talk`);
+    }
+    if (n.preferredTime !== undefined && !TIMES.has(n.preferredTime)) err(`${at}: preferredTime must be one of ${[...TIMES].join('/')}`);
+    if (n.tennis !== undefined) {
+      const sk = n.tennis && n.tennis.skill;
+      if (sk !== undefined && !(Number.isFinite(sk) && sk >= 0 && sk <= 1)) err(`${at}: tennis.skill must be 0..1`);
+    }
+    const rel = n.relationships;
+    if (rel !== undefined) {
+      if (!rel || typeof rel !== 'object' || Array.isArray(rel)) err(`${at}: relationships must be an object { npcId: { type, note } }`);
+      else for (const [other, r] of Object.entries(rel)) {
+        if (other === n.id) err(`${at}: relationship with itself`);
+        else if (!ids.has(other)) err(`${at}: relationship with unknown npc "${other}"`);
+        else {
+          const back = list.find(x => x.id === other);
+          if (!back.relationships || !back.relationships[n.id]) warn(`${at}: relationship with ${other} is one-sided`);
+        }
+        if (!r || !REL_TYPES.has(r.type)) err(`${at}: relationships.${other}.type must be one of ${[...REL_TYPES].join('/')}`);
+      }
+    }
+    const ml = n.matchLines;
+    if (ml !== undefined) {
+      for (const k of ['win', 'lose']) {
+        if (ml[k] === undefined) continue;
+        if (!strings(ml[k])) err(`${at}: matchLines.${k} must be an array of strings`);
+        else for (const line of ml[k]) if (line.length > 22) warn(`${at}: match line "${line}" is long for a speech bubble (> 22 chars)`);
+      }
+    }
+  }
+  return out;
+}
+
 const errors = [];
 const warnings = [];
 
@@ -49,6 +115,26 @@ if (map && npcs && missions) {
   for (const [k, a] of Object.entries(archetypes)) {
     if (!(a.tipChance >= 0 && a.tipChance <= 1)) errors.push(`npcs.json archetype ${k}: tipChance must be 0..1`);
     if (!Array.isArray(a.tipRange) || a.tipRange.length !== 2 || !(a.tipRange[0] <= a.tipRange[1])) errors.push(`npcs.json archetype ${k}: tipRange must be [min, max]`);
+  }
+  for (const [k, a] of Object.entries(archetypes)) {
+    for (const f of ['nameTagColor', 'dialogueColor']) {
+      if (a[f] !== undefined && !HEX.test(a[f])) errors.push(`npcs.json archetype ${k}: ${f} must be "#RRGGBB"`);
+    }
+    if (a.nameTagColor === undefined) warnings.push(`npcs.json archetype ${k}: no nameTagColor (name tag dot falls back to gold)`);
+  }
+  for (const p of validateNpcs(npcs, map)) (p.level === 'error' ? errors : warnings).push(`npcs.json ${p.msg}`);
+
+  // storyline chains must not loop
+  const byId = new Map(list.filter(m => m && m.id).map(m => [m.id, m]));
+  for (const m of byId.values()) {
+    const seen = new Set();
+    const walk = (id) => {
+      if (seen.has(id)) return true;
+      seen.add(id);
+      const r = byId.get(id);
+      return !!(r && Array.isArray(r.requires) && r.requires.some(walk));
+    };
+    if (Array.isArray(m.requires) && m.requires.some(walk) && seen.has(m.id)) errors.push(`missions.json ${m.id}: "requires" chain loops back to itself`);
   }
 
   // missions

@@ -1,10 +1,14 @@
 {
+  "_comment": "Club members. archetype -> archetypes{} (tag dot / dialogue colours, tips). Small talk (MissionSystem + SmallTalk.js): the first chat of the day uses 'greetings'; later chats mix dialoguePool.idle, time lines (morning < 11:30 <= afternoon < 16:30 <= evening), weather lines (sunny / cloudy / rainy / windy) and, after a mission reaction, the mood lines (satisfied / neutral / unsatisfied). bio, quirks, voice, relationships, preferredTime and tennis are character notes (tennis.skill 0..1 also drives MatchSystem rallies). matchLines win/lose are post-match speech bubbles (keep them short). Hand-authored looks live in NPC_STYLES (src/entities/NPC.js).",
+
   "archetypes": {
     "entitled": {
       "label": "Entitled Member",
       "color": "npcEntitled",
       "nameTagColor": "#E74C3C",
+      "dialogueColor": "#E74C3C",
       "defaultMood": "impatient",
+      "soreLoser": true,
       "tipChance": 0.1,
       "tipRange": [1, 5]
     },
@@ -12,6 +16,7 @@
       "label": "Friendly Regular",
       "color": "npcFriendly",
       "nameTagColor": "#27AE60",
+      "dialogueColor": "#27AE60",
       "defaultMood": "happy",
       "tipChance": 0.7,
       "tipRange": [5, 20]
@@ -20,9 +25,51 @@
       "label": "New Member",
       "color": "npcClueless",
       "nameTagColor": "#3498DB",
+      "dialogueColor": "#3498DB",
       "defaultMood": "confused",
       "tipChance": 0.4,
       "tipRange": [2, 10]
+    },
+    "competitive": {
+      "label": "Competitive Player",
+      "nameTagColor": "#E67E22",
+      "dialogueColor": "#F2A65A",
+      "defaultMood": "neutral",
+      "soreLoser": true,
+      "tipChance": 0.35,
+      "tipRange": [3, 12]
+    },
+    "social": {
+      "label": "Social Butterfly",
+      "nameTagColor": "#E84393",
+      "dialogueColor": "#F29CC4",
+      "defaultMood": "happy",
+      "tipChance": 0.6,
+      "tipRange": [4, 15]
+    },
+    "veteran": {
+      "label": "Club Veteran",
+      "nameTagColor": "#C9C7C2",
+      "dialogueColor": "#D8D4CB",
+      "defaultMood": "neutral",
+      "tipChance": 0.55,
+      "tipRange": [5, 18]
+    },
+    "junior": {
+      "label": "Junior Member",
+      "nameTagColor": "#F4D03F",
+      "dialogueColor": "#F7DC6F",
+      "defaultMood": "happy",
+      "tipChance": 0.25,
+      "tipRange": [1, 4]
+    },
+    "staff": {
+      "label": "Club Staff",
+      "nameTagColor": "#D9A441",
+      "dialogueColor": "#E6C170",
+      "defaultMood": "neutral",
+      "tipChance": 0.5,
+      "tipRange": [4, 14]
     }
   },
 
@@ -42,10 +89,22 @@
       "archetype": "entitled",
       "shirtColor": "#8E44AD",
       "preferredAreas": ["patio", "court1"],
+      "preferredTime": "morning",
+      "bio": "Third-generation member whose grandfather paid for the original clubhouse, and she brings it up about once a week.",
+      "quirks": ["Calls every staff member 'the attendant'", "Times service with a gold wristwatch", "Keeps a monogrammed towel folded exactly in thirds"],
+      "voice": "Clipped, formal, never uses contractions when annoyed; rhetorical questions; 'In my day...'",
+      "tennis": { "level": "intermediate", "style": "Steady slice-and-lob doubles player who wins on patience", "skill": 0.55, "hand": "right" },
+      "relationships": {
+        "theo_wellington": { "type": "family", "note": "Her grandson. She wants him at etiquette lunch; he wants a junior title." },
+        "diane_ross": { "type": "rival", "note": "Two former club presidents who disagree about everything, especially the other." },
+        "frank_deluca": { "type": "friend", "note": "Her ally on the bylaws committee. They agree that standards are slipping." }
+      },
       "greetings": [
         "Finally! I've been waiting forever.",
         "You there! Attendant!",
-        "I shouldn't have to ask twice."
+        "I shouldn't have to ask twice.",
+        "Ah. The attendant. Walk with me, I have notes.",
+        "Good morning. It is still morning, is it not? One loses track waiting."
       ],
       "requests": [
         "My usual court isn't ready. This is unacceptable.",
@@ -53,10 +112,27 @@
         "Someone left balls all over Court 1. Clean it up."
       ],
       "dialoguePool": {
-        "satisfied": ["Hmph. I suppose that'll do.", "About time."],
-        "unsatisfied": ["I'll be speaking to the manager about this.", "Unbelievable."],
-        "idle": ["The service here used to be much better.", "Is that what passes for court maintenance?"]
-      }
+        "satisfied": ["Hmph. I suppose that'll do.", "About time.", "Adequate. I shall mention you favourably. Briefly."],
+        "unsatisfied": ["I'll be speaking to the manager about this.", "Unbelievable.", "My grandfather built that clubhouse for better than this."],
+        "neutral": ["Fine. It is done, I suppose.", "Neither here nor there. Carry on."],
+        "idle": [
+          "The service here used to be much better.",
+          "Is that what passes for court maintenance?",
+          "Diane Ross wore white sneakers to the gala. Sneakers.",
+          "My grandson Theo is at etiquette lunch. At least, he had better be.",
+          "Frank and I have drafted a proposal about proper tennis attire. You will be enforcing it.",
+          "In my day, one applauded a good shot. Now they all just shout.",
+          "That Chad boy called me 'dude'. I have not recovered."
+        ],
+        "morning": ["The morning light is the only civilized time to play.", "I take my tea at nine sharp. You may note that."],
+        "afternoon": ["The afternoon crowd is so... enthusiastic.", "Luncheon on the patio was lukewarm again."],
+        "evening": ["I do not care for the floodlights. Tennis is a daytime sport.", "Is it that late? Someone should have told me."],
+        "rainy": ["Rain. And not a single umbrella offered. Remarkable.", "Wet clay is a crime against the game."],
+        "windy": ["This wind has ruined a perfectly good lob.", "Hold onto your visor, dear. I've lost two this season."],
+        "cloudy": ["Overcast. At least one doesn't squint.", "The clouds suit my mood."],
+        "sunny": ["Splendid weather. Wasted on most of them.", "Do fetch me the shaded table if it opens up."]
+      },
+      "matchLines": { "win": ["As expected.", "Well. Naturally."], "lose": ["Sun in my eyes.", "Hmph. Rematch."] }
     },
     {
       "id": "chad_blake",
@@ -64,10 +140,23 @@
       "archetype": "entitled",
       "shirtColor": "#E74C3C",
       "preferredAreas": ["court2", "court1"],
+      "preferredTime": "evening",
+      "bio": "Former high-school #1 singles player who still introduces himself that way; his dad sits on the club board.",
+      "quirks": ["Breaks a string every week and blames the string", "Films his own serve on his phone", "Wears his cap backwards, always"],
+      "voice": "Bro-speak, ALL-CAPS emphasis, repeats words for effect, sentence fragments, big claims.",
+      "tennis": { "level": "advanced", "style": "Big first serve, bigger mouth; falls apart in long rallies", "skill": 0.62, "hand": "right" },
+      "relationships": {
+        "nate_okafor": { "type": "rival", "note": "Can't stand that Nate is better and doesn't brag about it." },
+        "tommy_chen": { "type": "friend", "note": "Hitting partner. Tommy is the only one who laughs at his jokes." },
+        "diane_ross": { "type": "rival", "note": "The Great Patio Table Incident." },
+        "jess_nakamura": { "type": "acquaintance", "note": "His best customer and her biggest headache." }
+      },
       "greetings": [
         "Bro, bro, BRO.",
         "Hey! Cart boy!",
-        "Yo, I need something."
+        "Yo, I need something.",
+        "My guy! Did you see that serve? You didn't? Unreal.",
+        "Heyyy, the legend. Kind of. Not as much as me."
       ],
       "requests": [
         "Someone took my reserved court. Handle it.",
@@ -75,10 +164,27 @@
         "My racket got scuffed. The pro shop better have a replacement."
       ],
       "dialoguePool": {
-        "satisfied": ["Solid. Respect.", "That's what I'm talking about."],
-        "unsatisfied": ["Weak. Seriously weak.", "My dad's gonna hear about this."],
-        "idle": ["Check out this serve. Watch. WATCH.", "I could've gone pro, you know."]
-      }
+        "satisfied": ["Solid. Respect.", "That's what I'm talking about.", "You're like, my favorite employee. Top three."],
+        "unsatisfied": ["Weak. Seriously weak.", "My dad's gonna hear about this.", "Not cool, bro. Not cool at ALL."],
+        "neutral": ["Eh. Whatever works.", "Fine. I guess. Bro."],
+        "idle": [
+          "Check out this serve. Watch. WATCH.",
+          "I could've gone pro, you know.",
+          "Nate Okafor thinks he's so good. He IS good. That's what's annoying.",
+          "Jess says I'm 'statistically her worst customer'. Is that a compliment?",
+          "Tommy grunts louder than me now. I gotta step it up.",
+          "Broke another string. Third one this week. Strings are just weak now.",
+          "Hit 118 on the radar gun once. Okay, 97. Still."
+        ],
+        "morning": ["Too early, bro. My serve's still asleep.", "Protein shake. Then tennis. Then protein shake."],
+        "afternoon": ["Peak serve hours right now. Science.", "Grinding. Always grinding."],
+        "evening": ["Under the lights, baby. Main character hours.", "Nate and me, tonight, Court 1. Tell everyone."],
+        "rainy": ["Rain delay?! I was just getting warm!", "Bro, my shoes are suede. SUEDE."],
+        "windy": ["Wind's totally why I shanked that. Totally.", "This wind is doing my toss dirty."],
+        "cloudy": ["Clouds are good. No glare for the serve cam.", "Kinda gloomy. Good thing I'm here."],
+        "sunny": ["Perfect tanning weather. And tennis. Mostly tanning.", "Sun's out, serves out."]
+      },
+      "matchLines": { "win": ["Too easy, BRO!", "Did you film that?!"], "lose": ["Strings broke. Again.", "Rematch. NOW."] }
     },
     {
       "id": "maria_santos",
@@ -86,10 +192,22 @@
       "archetype": "friendly",
       "shirtColor": "#F39C12",
       "preferredAreas": ["garden", "patio"],
+      "preferredTime": "midday",
+      "bio": "Pediatric nurse on her days off, chairs the garden committee and brings her daughter Lily to every junior clinic.",
+      "quirks": ["Carries sunscreen for everyone", "Names the fountain koi", "Knows everyone's kids' birthdays"],
+      "voice": "Warm, exclamation marks, lots of 'oh!', asks after you before herself.",
+      "tennis": { "level": "intermediate", "style": "Cheerful doubles volleyer who apologises for her winners", "skill": 0.5, "hand": "right" },
+      "relationships": {
+        "lily_santos": { "type": "family", "note": "Her daughter, age ten. Boundless energy, boundless questions." },
+        "babs_hendricks": { "type": "friend", "note": "Garden committee co-chair. Maria plants, Babs talks." },
+        "priya_sharma": { "type": "friend", "note": "Took Priya under her wing on her first day." }
+      },
       "greetings": [
         "Oh hi there! Beautiful day, isn't it?",
         "Hey! How's your shift going?",
-        "Good to see you!"
+        "Good to see you!",
+        "Oh, perfect timing! Have you had water today? Have some water.",
+        "Hi, sweetie! Have you seen a small girl with a very big racket?"
       ],
       "requests": [
         "Would you mind checking if Court 3 is free at 3pm?",
@@ -97,10 +215,27 @@
         "I think I left my visor at Court 4. Could you check?"
       ],
       "dialoguePool": {
-        "satisfied": ["You're the best! Here, take this.", "Thank you so much!"],
-        "unsatisfied": ["Oh no worries, I'll figure it out!", "That's okay, thanks for trying!"],
-        "idle": ["The garden looks lovely today.", "I just love this club."]
-      }
+        "satisfied": ["You're the best! Here, take this.", "Thank you so much!", "Oh, you're an angel. Lily, say thank you!"],
+        "unsatisfied": ["Oh no worries, I'll figure it out!", "That's okay, thanks for trying!", "Oh, well, tomorrow's another day!"],
+        "neutral": ["That works! Thanks, hon.", "Okay! We'll make it work."],
+        "idle": [
+          "The garden looks lovely today.",
+          "I just love this club.",
+          "Lily has decided she's going to beat Theo Wellington by summer's end. He's fourteen.",
+          "The koi in the fountain are named Serena, Venus and Gerald. Don't ask about Gerald.",
+          "Babs told me something about the flower committee I'm not supposed to repeat. So I won't! Mostly.",
+          "Priya's getting so much better. Did you see her backhand? Okay, it went over the fence, but still!",
+          "Tommy taught Lily to grunt when she hits. I'm choosing to find it adorable."
+        ],
+        "morning": ["Morning! I have already done three rounds of sunscreen on other people's kids.", "The roses open up so nicely in the morning."],
+        "afternoon": ["Lunch on the patio? The fruit salad is actually fresh today!", "Afternoon clinic is Lily's favorite."],
+        "evening": ["Look at that sunset over the courts. Worth every membership dollar.", "Time to round up Lily. Wish me luck!"],
+        "rainy": ["Rain's good for the garden at least!", "Everyone inside! Lily, that means you!"],
+        "windy": ["Hold on to your hat! Oh, there goes mine.", "The windchimes on the patio are going wild!"],
+        "cloudy": ["A little overcast is perfect for the hydrangeas.", "Nice and cool. Good day to play long!"],
+        "sunny": ["Don't forget sunscreen! I have extra!", "Gorgeous out. The whole garden is showing off."]
+      },
+      "matchLines": { "win": ["Oh! Did I win?", "Great game, sweetie!"], "lose": ["Well played!", "That was so fun!"] }
     },
     {
       "id": "bob_hendricks",
@@ -108,10 +243,23 @@
       "archetype": "friendly",
       "shirtColor": "#27AE60",
       "preferredAreas": ["patio", "proShop"],
+      "preferredTime": "morning",
+      "bio": "Retired high-school shop teacher, member for 38 years, tells the same five stories and they're all good.",
+      "quirks": ["Calls everyone 'kiddo'", "Keeps butterscotch candies in his pocket", "Still uses a racket he restrung himself in 1994"],
+      "voice": "Folksy, dad jokes, laughs at his own punchlines, 'back in my day', long pauses.",
+      "tennis": { "level": "recreational", "style": "Moonball specialist; wins by making you lose patience", "skill": 0.45, "hand": "right" },
+      "relationships": {
+        "babs_hendricks": { "type": "spouse", "note": "Married 41 years. She talks, he nods, both are happy." },
+        "gloria_castellano": { "type": "friend", "note": "Mixed doubles partner in the 1982 club championship. They lost. He still brings it up." },
+        "frank_deluca": { "type": "friend", "note": "Coffee buddy. Bob thinks the bylaws are 'more like guidelines'." },
+        "vik_rao": { "type": "friend", "note": "His knee surgeon. Bob shows everyone the scar, whether they ask or not." }
+      },
       "greetings": [
         "Hey kiddo! How goes it?",
         "There's my favorite attendant!",
-        "Good morning! Or is it afternoon? Ha!"
+        "Good morning! Or is it afternoon? Ha!",
+        "Well if it isn't the hardest-working kid on the grounds. Butterscotch?",
+        "Hey hey! Pull up a chair. Oh, you're working. Right, right."
       ],
       "requests": [
         "Any chance you could grab me a cold drink from the pro shop?",
@@ -119,10 +267,27 @@
         "Could you check the schedule for me? My eyes aren't what they used to be."
       ],
       "dialoguePool": {
-        "satisfied": ["You're a gem. Here's a little something for ya.", "Fantastic, thanks a million!"],
-        "unsatisfied": ["Ah well, no big deal!", "Don't worry about it at all."],
-        "idle": ["Back in my day, we didn't have fancy clay courts...", "Gorgeous weather for tennis."]
-      }
+        "satisfied": ["You're a gem. Here's a little something for ya.", "Fantastic, thanks a million!", "Kiddo, you're going places. Probably the pro shop, but still!"],
+        "unsatisfied": ["Ah well, no big deal!", "Don't worry about it at all.", "Eh, happens to the best of us. Happened to me in '82."],
+        "neutral": ["Good enough for government work! Ha!", "Alrighty then."],
+        "idle": [
+          "Back in my day, we didn't have fancy clay courts...",
+          "Gorgeous weather for tennis.",
+          "Gloria and I made the '82 club final. Lost 6-4 in the third. I was robbed! Well. I double-faulted.",
+          "Babs says I talk too much. Then she talks for an hour. Ha!",
+          "Frank read me bylaw 12 today. Took twenty minutes. There are forty bylaws.",
+          "You know why tennis players never get married? Because love means nothing! ...Babs didn't laugh either.",
+          "That Nate kid hits the ball harder than my old truck."
+        ],
+        "morning": ["Early bird gets the court, kiddo.", "Coffee, a butterscotch, and a moonball. Perfect morning."],
+        "afternoon": ["Time for my afternoon rest. I call it 'watching tennis'.", "Babs is at the committee. I'm hiding here."],
+        "evening": ["Look at those lights come on. Never gets old.", "One more set, then home for Babs' pot roast."],
+        "rainy": ["Rain rain, go away, Bob wants to play. Ha!", "Good day for a card game in the clubhouse."],
+        "windy": ["Wind's perfect for my moonball. It comes down in the next county!", "Hang onto your hat, kiddo."],
+        "cloudy": ["Bit gray. Good for old eyes.", "No sun, no squinting. I'll take it."],
+        "sunny": ["Sun's out! Where'd I put my hat? Oh. I'm bald. Ha!", "Beautiful day, kiddo. Enjoy it."]
+      },
+      "matchLines": { "win": ["Still got it!", "Moonball magic!"], "lose": ["Good match, kiddo!", "That's '82 again!"] }
     },
     {
       "id": "kevin_park",
@@ -130,10 +295,22 @@
       "archetype": "clueless",
       "shirtColor": "#3498DB",
       "preferredAreas": ["entrance", "proShop"],
+      "preferredTime": "afternoon",
+      "bio": "Software engineer who joined because his startup's offsite was here; has watched 40 hours of tennis tutorials and played about two.",
+      "quirks": ["Apologises to the ball when he mishits", "Keeps a spreadsheet of his serves", "Wore running shorts on day one and Frank noticed"],
+      "voice": "Hesitant, trailing off with '...', over-apologetic, tech jargon when nervous.",
+      "tennis": { "level": "beginner", "style": "Textbook form from YouTube, no idea where the ball will go", "skill": 0.2, "hand": "right" },
+      "relationships": {
+        "priya_sharma": { "type": "friend", "note": "They joined the same week and compare notes on the unwritten rules." },
+        "frank_deluca": { "type": "rival", "note": "Frank has cited him under the dress code three times. Kevin is terrified." },
+        "jess_nakamura": { "type": "friend", "note": "She sold him his first racket and quietly keeps him from buying the wrong grip." }
+      },
       "greetings": [
         "Excuse me, um, hi...",
         "Hey, sorry to bother you...",
-        "Is this... am I in the right place?"
+        "Is this... am I in the right place?",
+        "Oh! Hi! Is it okay if I stand here? Is standing allowed?",
+        "Hey... quick question, is Frank around? No reason."
       ],
       "requests": [
         "Where exactly are the courts? I can't find them.",
@@ -141,10 +318,27 @@
         "My membership card isn't working at the gate. Can you help?"
       ],
       "dialoguePool": {
-        "satisfied": ["Oh awesome, thank you! This place is so confusing.", "You're a lifesaver!"],
-        "unsatisfied": ["Oh... okay. I'll just... wander around I guess.", "Sorry, was that a dumb question?"],
-        "idle": ["This club is way bigger than I expected.", "Everyone seems to know each other here..."]
-      }
+        "satisfied": ["Oh awesome, thank you! This place is so confusing.", "You're a lifesaver!", "That's... that's so helpful. Adding you to my notes. As a positive."],
+        "unsatisfied": ["Oh... okay. I'll just... wander around I guess.", "Sorry, was that a dumb question?", "No, totally, my bad. Bug on my end."],
+        "neutral": ["Okay. Cool. Cool cool cool.", "Right, that makes... some sense."],
+        "idle": [
+          "This club is way bigger than I expected.",
+          "Everyone seems to know each other here...",
+          "Frank said my socks were 'a statement'. I don't think that was good?",
+          "Priya and I made a shared doc of club rules. It's 14 pages. Nobody told us any of them.",
+          "Jess told me my grip was upside down. How is that even possible?",
+          "I tracked my serves. 11% in. That's up from 4%! Trending!",
+          "Is 'love' zero? Why is love zero? Nobody will explain this to me."
+        ],
+        "morning": ["I'm usually still in standup at this hour...", "Morning people here are very... intense."],
+        "afternoon": ["Took a long lunch to be here. Don't tell my team.", "Afternoon is good. Fewer witnesses."],
+        "evening": ["Is it okay to play under the lights? Do they cost extra?", "I should log off. I mean, go home."],
+        "rainy": ["Does rain cancel everything? Is there an app for that?", "I didn't bring an umbrella. I didn't bring anything."],
+        "windy": ["The wind took my toss... and my hat... and my confidence.", "Is wind a valid excuse? Asking for me."],
+        "cloudy": ["Cloudy is nice. I don't have to find my sunglasses.", "Good lighting for not being seen."],
+        "sunny": ["I think I'm sunburned. Already.", "Is sunscreen a dress-code thing?"]
+      },
+      "matchLines": { "win": ["Wait, I won?!", "Adding to my stats!"], "lose": ["Sorry! Good game!", "Learning so much!"] }
     },
     {
       "id": "priya_sharma",
@@ -152,10 +346,23 @@
       "archetype": "clueless",
       "shirtColor": "#1ABC9C",
       "preferredAreas": ["court3", "garden"],
+      "preferredTime": "morning",
+      "bio": "Architect who picked up tennis this spring on a dare; takes lessons from Coach Rafa and draws the courts in her sketchbook.",
+      "quirks": ["Sketches the clubhouse from every angle", "Counts her steps between points", "Brings the wrong ball type, every time"],
+      "voice": "Curious, lots of questions, self-deprecating, 'Sorry, one more thing...'",
+      "tennis": { "level": "beginner", "style": "Great footwork, no idea what to do once she gets there", "skill": 0.28, "hand": "left" },
+      "relationships": {
+        "kevin_park": { "type": "friend", "note": "Fellow new member. They are figuring it out together, slowly." },
+        "rafa_ibarra": { "type": "student", "note": "Her coach. She's learning to love his aphorisms." },
+        "gloria_castellano": { "type": "mentor", "note": "Gloria adopted her after watching one lesson. Nobody knows why." },
+        "maria_santos": { "type": "friend", "note": "The first person here to say hi to her." }
+      },
       "greetings": [
         "Hi! Quick question...",
         "Hey there, I'm a bit lost...",
-        "Sorry, one more thing..."
+        "Sorry, one more thing...",
+        "Oh good, a staff person! Is this the good clay or the other clay?",
+        "Hi! Don't look at my shoes. Gloria already said something."
       ],
       "requests": [
         "Which courts are clay and which are hard? Does it matter?",
@@ -163,10 +370,27 @@
         "Is there a dress code? Someone gave me a weird look."
       ],
       "dialoguePool": {
-        "satisfied": ["Oh that makes sense! Thank you!", "Great, I feel so much better now."],
-        "unsatisfied": ["Oh no... I hope I didn't mess anything up.", "This is all so overwhelming."],
-        "idle": ["I should probably actually learn the rules of tennis...", "The garden here is so peaceful."]
-      }
+        "satisfied": ["Oh that makes sense! Thank you!", "Great, I feel so much better now.", "Okay, writing that down. You're very good at explaining things."],
+        "unsatisfied": ["Oh no... I hope I didn't mess anything up.", "This is all so overwhelming.", "Right. Okay. I'll... figure it out."],
+        "neutral": ["Okay! Sort of makes sense.", "Noted. I think."],
+        "idle": [
+          "I should probably actually learn the rules of tennis...",
+          "The garden here is so peaceful.",
+          "Coach Rafa said 'the ball has no memory'. I've been thinking about it for three days.",
+          "Gloria told me I have 'the feet of a champion and the hands of a toddler'. Progress!",
+          "Kevin and I are writing a guide for new members. Chapter one: nobody tells you anything.",
+          "The clubhouse roofline is gorgeous. Very 1920s Colonial Revival. Sorry, architect brain.",
+          "Is a 'let' good or bad? I've been celebrating them."
+        ],
+        "morning": ["Morning lesson with Rafa! Or is it Thursday? It's Thursday, right?", "The light on the clay in the morning is so pretty."],
+        "afternoon": ["I'm sketching the pro shop. Don't tell Jess, she'll make me buy something.", "Afternoon practice. Wish my backhand luck."],
+        "evening": ["The floodlights make everything look like a stage set.", "One more bucket of serves, then home."],
+        "rainy": ["Can you play in the rain? Should I? I'm asking the wrong person, aren't I.", "My sketchbook is soaked. Worth it."],
+        "windy": ["Is the ball supposed to curve like that?", "The wind blew my score card into the fountain."],
+        "cloudy": ["Soft light. Good for sketching.", "A bit gray. Good day to practice without an audience."],
+        "sunny": ["It's so bright! Where do people put their sunglasses when they play?", "Beautiful out. I'm going to draw the fountain."]
+      },
+      "matchLines": { "win": ["Wait, did I win?!", "Rafa will be proud!"], "lose": ["Good game! I think.", "I got two points!"] }
     },
     {
       "id": "diane_ross",
@@ -174,10 +398,23 @@
       "archetype": "entitled",
       "shirtColor": "#9B59B6",
       "preferredAreas": ["patio", "court4"],
+      "preferredTime": "afternoon",
+      "bio": "Club president for six terms, deposed by a single vote, and she has the name of every voter in a notebook.",
+      "quirks": ["Carries a small leather notebook of grievances", "Never removes her sunglasses", "Refers to herself as 'a founding voice'"],
+      "voice": "Imperious, precise, rhetorical 'Excuse me?', short declaratives, numbers and dates as weapons.",
+      "tennis": { "level": "advanced", "style": "Relentless moonballer who questions every line call", "skill": 0.6, "hand": "right" },
+      "relationships": {
+        "mrs_wellington": { "type": "rival", "note": "Thirty years of tennis-club cold war." },
+        "babs_hendricks": { "type": "rival", "note": "The flower committee feud: Diane wants roses, Babs wants hydrangeas." },
+        "chad_blake": { "type": "rival", "note": "Took his patio table. Would do it again." },
+        "tommy_chen": { "type": "acquaintance", "note": "Four noise complaints filed. He waves every time. She hates the waving." }
+      },
       "greetings": [
         "Excuse me. EXCUSE me.",
         "I've been a member here for 15 years.",
-        "Where is the attendant? Oh, there you are."
+        "Where is the attendant? Oh, there you are.",
+        "Ah. You. Stand still, I'm writing something down.",
+        "I have three complaints. Four, now that I see your shoelaces."
       ],
       "requests": [
         "The patio umbrella is at the wrong angle. Fix it.",
@@ -185,10 +422,27 @@
         "I need the court swept before my 4 o'clock match."
       ],
       "dialoguePool": {
-        "satisfied": ["Acceptable.", "See? Was that so hard?"],
-        "unsatisfied": ["This club is going downhill.", "I'm writing a letter to the board."],
-        "idle": ["When I was club president, things were different.", "The new members have no etiquette."]
-      }
+        "satisfied": ["Acceptable.", "See? Was that so hard?", "Noted. In the good column, for once."],
+        "unsatisfied": ["This club is going downhill.", "I'm writing a letter to the board.", "That's going in the notebook."],
+        "neutral": ["Hm. We'll see.", "It'll do for now."],
+        "idle": [
+          "When I was club president, things were different.",
+          "The new members have no etiquette.",
+          "Babs Hendricks planted hydrangeas in MY rose bed. Hydrangeas.",
+          "Mrs. Wellington thinks she runs this club. She runs a book club. Badly.",
+          "I lost the last election by one vote. I know whose vote.",
+          "That young man Chad called me 'ma'am'. Twice. I'm keeping count.",
+          "Six terms as president. Six."
+        ],
+        "morning": ["I don't do mornings. I do complaints about mornings.", "Coffee. Black. Like my notebook."],
+        "afternoon": ["Four o'clock is MY court time. Everyone knows this.", "The afternoon crowd is a disgrace to tennis whites."],
+        "evening": ["The lights on Court 4 flicker. I've mentioned it. Twice.", "Finally, the children have gone home."],
+        "rainy": ["Of course it's raining. I have a match.", "I'll expect the courts dried by the time this stops."],
+        "windy": ["This wind has opinions. So do I.", "My notebook nearly blew away. The board should be grateful it didn't."],
+        "cloudy": ["Gray skies. Fitting.", "Overcast. I prefer it. Fewer people."],
+        "sunny": ["Sun's out, and so are the amateurs.", "I'll need the shaded table. Now, please."]
+      },
+      "matchLines": { "win": ["As it should be.", "Six terms. Six."], "lose": ["That was OUT.", "Going in the notebook."] }
     },
     {
       "id": "tommy_chen",
@@ -196,10 +450,22 @@
       "archetype": "friendly",
       "shirtColor": "#E67E22",
       "preferredAreas": ["court2", "court3"],
+      "preferredTime": "midday",
+      "bio": "High-school PE teacher on summer break who plays five hours a day and grunts like a pro on every shot.",
+      "quirks": ["Grunts on every shot, including warm-up", "High-fives strangers", "Teaches every kid at the club a trick shot"],
+      "voice": "Upbeat, sports clichés, 'my friend', laughs mid-sentence, zero sarcasm.",
+      "tennis": { "level": "advanced", "style": "Topspin forehand machine; loud about it", "skill": 0.6, "hand": "right" },
+      "relationships": {
+        "chad_blake": { "type": "friend", "note": "Hitting partner. Tommy thinks Chad is a good guy underneath. Way underneath." },
+        "lily_santos": { "type": "friend", "note": "Taught her the tweener and the grunt. Maria has feelings about both." },
+        "diane_ross": { "type": "acquaintance", "note": "She has filed four noise complaints about him. He waves every time." }
+      },
       "greetings": [
         "Hey! Great to see you!",
         "What's good, my friend?",
-        "Perfect timing!"
+        "Perfect timing!",
+        "Up top! Come on, don't leave me hanging!",
+        "My friend! You look like someone who needs a high-five."
       ],
       "requests": [
         "Got any extra balls? I'm hitting serves and running out fast.",
@@ -207,21 +473,50 @@
         "Want to rally for a bit when you're on break? Ha, just kidding. Unless..."
       ],
       "dialoguePool": {
-        "satisfied": ["You rock! Seriously.", "Here, grab yourself a snack on me."],
-        "unsatisfied": ["All good, no stress!", "Haha, don't worry about it!"],
-        "idle": ["Just trying to nail my backhand.", "Tennis is therapy, am I right?"]
-      }
+        "satisfied": ["You rock! Seriously.", "Here, grab yourself a snack on me.", "MVP! Most Valuable Person-who-works-here!"],
+        "unsatisfied": ["All good, no stress!", "Haha, don't worry about it!", "Next time, my friend. Next time."],
+        "neutral": ["Cool cool, works for me!", "Hey, it's all part of the game!"],
+        "idle": [
+          "Just trying to nail my backhand.",
+          "Tennis is therapy, am I right?",
+          "Taught Lily the tweener. Maria gave me a look. Worth it.",
+          "Diane says I grunt 'like a walrus in distress'. I'm taking it as a compliment.",
+          "Chad's actually a good dude. Deep, deep down.",
+          "Five hours on court today! My legs are jelly! Best day ever!",
+          "Nate hit a ball so hard it went through the net. Okay, it went over. But FAST."
+        ],
+        "morning": ["Rise and grind! Or rise and rally!", "First hit of the day is always the best."],
+        "afternoon": ["Afternoon session number three, let's GO!", "Hydrate or die-drate, my friend."],
+        "evening": ["Night tennis! It's like tennis, but at night!", "One more bucket, then tacos."],
+        "rainy": ["Rain dance! No? Just me? Okay.", "Rain's just nature's rest day."],
+        "windy": ["Wind's a great teacher. Keeps you humble!", "Topspin cuts right through this wind. Watch!"],
+        "cloudy": ["Cloudy's underrated. No sunburn, all tennis!", "Great day to play forever."],
+        "sunny": ["Sunshine and forehands, baby!", "What a day! What a DAY!"]
+      },
+      "matchLines": { "win": ["HUAAH! Good match!", "Up top, buddy!"], "lose": ["Great rally!", "Next time, friend!"] }
     },
     {
       "id": "hank_morris",
       "name": "Hank Morris",
-      "archetype": "friendly",
+      "archetype": "staff",
       "shirtColor": "#5D6D3F",
       "preferredAreas": ["court3", "court4", "court5", "equipmentShed"],
+      "preferredTime": "morning",
+      "bio": "Grounds manager for 22 years; treats the clay courts like a vineyard and the new attendant like a promising apprentice.",
+      "quirks": ["Talks to the clay", "Drinks thermos coffee at dawn with Gloria", "Knows the moisture level of every court by smell"],
+      "voice": "Gruff, practical, farming metaphors, short sentences, dry praise.",
+      "tennis": { "level": "recreational", "style": "Doesn't play. 'I build the stage, I don't dance on it.'", "skill": 0.4, "hand": "right" },
+      "relationships": {
+        "rafa_ibarra": { "type": "colleague", "note": "Friendly running argument about how much water clay needs." },
+        "gloria_castellano": { "type": "friend", "note": "Dawn coffee on the Court 5 bench, every day for ten years." },
+        "frank_deluca": { "type": "acquaintance", "note": "Frank reports every divot. Personally. In writing." }
+      },
       "greetings": [
         "Morning! Those clay courts won't groom themselves.",
         "Hey there! How are the courts looking today?",
-        "Good to see ya. Ready to put in some work?"
+        "Good to see ya. Ready to put in some work?",
+        "There's my apprentice. Clay's thirsty today. Can you feel it?",
+        "Ah, good. Grab a rake and a good attitude."
       ],
       "requests": [
         "The clay courts are looking rough after the morning matches. Time for a sweep.",
@@ -229,10 +524,594 @@
         "Those courts need grooming. Grab the brush from the equipment shed."
       ],
       "dialoguePool": {
-        "satisfied": ["Now THAT's how you groom a court. Well done!", "Beautiful work. The members will love it."],
-        "unsatisfied": ["Hmm, you might want another pass on that. A few spots are still rough.", "Not bad for a rookie, but we can do better."],
-        "idle": ["A well-maintained court is a happy court.", "Nothing beats the smell of fresh Har-Tru in the morning."]
-      }
+        "satisfied": ["Now THAT's how you groom a court. Well done!", "Beautiful work. The members will love it.", "Clay's smiling. I can tell."],
+        "unsatisfied": ["Hmm, you might want another pass on that. A few spots are still rough.", "Not bad for a rookie, but we can do better.", "Clay remembers sloppy work. So do I."],
+        "neutral": ["It'll hold. For now.", "Serviceable. Clay's forgiving. Sometimes."],
+        "idle": [
+          "A well-maintained court is a happy court.",
+          "Nothing beats the smell of fresh Har-Tru in the morning.",
+          "Rafa wants the clay wetter. Rafa is wrong. Don't tell him I said that. Tell him.",
+          "Frank handed me a memo about a divot on Court 4. Hand-written. Two pages.",
+          "Gloria and I have coffee on the Court 5 bench at six. Every day. Ten years.",
+          "You brush the lines last, kid. Always last.",
+          "Chad slid into the net post again. The post's fine. Chad's fine. Mostly the post."
+        ],
+        "morning": ["Dew's still on the clay. Best time to read a court.", "Early start. Clay likes an early start."],
+        "afternoon": ["Afternoon heat dries the clay fast. Keep an eye on it.", "Busy courts, tired clay."],
+        "evening": ["Courts get a rest at night. So should you. After closing.", "Lights on. Last sweep before lock-up."],
+        "rainy": ["Rain's the clay's best friend and my worst enemy.", "No grooming in this. We wait it out."],
+        "windy": ["Wind's lifting the top dressing. Keep that brush low.", "Windy days, the clay ends up in the parking lot."],
+        "cloudy": ["Cloudy's good. Clay holds its moisture.", "Nice gray day. Courts'll play true."],
+        "sunny": ["Hot sun bakes the clay. We'll need water later.", "Beautiful day. Clay'll dry fast. Stay on it."]
+      },
+      "matchLines": { "win": ["Not bad for grounds!", "Ha! Still got it."], "lose": ["Back to the rake.", "Good game."] }
+    },
+    {
+      "id": "rafa_ibarra",
+      "name": "Coach Rafa Ibarra",
+      "archetype": "staff",
+      "shirtColor": "#1F3A68",
+      "preferredAreas": ["court3", "court4", "court1"],
+      "preferredTime": "morning",
+      "bio": "Head tennis pro from Valencia who played the satellite tour for six years and now teaches everyone from Lily to Mrs. Wellington.",
+      "quirks": ["Speaks in tennis proverbs", "Draws footwork diagrams in the clay with his racket", "Says 'vamos' to encourage, 'bueno' to disapprove"],
+      "voice": "Calm, unhurried, aphorisms and metaphors, the odd Spanish word, never raises his voice.",
+      "tennis": { "level": "pro", "style": "Heavy-topspin clay baseliner; never misses, never hurries", "skill": 0.95, "hand": "left" },
+      "relationships": {
+        "priya_sharma": { "type": "student", "note": "His favorite project. 'Beautiful feet. The hands will come.'" },
+        "theo_wellington": { "type": "student", "note": "The most talented junior he's coached. Also the most sulky." },
+        "hank_morris": { "type": "colleague", "note": "They disagree about clay watering with deep mutual respect." },
+        "jess_nakamura": { "type": "colleague", "note": "She strings his rackets. He trusts her more than his own hands." }
+      },
+      "greetings": [
+        "Ah, my friend. Vamos, another beautiful day.",
+        "Hola. You walk like you are late. You are not late. Breathe.",
+        "Good morning. The court is patient. So should we be.",
+        "Ey! The attendant. Tell me, how are your feet today?",
+        "Hola, hola. You have the look of a busy person. I respect busy."
+      ],
+      "requests": [
+        "Could you bring a hopper of balls to Court 3 for my lesson?",
+        "The net on Court 4 is two centimetres low. I can see it. Hank says no.",
+        "Tell Theo his lesson is in ten minutes. He will pretend he did not hear."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Vamos! Perfect footwork. I mean, perfect work.", "Gracias. You have good timing. In life, it is everything.", "Beautiful. Like a drop shot that dies."],
+        "unsatisfied": ["Bueno... it happens. The ball has no memory.", "Hm. Next point is a new point.", "Patience. Tennis is long, life is longer."],
+        "neutral": ["Bueno. It will do.", "Okay. We adjust, we continue."],
+        "idle": [
+          "The ball has no memory. Why should you?",
+          "Footwork first. Everything else is decoration.",
+          "Priya has the feet of a dancer. The racket, she holds like a spatula. We work on it.",
+          "Theo is fourteen and already hits like a man of thirty. He also sulks like a man of thirty.",
+          "Hank says the clay is too wet. I say it is too dry. We are both correct, in different ways.",
+          "In Valencia, we play on clay the color of paella. This is close. Very close.",
+          "Chad asks me for 'one secret' every week. The secret is practice. He does not like this secret."
+        ],
+        "morning": ["Morning lessons are the best. The mind is empty. Good for learning.", "The first ball of the day, it tells you everything."],
+        "afternoon": ["Afternoon heat. Drink water. Drink more water.", "My afternoon clinic has three children and one Bob. Bob is the hardest."],
+        "evening": ["Evening light is the most honest. You see the true spin.", "After the lights, I string. It is my meditation."],
+        "rainy": ["Rain. We practice patience instead.", "In the rain, the clay is heavy. Like my heart when a student forgets the split step."],
+        "windy": ["Wind is the best coach. It punishes the lazy toss.", "Windy? Good. Now you learn to adjust."],
+        "cloudy": ["Cloudy. Good light for reading spin.", "No shadows today. No excuses either."],
+        "sunny": ["Sun is good. But hats are better. Wear a hat.", "Beautiful day. The clay is fast. Like me, twenty years ago."]
+      },
+      "matchLines": { "win": ["Vamos!", "Footwork first."], "lose": ["Bueno. Well played.", "No memory. Bueno."] }
+    },
+    {
+      "id": "jess_nakamura",
+      "name": "Jess Nakamura",
+      "archetype": "staff",
+      "shirtColor": "#2D5A3D",
+      "preferredAreas": ["proShop", "entrance"],
+      "preferredTime": "afternoon",
+      "bio": "Pro shop manager and master stringer who knows every member's string tension and racket history by heart.",
+      "quirks": ["Talks about members by their string tension", "Alphabetises the grip tape", "Deadpan to a fault; smiles once a season"],
+      "voice": "Deadpan, dry, precise numbers, short sentences, understatement.",
+      "tennis": { "level": "advanced", "style": "Lefty slice artist who plays like she restrings: exactly", "skill": 0.68, "hand": "left" },
+      "relationships": {
+        "rafa_ibarra": { "type": "colleague", "note": "Strings his rackets at 52 pounds, exactly, always." },
+        "chad_blake": { "type": "acquaintance", "note": "Broken strings this season: 23. She keeps a chart." },
+        "kevin_park": { "type": "friend", "note": "Talked him out of a racket 'with a built-in sensor'. He's grateful." },
+        "gloria_castellano": { "type": "friend", "note": "The only person she'll restring a wooden racket for." }
+      },
+      "greetings": [
+        "Hey. Welcome to the pro shop. Don't touch the grip display.",
+        "Oh. It's you. Good.",
+        "Hi. I've been awake since six. The stringing machine hasn't.",
+        "Hey. Chad broke another string. That's twenty-three.",
+        "Hello. Can I interest you in nothing? Good. Me neither."
+      ],
+      "requests": [
+        "There's a racket on Court 1 that has been waiting for me since yesterday.",
+        "Could you run towels out? I can't leave the register. Legally.",
+        "If Chad comes in asking for 'extra-strong strings', tell him those don't exist."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Great. That's great. I'm smiling. Internally.", "Thanks. Genuinely.", "Efficient. I respect that."],
+        "unsatisfied": ["Cool. Cool cool.", "That's fine. Everything's fine.", "I'll just write that off. Like Chad's strings."],
+        "neutral": ["Okay. Noted.", "Sure. That works."],
+        "idle": [
+          "Rafa strings at 52 pounds. Mrs. Wellington at 55. Chad at whatever breaks.",
+          "Kevin tried to buy a racket with Bluetooth. I stopped him. You're welcome, world.",
+          "Gloria's racket is older than my parents. I restring it by hand. With respect.",
+          "I alphabetised the grip tape. Nobody noticed. I noticed.",
+          "Someone asked if we sell 'tennis-flavored' sports drinks. We don't. What would that even be.",
+          "Twenty-three broken strings this season. All Chad. I made a chart.",
+          "Nate reads the specs on the racket before he reads the price. My kind of customer."
+        ],
+        "morning": ["The shop opens at eight. I open at nine. Emotionally.", "Morning restocking. My favorite quiet hour."],
+        "afternoon": ["Afternoon rush. By rush I mean four people. It's a lot.", "The afternoon crowd buys sunscreen. Every. Single. Day."],
+        "evening": ["After close, I string. It's like knitting but angrier.", "Evening. Chad will come in with a broken string any minute."],
+        "rainy": ["Rain means everyone comes in here. To not buy things.", "Good day to restring. And hide."],
+        "windy": ["The door keeps blowing open. Very dramatic.", "Wind means lost visors. We sell visors."],
+        "cloudy": ["Cloudy. Nobody's buying sunscreen. Weird.", "Gray. My favorite color."],
+        "sunny": ["Sunny. We're out of visors. Again.", "Great weather for staying indoors and stringing."]
+      },
+      "matchLines": { "win": ["Called it.", "Exactly 52 pounds."], "lose": ["Fair.", "Good hands. Noted."] }
+    },
+    {
+      "id": "theo_wellington",
+      "name": "Theo Wellington",
+      "archetype": "junior",
+      "shirtColor": "#F4F1EA",
+      "preferredAreas": ["court1", "court2", "garden"],
+      "preferredTime": "afternoon",
+      "bio": "Fourteen-year-old junior phenom and Mrs. Wellington's grandson, sneaking practice sessions between the lunches she signs him up for.",
+      "quirks": ["Quotes pro players' match stats", "Mumbles, then says something sharp", "Hides from his grandmother behind the fountain"],
+      "voice": "Mumbly teenager, short answers, flat 'cool', surprisingly articulate when talking tennis.",
+      "tennis": { "level": "advanced", "style": "Flat two-handed backhand and a serve he copied from Nate", "skill": 0.78, "hand": "right" },
+      "relationships": {
+        "mrs_wellington": { "type": "family", "note": "His grandmother. He loves her. He avoids her before 2 PM." },
+        "nate_okafor": { "type": "mentor", "note": "His idol. Nate lets him hit sometimes, which is basically everything." },
+        "rafa_ibarra": { "type": "student", "note": "Coach. Theo pretends not to listen and remembers every word." },
+        "lily_santos": { "type": "acquaintance", "note": "She follows him around. He pretends to hate it." }
+      },
+      "greetings": [
+        "Oh. Hey.",
+        "Hey. Have you seen my grandmother? Don't tell her you've seen me.",
+        "Sup.",
+        "Hey. Did Nate come by yet?",
+        "Oh, it's you. Cool. Not in a bad way."
+      ],
+      "requests": [
+        "Can you get me a hopper to Court 1? Quietly?",
+        "If my grandma asks, I'm at etiquette lunch.",
+        "Do you know when the junior championship sign-up closes?"
+      ],
+      "dialoguePool": {
+        "satisfied": ["That's... actually really cool. Thanks.", "Nice. You're alright.", "Okay yeah, that helped. A lot."],
+        "unsatisfied": ["Cool. Whatever.", "Great. Now she's gonna know.", "...Fine."],
+        "neutral": ["Yeah. Okay.", "Sure. I guess."],
+        "idle": [
+          "Nate's first serve is like 120. Mine's 104. I'm working on it.",
+          "Grandma signed me up for etiquette lunch. I'm hiding. Obviously.",
+          "Lily follows me around asking me to hit with her. She's ten. ...She's actually okay.",
+          "Coach Rafa says 'the ball has no memory'. Mine definitely does. It remembers all my double faults.",
+          "Did you know clay courts slow the ball down by like fifteen percent? Nate told me.",
+          "Chad asked me for serve tips. I'm fourteen.",
+          "I want to play the junior championship. Grandma wants me to 'broaden my horizons'."
+        ],
+        "morning": ["It's too early to exist.", "I'm supposed to be at a brunch. I'm not."],
+        "afternoon": ["Afternoon's when Grandma naps. Prime practice time.", "Nate said he'd hit with me after lunch. Maybe."],
+        "evening": ["Night tennis is the best tennis.", "Grandma thinks I'm at the library. There's no library here."],
+        "rainy": ["Rain. Great. Now I have to go to lunch.", "Can't practice. Watching match highlights instead."],
+        "windy": ["Wind ruins my toss. Pros play in wind though. So.", "Wind's good practice, I guess."],
+        "cloudy": ["Cloudy's fine. Better for serving.", "Gray days are underrated."],
+        "sunny": ["It's hot. I'm still playing.", "Good day to hit. If I can avoid Grandma."]
+      },
+      "matchLines": { "win": ["Let's GO!", "Told you."], "lose": ["...Good match.", "Again. Please."] }
+    },
+    {
+      "id": "lily_santos",
+      "name": "Lily Santos",
+      "archetype": "junior",
+      "shirtColor": "#F06292",
+      "preferredAreas": ["garden", "court3", "patio"],
+      "preferredTime": "midday",
+      "bio": "Maria's ten-year-old daughter, the club's self-appointed lost-ball collector and Theo Wellington's biggest (and only) fan.",
+      "quirks": ["Collects stray tennis balls in a bucket she named 'Barbara'", "Asks 'why?' at least four times per conversation", "Grunts like Tommy on every shot"],
+      "voice": "Fast, breathless, run-on sentences, 'did you know', big exclamations, random facts.",
+      "tennis": { "level": "junior", "style": "All-out hustle; runs down every ball, occasionally the wrong one", "skill": 0.32, "hand": "right" },
+      "relationships": {
+        "maria_santos": { "type": "family", "note": "Her mom. Lily's official position is that Mom is 'embarrassing but okay'." },
+        "tommy_chen": { "type": "friend", "note": "Taught her the tweener. Best adult at the club." },
+        "theo_wellington": { "type": "friend", "note": "Her hero. She will beat him one day. She has told him so." }
+      },
+      "greetings": [
+        "HI! Did you know tennis balls used to be white?!",
+        "Hi hi hi! Do you want to see my ball collection?",
+        "Oh! It's the cart person! Can I ride in the cart? Why not?",
+        "Hi! I found SIX balls today. SIX!",
+        "Hello! Have you seen Theo? He said he'd hit with me. He said maybe. Maybe means yes."
+      ],
+      "requests": [
+        "My bucket is full of lost balls and it's really heavy. Can you help?",
+        "Can you tell my mom I'm at Court 3? Actually don't.",
+        "Can you ask Theo to hit with me? He'll say yes if you ask."
+      ],
+      "dialoguePool": {
+        "satisfied": ["YAY! You're the best cart person!", "Thank you thank you thank you!", "I'm going to tell EVERYONE you helped!"],
+        "unsatisfied": ["Awww. Okay.", "That's not fair! ...Okay it's a little fair.", "Hmph. I'm telling my mom. Just kidding. Maybe."],
+        "neutral": ["Okay! What's next?", "Cool beans!"],
+        "idle": [
+          "Did you know the fountain fish are named Serena, Venus and Gerald? I named Gerald.",
+          "Tommy taught me the tweener! Mom says I'm not allowed to do it near windows.",
+          "Theo said I hit 'okay for a little kid'. That's basically a compliment!",
+          "My ball bucket is named Barbara. Barbara has 47 balls in her.",
+          "Why is it called 'love'? Why? Nobody knows! Kevin doesn't know either!",
+          "Mrs. Wellington said I have 'lovely manners'. I don't know what I did.",
+          "When I grow up I'm going to be a tennis player AND a vet AND the club president."
+        ],
+        "morning": ["Is it lunch yet? It's not lunch yet.", "I'm up early! Mom had a coffee. I had a juice."],
+        "afternoon": ["Junior clinic! Junior clinic! Junior clinic!", "It's so hot! I'm still going to run a lot!"],
+        "evening": ["The lights are on! That means it's almost bedtime. NOOO.", "Can we stay until the lights turn off? Please?"],
+        "rainy": ["RAIN! Can I jump in the puddles? Why not?", "Rain means the balls get fuzzy. Fuzzier."],
+        "windy": ["The wind took my hat! It's a hat adventure!", "WIND! My hair is everywhere!"],
+        "cloudy": ["The clouds look like tennis balls. Some of them.", "It's gray! Gray is a good color for finding balls."],
+        "sunny": ["SUNNY! Best day ever!", "Mom put so much sunscreen on me I'm shiny."]
+      },
+      "matchLines": { "win": ["I WON! I WON!", "Barbara, I won!"], "lose": ["Rematch! Rematch!", "Good game! Again?"] }
+    },
+    {
+      "id": "nate_okafor",
+      "name": "Nate Okafor",
+      "archetype": "competitive",
+      "shirtColor": "#34495E",
+      "preferredAreas": ["court1", "court2"],
+      "preferredTime": "evening",
+      "bio": "College team captain home for the summer, obsessive about his rating, quietly mentoring Theo between training blocks.",
+      "quirks": ["Logs every session in a training app", "Eats a banana at every changeover", "Answers questions with statistics"],
+      "voice": "Focused, polite, clipped, analytical; percentages and 'data says'; a rare grin when he loses.",
+      "tennis": { "level": "elite", "style": "First-strike tennis: big serve, forehand, done", "skill": 0.9, "hand": "right" },
+      "relationships": {
+        "chad_blake": { "type": "rival", "note": "Chad considers it a rivalry. Nate considers it a warm-up." },
+        "theo_wellington": { "type": "mentor", "note": "Sees himself at fourteen. Hits with him whenever he can." },
+        "vik_rao": { "type": "friend", "note": "Dr. Rao fixed his wrist last year and now they hit on Tuesdays." },
+        "leo_brandt": { "type": "acquaintance", "note": "Leo keeps challenging him. Nate keeps saying 'sure'." }
+      },
+      "greetings": [
+        "Hey. Good to see you.",
+        "Morning. Or, whatever it is. I'm on training time.",
+        "Hey, quick one: is Court 1 free after six?",
+        "What's up. Twelve minutes until my next block.",
+        "Hey. Theo around? I promised him a hit."
+      ],
+      "requests": [
+        "Can I get a hopper on Court 1? Serve practice.",
+        "Could you let Theo know I'm free at five?",
+        "Do you know if anyone left a banana in the cooler? Mine's gone."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Appreciate it. Efficient.", "Thanks. That's a clean result.", "Solid. Logging that as a win."],
+        "unsatisfied": ["Okay. Adjust and go again.", "Not ideal. Moving on.", "Data says that was a miss. That's fine."],
+        "neutral": ["Fine. Works.", "Neutral result. Next."],
+        "idle": [
+          "My first-serve percentage is 64. Need 70 by August.",
+          "Theo's backhand is better than mine was at fourteen. Don't tell him.",
+          "Chad keeps calling it a rivalry. I'm 11-0 against him. That's a streak.",
+          "Dr. Rao fixed my wrist last year. Now I let him win a set. Occasionally.",
+          "Leo Brandt challenged me to a match again. He's improving. Two percent.",
+          "Clay's slower here. Good for building patience. I have none.",
+          "Banana at every changeover. Potassium's not optional."
+        ],
+        "morning": ["Morning session is fitness. Tennis is later.", "Recovery run done. Now stretching."],
+        "afternoon": ["Too hot for a real session. Drilling instead.", "Afternoon's for video review."],
+        "evening": ["Evening under the lights. Best conditions.", "Six o'clock, Court 1. Chad asked. Again."],
+        "rainy": ["Rain. Indoor footwork drills.", "Wet clay kills my serve speed. Rest day."],
+        "windy": ["Wind's gusting maybe 20. Serving into it is a good test.", "Windy. Great day to work on margins."],
+        "cloudy": ["Cloudy. Consistent light. Good for tracking.", "Overcast. Ideal, honestly."],
+        "sunny": ["Sun's fine. Just adjust the toss.", "Bright day. Hydration schedule every 20 minutes."]
+      },
+      "matchLines": { "win": ["Good match. Logged.", "Clean."], "lose": ["Well played. Data.", "Good. I needed that."] }
+    },
+    {
+      "id": "babs_hendricks",
+      "name": "Babs Hendricks",
+      "archetype": "social",
+      "shirtColor": "#C06C84",
+      "preferredAreas": ["patio", "garden"],
+      "preferredTime": "afternoon",
+      "bio": "Bob's wife of 41 years, chair of the social committee and the club's unofficial news network.",
+      "quirks": ["Begins every secret with 'I didn't hear this from me'", "Plans themed mixers nobody asked for", "Waters the hydrangeas Diane hates, pointedly"],
+      "voice": "Chatty, conspiratorial, 'honey', gasps, answers her own questions, starts stories in the middle.",
+      "tennis": { "level": "recreational", "style": "Social doubles only; talks through every changeover and several points", "skill": 0.35, "hand": "right" },
+      "relationships": {
+        "bob_hendricks": { "type": "spouse", "note": "Married 41 years. He tells jokes, she tells everyone he told a joke." },
+        "diane_ross": { "type": "rival", "note": "The rose-versus-hydrangea war of the garden beds." },
+        "maria_santos": { "type": "friend", "note": "Garden committee co-chair and her favorite listener." },
+        "harper_brandt": { "type": "friend", "note": "Her partner in mixers, gossip and punch recipes." }
+      },
+      "greetings": [
+        "Oh, honey! Come here, you have to hear this.",
+        "There you are! I've been looking everywhere. Well, the patio.",
+        "Hi, sweetie! Don't look now, but Diane's wearing the same visor as last week.",
+        "Oh good, a friendly face. Sit. Oh, you're working. Stand, then!",
+        "Honey! Have you heard? No? Oh, you're going to love this."
+      ],
+      "requests": [
+        "Could you bring some cold water to the patio? The committee's parched.",
+        "Be a dear and check the garden beds. I think somebody's been in my hydrangeas.",
+        "Help me set up for the Friday mixer? It's a luau theme. Obviously."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Oh, you're a doll! I'm telling everyone.", "Wonderful! Bob, isn't this one wonderful?", "Honey, you just made my whole afternoon."],
+        "unsatisfied": ["Well! I suppose that's that.", "Oh, honey. We'll talk.", "Mm-hmm. I'll remember that. I remember everything."],
+        "neutral": ["Well, that's something!", "Okay, honey. Moving on!"],
+        "idle": [
+          "I didn't hear this from me, but Chad's father is thinking of running for club president.",
+          "Diane pulled up two of my hydrangeas. I have witnesses. Well, a witness. Lily.",
+          "Harper Brandt and I are planning a luau mixer. Leis for everyone. Even Frank.",
+          "Bob told his 'love means nothing' joke again. I laughed. Forty-one years, still laughing.",
+          "You know Gloria almost played Wimbledon? Almost! Oh, the stories.",
+          "Mrs. Wellington and Diane haven't spoken since 1996. Something about a hat.",
+          "Hank and Gloria have coffee every morning. Every morning! I'm just saying."
+        ],
+        "morning": ["Morning, honey! The early crowd is SO boring. Nobody's done anything yet.", "Coffee and gossip. Mostly gossip."],
+        "afternoon": ["Afternoon on the patio is when everything happens.", "Committee meeting in an hour. I've brought snacks and opinions."],
+        "evening": ["Evening's when the good stories come out, honey.", "Somebody always cries at the evening mixer. Happy tears. Mostly."],
+        "rainy": ["Rain! Everyone's inside. Oh, the conversations I'll overhear.", "My hair! Honey, my hair!"],
+        "windy": ["The wind took my napkin right into Diane's roses. Oops.", "Hold onto your hats and your secrets!"],
+        "cloudy": ["Cloudy day, perfect for a long chat.", "A little gray never stopped a good story."],
+        "sunny": ["Such a gorgeous day! Everyone's out! Everyone!", "Sun's out, and so is the gossip."]
+      },
+      "matchLines": { "win": ["Oh my! I won!", "Tell Bob!"], "lose": ["Lovely game, honey!", "Who cares, it's fun!"] }
+    },
+    {
+      "id": "gloria_castellano",
+      "name": "Gloria Castellano",
+      "archetype": "veteran",
+      "shirtColor": "#F2EEE3",
+      "preferredAreas": ["court5", "patio"],
+      "preferredTime": "morning",
+      "bio": "Seventy-eight, reached the Wimbledon junior qualifying in 1962, still plays with a wooden racket and still beats most of the men's ladder.",
+      "quirks": ["Plays only with a 1968 wooden racket", "Bets a dollar on every match she watches", "Calls modern rackets 'frying pans'"],
+      "voice": "Sardonic, economical, dry wit, old-school tennis slang, calls people 'darling' when about to insult them.",
+      "tennis": { "level": "advanced", "style": "Chip-and-charge serve-volley from another century; nobody can read her slice", "skill": 0.8, "hand": "right" },
+      "relationships": {
+        "frank_deluca": { "type": "rival", "note": "They have played the same Tuesday match for forty years. She leads 1,041 to 1,037." },
+        "bob_hendricks": { "type": "friend", "note": "Her 1982 mixed doubles partner. She forgave the double fault. Mostly." },
+        "hank_morris": { "type": "friend", "note": "Dawn coffee on the Court 5 bench. It is not a date. (It is a little bit a date.)" },
+        "priya_sharma": { "type": "mentor", "note": "Saw her footwork once and decided to teach her 'real tennis'." },
+        "jess_nakamura": { "type": "friend", "note": "The only stringer she trusts with the 1968 Maxply." }
+      },
+      "greetings": [
+        "Ah. The attendant. Walk with me, darling, my knees are older than your parents.",
+        "Good morning. Have you come to watch a real serve?",
+        "Hello, dear. A dollar says Frank double-faults today.",
+        "Darling. You look busy. Busy is good. Idle is for frying-pan rackets.",
+        "Morning. Hank tells me you're learning. Good. Keep learning."
+      ],
+      "requests": [
+        "My racket needs Jess. The racket is older than Jess. Be gentle.",
+        "Tell Frank our match is at eight. He'll pretend he forgot.",
+        "Bring a towel to Court 5, darling. Chivalry isn't dead, it's just employed."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Well done, darling. You'd have made a fine ball boy at Wimbledon.", "Good. Here, a dollar. I won it off Frank.", "Splendid. You have manners. Rare, these days."],
+        "unsatisfied": ["Darling. No.", "Frank would have done better. And Frank is terrible.", "Well. We all have off days. Some of us have off decades."],
+        "neutral": ["Hm. Passable.", "It'll do, darling."],
+        "idle": [
+          "Frank and I are 1,041 to 1,037. Don't let him tell you different.",
+          "That Nate boy has a real serve. Like the old days. Only faster and less elegant.",
+          "They call these rackets? Frying pans. With strings.",
+          "Priya has good feet. I'm teaching her to use them. Rafa pretends not to mind.",
+          "Hank and I have coffee at dawn. We don't talk. It's the best conversation at this club.",
+          "1962. Wimbledon junior qualifying. Lost to a girl who later married a duke. I'm not bitter. I'm eighty percent bitter.",
+          "Bob double-faulted on match point in 1982. I have forgiven him. Out loud."
+        ],
+        "morning": ["Morning's for serious tennis. Afternoon's for people who talk.", "Coffee with Hank, then Frank. Best part, worst part."],
+        "afternoon": ["The afternoon is for naps and wagering.", "Too hot for volleys. Just right for watching others suffer."],
+        "evening": ["Tennis under lights. In my day, you went home when you couldn't see the ball.", "Evening, darling. My knees would like to file a complaint."],
+        "rainy": ["Rain. In 1962 we played through worse. We also had worse knees.", "A wooden racket in the rain is a sad thing. Like Frank's backhand."],
+        "windy": ["Wind? Darling, that's what the slice is for.", "Wind separates the tennis players from the people holding rackets."],
+        "cloudy": ["Cloudy. Like London. I feel young.", "Gray skies. Proper tennis weather."],
+        "sunny": ["Sun's out. The frying pans will be out too.", "Lovely day. Frank will blame the glare."]
+      },
+      "matchLines": { "win": ["1,042, Frank.", "Chip and charge!"], "lose": ["Lucky. Very lucky.", "Put it on my tab."] }
+    },
+    {
+      "id": "frank_deluca",
+      "name": "Frank DeLuca",
+      "archetype": "veteran",
+      "shirtColor": "#95A5A6",
+      "preferredAreas": ["court5", "entrance", "proShop"],
+      "preferredTime": "morning",
+      "bio": "Retired Marine colonel, founding member and self-appointed keeper of the club bylaws, which he can recite by number.",
+      "quirks": ["Quotes bylaws by section number", "Writes memos by hand", "Secretly feeds the fountain koi and denies it"],
+      "voice": "Military clipped, 'son', 'affirmative', section numbers, stern with an obvious soft middle.",
+      "tennis": { "level": "intermediate", "style": "Disciplined defensive baseliner; counts his steps; never argues a call, cites it", "skill": 0.55, "hand": "right" },
+      "relationships": {
+        "gloria_castellano": { "type": "rival", "note": "Forty years of Tuesdays. He insists he leads. He does not." },
+        "kevin_park": { "type": "rival", "note": "'That young man's shorts are a violation of section 7.3.'" },
+        "mrs_wellington": { "type": "friend", "note": "Co-author of the new attire proposal. They meet weekly. Minutes are taken." },
+        "hank_morris": { "type": "acquaintance", "note": "Sends him divot reports. Considers them a courtesy." },
+        "bob_hendricks": { "type": "friend", "note": "Morning coffee. Bob calls the bylaws 'guidelines'; Frank corrects him daily." }
+      },
+      "greetings": [
+        "Attendant. At ease.",
+        "Morning, son. You're two minutes late. Kidding. Mostly.",
+        "Good day. Section 4.1: staff shall be courteous. You're compliant. Carry on.",
+        "Ah. Report: divot on Court 4, northeast corner. I've written it up.",
+        "Hello, son. Have you seen the Park boy? What's he wearing today?"
+      ],
+      "requests": [
+        "There is a divot on Court 4. I've written a memo. Deliver it to Hank.",
+        "That young man in the blue shirt is in violation of section 7.3. Handle it.",
+        "Please remind Gloria that our match is at 0800. Sharp."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Outstanding. Carry on, son.", "Squared away. Good work.", "Affirmative. I'll note that in the log."],
+        "unsatisfied": ["Unacceptable. But correctable.", "Son, we can do better. We will do better.", "That's a demerit. Unofficial. For now."],
+        "neutral": ["Acknowledged.", "Adequate. Dismissed."],
+        "idle": [
+          "Section 7.3: appropriate tennis attire. Kevin Park's shorts are not appropriate. They are cargo.",
+          "Gloria claims she leads our series. I keep the official record. It's... close.",
+          "I don't feed the fountain fish. Somebody does. It isn't me. Gerald looks healthy, though.",
+          "Bob says the bylaws are 'guidelines'. Bob is incorrect.",
+          "Mrs. Wellington and I are revising the attire code. Forty-one pages so far.",
+          "Divot report number 312 filed this morning. Hank appreciated it. I assume.",
+          "In the Corps we played on asphalt. In boots. Built character."
+        ],
+        "morning": ["Oh-six-hundred is the proper time to start a day.", "Morning. Tuesday match with Gloria at oh-eight-hundred."],
+        "afternoon": ["Afternoon inspection of the grounds. Informal. Thorough.", "Too many people in the afternoon. Too many cargo shorts."],
+        "evening": ["Lights on. Floodlight 3 on Court 1 is a half-second slow. Noted.", "Evening. Time to file today's reports."],
+        "rainy": ["Rain. Courts closed per section 9.2. As it should be.", "Rain builds character. And puddles."],
+        "windy": ["Wind from the northwest, about fifteen knots. Adjust your toss.", "Windy. Secure all loose visors."],
+        "cloudy": ["Overcast. Good visibility, no glare. Ideal operating conditions.", "Cloudy. Fine by me."],
+        "sunny": ["Clear skies. Hydrate, son. That's an order.", "Sunny. Gloria will want to play longer. Heaven help me."]
+      },
+      "matchLines": { "win": ["Mission complete.", "Log it, Gloria."], "lose": ["Well fought.", "Recount. Kidding."] }
+    },
+    {
+      "id": "leo_brandt",
+      "name": "Leo Brandt",
+      "archetype": "competitive",
+      "shirtColor": "#A3CB38",
+      "preferredAreas": ["court2", "court1", "patio"],
+      "preferredTime": "evening",
+      "bio": "Newlywed commercial pilot who treats mixed doubles with his wife Harper like a championship final, and every line call like a court case.",
+      "quirks": ["Replays disputed points with hand gestures", "Matching lime outfits with Harper (her idea)", "Challenges Nate to a match weekly"],
+      "voice": "Intense, earnest, argues with logic, aviation lingo, softens instantly when Harper laughs.",
+      "tennis": { "level": "advanced", "style": "All-court grinder with a questionable relationship to the lines", "skill": 0.65, "hand": "right" },
+      "relationships": {
+        "harper_brandt": { "type": "spouse", "note": "Married six months. Still arguing about one line call from the honeymoon." },
+        "nate_okafor": { "type": "rival", "note": "Leo is 0-9 against him and considers it 'a developing situation'." }
+      },
+      "greetings": [
+        "Hey. Quick question: if a ball touches the line, it's in. Right? RIGHT?",
+        "Hey there. Cleared for takeoff?",
+        "Oh good, a neutral party. We need a neutral party.",
+        "Hey! Have you seen Harper? We have a rematch. Of the rematch.",
+        "Hi. I'm in a great mood. Unrelated: that ball was OUT."
+      ],
+      "requests": [
+        "Can you settle a line call? It's for our marriage.",
+        "Is Court 2 free at six? Nate said 'sure' again.",
+        "Could you bring towels to Court 2? Harper says I'm sweating 'aggressively'."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Perfect. Smooth landing.", "Thank you! Finally, someone objective.", "That's what I'm talking about. Good call."],
+        "unsatisfied": ["That's... disappointing. I'll file it.", "Turbulence. We'll get through it.", "Okay. OKAY. Fine."],
+        "neutral": ["Fair enough.", "Copy that."],
+        "idle": [
+          "Harper called a ball in that was clearly out. On our honeymoon. I've moved on. Mostly.",
+          "I'm 0-9 against Nate. Every loss is closer. Statistically.",
+          "Babs asked if Harper and I 'coordinate outfits on purpose'. Harper does. I just get dressed.",
+          "In aviation, we call it 'situational awareness'. In tennis, Harper calls it 'watch the ball, Leo'.",
+          "Three weeks off, then back to flying. I'm spending all of it on Court 2.",
+          "Chad asked me to be his doubles partner. I said I'm married. It's not the same thing, but it worked.",
+          "If a ball clips the line, it's in. I know that. I just need everyone else to know it."
+        ],
+        "morning": ["Morning. Jet-lagged. Still playing.", "Early start. Pre-flight checklist: coffee, shoes, grudges."],
+        "afternoon": ["Afternoon doubles with Harper. It's either romantic or a war.", "Warming up for Nate. Again."],
+        "evening": ["Evening match under the lights. Perfect visibility. For line calls.", "Tonight's the night I beat Nate. Probably."],
+        "rainy": ["Rain delay. I'm used to those. Terminal B, mostly.", "Rain. Harper's making me watch a movie. About tennis. She's sweet."],
+        "windy": ["Crosswind, maybe 12 knots. I've landed in worse.", "Wind makes the lines harder to call. For HER."],
+        "cloudy": ["Ceiling's at about three thousand feet. Good tennis weather.", "Cloudy. No glare. No excuses."],
+        "sunny": ["CAVU. Ceiling and visibility unlimited. Let's play.", "Sunny. Sunscreen's in the bag. Harper packed it. Twice."]
+      },
+      "matchLines": { "win": ["That was IN!", "Smooth landing!"], "lose": ["That was OUT.", "Rematch, Harper."] }
+    },
+    {
+      "id": "harper_brandt",
+      "name": "Harper Brandt",
+      "archetype": "social",
+      "shirtColor": "#FF6F61",
+      "preferredAreas": ["patio", "court2", "garden"],
+      "preferredTime": "afternoon",
+      "bio": "Event planner and Leo's new wife, who joined for the mixers, stayed for the tennis, and finds her husband's line-call crusade adorable.",
+      "quirks": ["Plans themed outfits for couples doubles", "Keeps a running tally of Leo's 'out' calls", "Befriends every new member within ten minutes"],
+      "voice": "Bubbly, witty, teasing, parenthetical asides, 'okay but', easy laughter.",
+      "tennis": { "level": "intermediate", "style": "Crafty net player with a lob that makes Leo shout", "skill": 0.58, "hand": "left" },
+      "relationships": {
+        "leo_brandt": { "type": "spouse", "note": "Six months married. She calls the lines. He calls her 'counsel'." },
+        "babs_hendricks": { "type": "friend", "note": "Co-conspirator on every mixer and most of the gossip." }
+      },
+      "greetings": [
+        "Hi! Okay but you look like you need a lemonade.",
+        "Hey you! Quick poll: is a ball on the line in or out? Asking for a husband.",
+        "Oh hi! Babs and I are planning a luau. You're invited. Mandatory fun.",
+        "Hey! Have you met my husband? Tall, lime shirt, currently arguing with the net.",
+        "Hi hi! Love the polo. Very 'staff chic'."
+      ],
+      "requests": [
+        "Help me surprise Leo? Our six-month anniversary is today and he thinks I forgot.",
+        "Could you bring cold water to the patio? The mixer committee is wilting.",
+        "Can you settle a line call before Leo files an appeal?"
+      ],
+      "dialoguePool": {
+        "satisfied": ["You're amazing! Adding you to the mixer VIP list.", "Okay you're officially my favorite. Don't tell Babs.", "Perfect! Leo's going to be so annoyed. In a good way."],
+        "unsatisfied": ["Oh well! Plan B. I always have a Plan B.", "Aw. That's okay, honestly.", "Hmm. Leo's going to bring this up for months."],
+        "neutral": ["Okay! That works.", "Could be worse! Could be Leo's line calls."],
+        "idle": [
+          "Leo's 'out' calls this month: 47. Actually out: 12. I have a spreadsheet.",
+          "Babs and I are doing a luau mixer. Frank asked if leis are in the bylaws. They're not. Yet.",
+          "Leo wants to beat Nate so badly. I love him. It's not happening.",
+          "Matching outfits were my idea. Leo pretends to hate it. He ironed his.",
+          "Priya drew us a sketch of the clubhouse for our wedding album. So talented!",
+          "Mrs. Wellington said my lob was 'unsporting'. Best compliment I've gotten here.",
+          "Okay but has anyone asked Hank and Gloria if they're dating? Because I will."
+        ],
+        "morning": ["Morning! Leo's still asleep. Jet lag. I'm stealing his court time.", "Coffee first, doubles second, gossip third."],
+        "afternoon": ["Afternoon's for patio lemonade and people-watching.", "Babs is saving me a seat. The good one. With the view of Diane."],
+        "evening": ["Evening doubles with Leo! Somebody bring a referee.", "Sunset over the courts. So pretty. Leo's arguing with it."],
+        "rainy": ["Rain! Indoor mixer! I love a pivot.", "Rain means Leo can't argue about lines. Honestly, a break."],
+        "windy": ["Wind! My lob is going to be DEADLY.", "Hold onto your visors, everyone!"],
+        "cloudy": ["Cloudy is great for photos. No squinting!", "Nice and cool. Perfect for a long set."],
+        "sunny": ["Perfect weather! Sunscreen, lemonade, drama.", "Sunny day at the club. Could it BE more perfect?"]
+      },
+      "matchLines": { "win": ["That was IN, babe!", "Lob of the century!"], "lose": ["Good game, babe!", "Worth it!"] }
+    },
+    {
+      "id": "vik_rao",
+      "name": "Dr. Vik Rao",
+      "archetype": "friendly",
+      "shirtColor": "#7B241C",
+      "preferredAreas": ["court2", "patio", "parking"],
+      "preferredTime": "midday",
+      "bio": "Orthopedic surgeon who squeezes tennis between hospital shifts and gets paged at the worst possible moment, every time.",
+      "quirks": ["Pager goes off mid-serve", "Diagnoses everyone's tennis elbow uninvited", "Apologises in advance for leaving early"],
+      "voice": "Warm, rushed, medical metaphors, polite apologies, self-aware jokes about his pager.",
+      "tennis": { "level": "intermediate", "style": "Textbook strokes, great anticipation, never finishes a match", "skill": 0.52, "hand": "right" },
+      "relationships": {
+        "nate_okafor": { "type": "friend", "note": "Patient turned hitting partner. Nate's wrist is great, thanks for asking." },
+        "bob_hendricks": { "type": "acquaintance", "note": "Did Bob's knee replacement. Bob tells everyone. With the scar." }
+      },
+      "greetings": [
+        "Hi! I have about eleven minutes. Let's make them count.",
+        "Hey there. Sorry, just checking my pager. Okay. We're good. For now.",
+        "Oh, hello! How's the wrist? Everybody's wrist? Occupational habit.",
+        "Hi! Is Court 2 free? I'm on call but feeling lucky.",
+        "Hey! Quick diagnosis: you're walking a bit fast. Slow down. Doctor's orders."
+      ],
+      "requests": [
+        "If my pager goes off, can you make sure my racket gets to the pro shop?",
+        "Could you let Nate know I might be twenty minutes late? Surgery ran long.",
+        "Is there any water left? I've been in scrubs since 5 AM."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Thank you! That's a textbook result.", "You're a lifesaver. Professionally speaking, I'd know.", "Perfect. Clean, efficient. Like a good suture."],
+        "unsatisfied": ["Ah. Well. Not fatal.", "No harm done. Well, minor harm. Treatable.", "It's okay. I've seen worse. Today, actually."],
+        "neutral": ["Stable condition. Good enough.", "Okay. Prognosis: fine."],
+        "idle": [
+          "I've been paged mid-serve fourteen times this season. The pager has impeccable timing.",
+          "Nate's wrist healed beautifully. I'm very proud. Of the wrist.",
+          "I did Bob's knee replacement. He shows everyone the scar. It's a good scar, honestly.",
+          "Whoever keeps playing with a death grip on Court 3: tennis elbow is coming for you.",
+          "Frank asked me if cargo shorts cause injuries. Medically, no. Stylistically, maybe.",
+          "I haven't finished a full match since April. I'm undefeated in first sets though.",
+          "Ice, rest, and stop hitting the ball like it owes you money. That's my advice for most members."
+        ],
+        "morning": ["Morning. Just got off a night shift. Tennis is my coffee.", "Rounds at seven, tennis at nine, back by eleven. Tight schedule."],
+        "afternoon": ["Lunch break! Forty minutes. Let's go.", "Afternoon clinic cancelled. Racket's out."],
+        "evening": ["Evening match, if the pager allows.", "Long day. One set, then sleep."],
+        "rainy": ["Rain. Slippery courts. I'll see some of you on Monday. Professionally.", "Rainy day. Perfect for catching up on charts."],
+        "windy": ["Windy! Watch your shoulders on those serves.", "Wind's fine. Just don't overreach. Rotator cuffs are delicate."],
+        "cloudy": ["Cloudy. Nice. Nobody needs a sunburn consult.", "Mild and gray. Great day for a long rally."],
+        "sunny": ["Sunny! Hydrate. I'm serious. Heat exhaustion is not a vibe.", "Beautiful day. Sunscreen, everyone. SPF 30 minimum."]
+      },
+      "matchLines": { "win": ["Finished one!", "Textbook!"], "lose": ["Good match!", "Saved by the pager!"] }
     }
   ]
 }
