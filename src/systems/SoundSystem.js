@@ -707,4 +707,50 @@ export class SoundSystem {
       }
     } catch (e) { /* ignore audio errors */ }
   }
+
+  /**
+   * Tennis ball "pock" (MatchSystem). volume 0..1 is the caller's distance attenuation;
+   * kind 'hit' = racket strike (bright), 'bounce' = court bounce (dull, softer).
+   */
+  playBallHit(volume = 1, kind = 'hit') {
+    if (!this.initialized || this.paused || this.muted || !(volume > 0.01)) return;
+    try {
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      if (!this._ballNoise) {
+        const n = Math.floor(ctx.sampleRate * 0.05);
+        this._ballNoise = ctx.createBuffer(1, n, ctx.sampleRate);
+        const d = this._ballNoise.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * 0.12));
+      }
+      const hit = kind !== 'bounce';
+      const v = Math.min(1, volume) * (hit ? 0.5 : 0.22);
+      const len = hit ? 0.06 : 0.05;
+
+      const src = ctx.createBufferSource();
+      src.buffer = this._ballNoise;
+      src.playbackRate.value = 0.9 + Math.random() * 0.2;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = (hit ? 1350 : 620) * (0.92 + Math.random() * 0.16);
+      bp.Q.value = hit ? 2.2 : 1.6;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(v, now);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + len);
+      src.connect(bp); bp.connect(ng); ng.connect(this.masterGain);
+      src.start(now); src.stop(now + len);
+
+      // hollow body of the ball
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      const f0 = (hit ? 640 : 300) * (0.95 + Math.random() * 0.1);
+      osc.frequency.setValueAtTime(f0, now);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.6, now + len);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(v * 0.7, now);
+      og.gain.exponentialRampToValueAtTime(0.001, now + len * 0.9);
+      osc.connect(og); og.connect(this.masterGain);
+      osc.start(now); osc.stop(now + len);
+    } catch (e) { /* ignore audio errors */ }
+  }
 }

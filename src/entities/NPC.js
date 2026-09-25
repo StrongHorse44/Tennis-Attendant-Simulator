@@ -93,6 +93,21 @@ const SIT_CHANCE_BENCH_WP = 0.75; // …when its current waypoint is a *_bench w
 const SEAT_SEARCH_RADIUS = 9;
 const _tmpV = new THREE.Vector3();
 
+// One-shot clips a new movement command may cut short (swings / serves always finish)
+const INTERRUPTIBLE = new Set(['split_step', 'react_happy', 'react_annoyed', 'shrug', 'wave', 'greet',
+  'idle_look', 'idle_shift', 'idle_watch']);
+
+// Areas (e.g. a court with a match on) wandering NPCs should not pick as a destination
+const _busyAreas = new Set();
+function isBusyKey(key) {
+  if (!_busyAreas.size || /_bench$/i.test(key)) return false;
+  for (const a of _busyAreas) if (key.startsWith(a)) return true;
+  return false;
+}
+
+// Speech bubble (score calls etc.)
+const BUBBLE_W = 256, BUBBLE_H = 112;
+
 /**
  * NPC - club member with wandering, dialogue, and task functionality
  */
@@ -139,6 +154,11 @@ export class NPC {
     this._resumePlaying = false;
     this._camDist = 10;
     this._reactHold = 0;
+    this.moveSpeed = 0;          // current scripted walking speed (m/s), 0 when standing
+    this._holdSeat = false;      // sheltering (rain delay): stay seated / put until released
+    this._settle = true;         // moveTo: settle into 'ready' on arrival
+    this.bubble = null;          // speech bubble sprite (lazy)
+    this._bubbleTimer = 0;
 
     CameraTracker.install(scene);
     this._blobs = BlobShadows.get(scene);
@@ -151,8 +171,14 @@ export class NPC {
     this._createExclamation();
   }
 
+  /** Mark an area id (e.g. 'court3') as busy so wandering NPCs pick other destinations. */
+  static setAreaBusy(areaId, busy) {
+    if (busy) _busyAreas.add(areaId); else _busyAreas.delete(areaId);
+  }
+
   _getPreferredWaypoint() {
-    const prefs = this.data.preferredAreas;
+    let prefs = this.data.preferredAreas;
+    if (prefs && _busyAreas.size) prefs = prefs.filter(a => !_busyAreas.has(a));
     if (prefs && prefs.length > 0) {
       const area = prefs[Math.floor(Math.random() * prefs.length)];
       // Numbered spots for the area (patio1..3) are shared out at random so NPCs
@@ -162,7 +188,7 @@ export class NPC {
       let first = null;
       for (const [key, wp] of Object.entries(this.waypoints)) {
         const k = key.toLowerCase();
-        if (!k.includes(a)) continue;
+        if (!k.includes(a) || isBusyKey(key)) continue;
         if (!first) first = wp;
         if (k.startsWith(a) && /^\d+$/.test(k.slice(a.length))) numbered.push(wp);
       }
@@ -177,7 +203,8 @@ export class NPC {
       }
     }
     // Fallback to a random waypoint
-    const keys = Object.keys(this.waypoints);
+    let keys = Object.keys(this.waypoints);
+    if (_busyAreas.size) { const free = keys.filter(k => !isBusyKey(k)); if (free.length) keys = free; }
     const key = keys[Math.floor(Math.random() * keys.length)];
     this._lastWaypointKey = key;
     return this.waypoints[key];
@@ -398,6 +425,7 @@ export class NPC {
 
     // State machine
     this._moving = 0;
+    this.moveSpeed = 0;
     switch (this.state) {
       case 'idle':
         this._updateIdle(dt);
@@ -447,6 +475,8 @@ export class NPC {
     const cd = this._camDist;
     const low = Quality.tier === 'low';
     this.character.updateEvery = cd > 30 ? (low ? 5 : 4) : cd > 16 ? (low ? 3 : 2) : (low && cd > 10 ? 2 : 1);
+    // Racket swings stay frame-exact near the camera (the ball meets the strings on the contact frame)
+    if (this.state === 'playing' && cd < 26 && this.character.anim.oneShot) this.character.updateEvery = 1;
     this.character.update(dt);
 
     const bs = 0.95 * this.modelScale;
@@ -484,6 +514,18 @@ export class NPC {
       tag.scale.set(w, w * this._tagAspect, 1);
     }
 
+    // Speech bubble: pops in, holds, fades; constant-ish on-screen size
+    if (this.bubble && this.bubble.visible) {
+      this._bubbleTimer -= dt;
+      const b = this.bubble;
+      const age = this._bubbleAge = (this._bubbleAge || 0) + dt;
+      const pop = Math.min(1, age * 7);
+      b.material.opacity = Math.max(0, Math.min(1, this._bubbleTimer * 3)) * (camDist > 42 ? 0 : 1);
+      const w = 1.25 * Math.max(0.75, Math.min(2.6, camDist / 7)) * (0.7 + 0.3 * pop);
+      b.scale.set(w, w * BUBBLE_H / BUBBLE_W, 1);
+      if (this._bubbleTimer <= 0) b.visible = false;
+    }
+
     // Request marker: bounce + squash + spin, scaled up a little with distance for readability
     if (this.exclamation.visible) {
       this._markerTime += dt;
@@ -499,8 +541,9 @@ export class NPC {
   }
 
   _updateIdle(dt) {
-    this.wanderTimer -= dt;
     this.character.setLocomotion(0);
+    if (this._holdSeat) { this.body.velocity.set(0, this.body.velocity.y, 0); return; }
+    this.wanderTimer -= dt;
 
     if (this.wanderTimer <= 0) {
       const seat = this._pickSeat();
@@ -569,8 +612,7 @@ export class NPC {
 
     let speed = SIZES.npcSpeed;
     if (seat) speed = Math.min(speed, 0.35 + dist * 1.4); // settle precisely in front of the seat
-    this.body.velocity.x = (dx / dist) * speed;
-    this.body.velocity.z = (dz / dist) * speed;
+    this._walkStep(dx, dz, dist, speed, dt);
 
     // Face movement direction (smoothly)
     this._turnToward(Math.atan2(dx, dz), dt, 8);
@@ -599,7 +641,7 @@ export class NPC {
   _updateSitting(dt) {
     this.body.velocity.set(0, this.body.velocity.y, 0);
     if (this._sitSeat) this._turnToward(this._sitSeat.yaw, dt, 7);
-    this._sitTimer -= dt;
+    if (!this._holdSeat) this._sitTimer -= dt;
     if (this._sitTimer <= 0) this._standUp();
   }
 
@@ -622,6 +664,7 @@ export class NPC {
   startPlaying(courtId, side = null) {
     if (this.state === 'sitting') this._standUp();
     this._cancelSeatTarget();
+    this._holdSeat = false;
     if (!this.playing) this._racketWasVisible = this.character.racketVisible;
     this.playing = { courtId, side };
     this.state = 'playing';
@@ -642,12 +685,13 @@ export class NPC {
     this._playClip = null;
     this._faceYaw = null;
     this._resumePlaying = false;
+    this._holdSeat = false;
     this.character.setRacketVisible(this._racketWasVisible ?? !!this.style.racket);
     this.character.setBallVisible(false);
     this.character.anim.autoIdleVariants = true;
-    this.character.stop(0.3);
     this.body.velocity.set(0, this.body.velocity.y, 0);
     if (this.state === 'playing') {
+      this.character.stop(0.3);
       this.state = 'idle';
       this.wanderTimer = Math.random() * 4 + 2;
     }
@@ -658,11 +702,115 @@ export class NPC {
    * clips, longer / faster ones run; on arrival the NPC settles back into 'ready'.
    * @param {number} x
    * @param {number} z
-   * @param {{speed?:number, face?:number|null, onArrive?:Function}} [opts] speed in m/s;
-   *   face = yaw to keep facing (e.g. toward the net), default: the travel direction
+   * @param {{speed?:number, face?:number|null, onArrive?:Function, gait?:'walk', settle?:boolean}} [opts]
+   *   speed in m/s; face = yaw to keep facing (e.g. toward the net), default: the travel direction;
+   *   gait 'walk' = plain walk/run locomotion (no shuffles, e.g. walking onto the court);
+   *   settle false = stay in the locomotion pose on arrival instead of the 'ready' stance
    */
   moveTo(x, z, opts = {}) {
-    this._playMove = { x, z, speed: opts.speed ?? 3, face: opts.face ?? null, onArrive: opts.onArrive || null };
+    let mv = this._playMove;
+    if (!mv) mv = this._playMove = this._moveObj || (this._moveObj = {});
+    mv.x = x; mv.z = z; mv.speed = opts.speed ?? 3; mv.face = opts.face ?? null;
+    mv.onArrive = opts.onArrive || null; mv.gait = opts.gait || null;
+    this._settle = opts.settle ?? true;
+  }
+
+  /** True while a moveTo is in progress. */
+  get moving() { return !!this._playMove; }
+
+  /** Stop a moveTo in progress (no onArrive). */
+  stopMove() {
+    this._playMove = null;
+    this.body.velocity.set(0, this.body.velocity.y, 0);
+  }
+
+  /** True while a non-interruptible one-shot (swing, serve, pick-up) is playing. */
+  isBusyClip() {
+    const os = this.character.anim.oneShot;
+    return !!os && !INTERRUPTIBLE.has(os.entry.name);
+  }
+
+  /**
+   * Rain delay: walk to `seat` (a Seats.js seat; claimed here) or to `point` {x, z} and stay
+   * there (sitting or standing) until releaseShelter() / startPlaying(). Keeps `playing` info.
+   */
+  shelter(seat, point) {
+    this._holdSeat = true;
+    this._playMove = null;
+    this.character.setBallVisible(false);
+    this.character.anim.autoIdleVariants = true;
+    if (this.state === 'sitting' && (!seat || this._sitSeat === seat)) return;
+    if (this.state === 'sitting') this._standUp();
+    this._cancelSeatTarget();
+    this._playClip = null;
+    this.character.stop(0.3);
+    if (seat && claimSeat(seat, this)) {
+      this._seatTarget = seat;
+      this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
+    } else if (point) {
+      this.currentTarget = { x: point.x, z: point.z };
+    } else {
+      this.currentTarget = null;
+    }
+    this.state = this.currentTarget ? 'wandering' : 'idle';
+    this._wanderTime = 0;
+    this._reactHold = 0;
+  }
+
+  /** End a rain-delay shelter (the NPC gets up after a while and wanders on). */
+  releaseShelter() {
+    this._holdSeat = false;
+    if (this.state === 'sitting') this._sitTimer = Math.min(this._sitTimer, 2 + Math.random() * 4);
+  }
+
+  /** Short speech bubble above the head (score calls, chatter). */
+  say(text, seconds = 1.8) {
+    if (!this.bubble) {
+      const canvas = document.createElement('canvas');
+      canvas.width = BUBBLE_W; canvas.height = BUBBLE_H;
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+      sp.center.set(0.5, 0);
+      sp.renderOrder = 12;
+      sp.visible = false;
+      this.mesh.add(sp);
+      this.bubble = sp;
+      this._bubbleCanvas = canvas;
+    }
+    const ctx = this._bubbleCanvas.getContext('2d');
+    const W = BUBBLE_W, H = BUBBLE_H;
+    ctx.clearRect(0, 0, W, H);
+    let size = 40;
+    const font = (px) => `700 ${px}px Inter, "Segoe UI", Helvetica, Arial, sans-serif`;
+    ctx.font = font(size);
+    let tw = ctx.measureText(text).width;
+    while (tw > W - 44 && size > 18) { size -= 2; ctx.font = font(size); tw = ctx.measureText(text).width; }
+    const bw = Math.min(W - 8, tw + 40), bh = 64, x0 = (W - bw) / 2, y0 = 6;
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath(); ctx.roundRect(x0 + 2, y0 + 4, bw, bh, 22); ctx.fill();
+    ctx.fillStyle = '#FFFDF6';
+    ctx.strokeStyle = '#2D5A3D';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.roundRect(x0, y0, bw, bh, 22); ctx.fill(); ctx.stroke();
+    // tail
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - 12, y0 + bh - 2); ctx.lineTo(W / 2, y0 + bh + 26); ctx.lineTo(W / 2 + 12, y0 + bh - 2);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - 12, y0 + bh); ctx.lineTo(W / 2, y0 + bh + 26); ctx.lineTo(W / 2 + 12, y0 + bh);
+    ctx.stroke();
+    ctx.fillStyle = '#FFFDF6';
+    ctx.fillRect(W / 2 - 10, y0 + bh - 4, 20, 5);
+    ctx.fillStyle = '#21452F';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, W / 2, y0 + bh / 2 + 2);
+    this.bubble.material.map.needsUpdate = true;
+    this.bubble.position.y = this._headTop() + 0.42;
+    this.bubble.visible = true;
+    this.bubble.material.opacity = 1;
+    this._bubbleTimer = seconds;
+    this._bubbleAge = 0;
   }
 
   /** Yaw (radians, 0 = +Z) the NPC turns to while playing / idle-playing. immediate = snap. */
@@ -672,7 +820,14 @@ export class NPC {
   }
 
   /** Convenience: play a tennis clip ('forehand' | 'backhand' | 'serve' | 'split_step' | 'pickup_ball'). */
-  swing(clip, opts) { return this.character.play(clip, opts); }
+  swing(clip, opts) {
+    // Drop animation time banked by a throttled mixer (updateEvery > 1) so the clip starts on
+    // this frame's clock — racket contact then lands exactly `contact` seconds from now.
+    const c = this.character;
+    c._accDt = 0;
+    c._frame = Math.max(0, (c.updateEvery | 0) - 1);
+    return c.play(clip, opts);
+  }
 
   _setPlayClip(name, timeScale = 1) {
     if (name === 'run') {
@@ -689,6 +844,8 @@ export class NPC {
   _updatePlaying(dt) {
     this.animTime += dt * 3;
     const mv = this._playMove;
+    // Swings / serves / pick-ups always finish: clip changes wait until they are done
+    const busy = this.isBusyClip();
     if (mv) {
       const dx = mv.x - this.body.position.x;
       const dz = mv.z - this.body.position.z;
@@ -697,19 +854,22 @@ export class NPC {
         this.body.velocity.set(0, this.body.velocity.y, 0);
         this._playMove = null;
         this.character.setLocomotion(0);
-        this._setPlayClip('ready');
-        if (mv.onArrive) { try { mv.onArrive(); } catch (e) { console.error(e); } }
+        if (this._settle && !busy) this._setPlayClip('ready');
+        const cb = mv.onArrive;
+        mv.onArrive = null;
+        if (cb) { try { cb(); } catch (e) { console.error(e); } }
       } else {
         const v = Math.min(mv.speed, 0.4 + dist * 5);
-        this.body.velocity.x = (dx / dist) * v;
-        this.body.velocity.z = (dz / dist) * v;
+        this._walkStep(dx, dz, dist, v, dt);
         const yaw = mv.face ?? Math.atan2(dx, dz);
         this._turnToward(yaw, dt, 10);
         // Direction of travel in the character's frame (+x = its left)
         const r = this.mesh.rotation.y, c = Math.cos(r), s = Math.sin(r);
         const lx = dx * c - dz * s, lz = dx * s + dz * c;
         const modelSpeed = v / this.modelScale;
-        if (Math.abs(lx) > Math.abs(lz) * 1.2 && v < 4.5) {
+        if (busy) {
+          // keep the one-shot; the body glides (short corrections only)
+        } else if (mv.gait !== 'walk' && Math.abs(lx) > Math.abs(lz) * 1.2 && v < 4.5) {
           this._setPlayClip(lx > 0 ? 'shuffle_left' : 'shuffle_right', Math.min(2.4, Math.max(0.6, modelSpeed / 0.6)));
         } else {
           this._setPlayClip('run');
@@ -720,9 +880,25 @@ export class NPC {
       }
     } else {
       this.body.velocity.set(0, this.body.velocity.y, 0);
-      if (this._playClip === 'run') this._setPlayClip('ready');
+      if (!busy && this._settle && this._playClip !== 'ready') this._setPlayClip('ready');
+      else if (!this._settle) this.character.setLocomotion(0);
     }
     if (this._faceYaw !== null && !mv) this._turnToward(this._faceYaw, dt, 8);
+  }
+
+  /**
+   * Move the body toward a target by `speed` m/s. The body is translated directly (velocity
+   * zeroed): cannon-es clamps contact friction per step as an impulse of mu*m*g, which stops a
+   * velocity-driven sphere almost dead every step (walkers crept at ~1/10 of their speed with
+   * their feet cycling in place). Collisions still push the body out of walls and people.
+   */
+  _walkStep(dx, dz, dist, speed, dt) {
+    const step = Math.min(dist, speed * dt);
+    this.body.position.x += (dx / dist) * step;
+    this.body.position.z += (dz / dist) * step;
+    this.body.velocity.x = 0;
+    this.body.velocity.z = 0;
+    this.moveSpeed = speed;
   }
 
   _turnToward(target, dt, rate) {

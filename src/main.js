@@ -29,6 +29,7 @@ import { ShiftReport } from './ui/ShiftReport.js';
 import { MissionMarkers } from './systems/MissionMarkers.js';
 import { buildWorldFacts, DETECTABLE_AREAS } from './systems/MissionValidation.js';
 import { ITEMS } from './systems/InventorySystem.js';
+import { MatchSystem } from './systems/MatchSystem.js';
 
 /** Seconds of unpaused play between autosaves. */
 const AUTOSAVE_INTERVAL = 30;
@@ -329,6 +330,14 @@ class Game {
 
     // Register NPCs with mission system
     this.missionSystem.registerNPCs(this.npcs);
+
+    // Member tennis matches on the court schedule (public/data/schedule.json)
+    this.matches = new MatchSystem({
+      scene: this.scene, physicsWorld: this.physicsWorld, courts: this.world.courts, npcs: this.npcs,
+      weather: this.weather, missions: this.missionSystem, maintenance: this.courtMaintenance,
+      sound: this.sound, camera: this.camera, waypoints: this.mapData.waypoints,
+    });
+    this.matches.load();
 
     // Radio dispatch: a card with "On it" / "Busy" (Busy just passes, no penalty)
     this.missionSystem.onRadioDispatch = (mission) => {
@@ -1281,6 +1290,7 @@ class Game {
     for (const npc of this.npcs) {
       npc.update(dt, playerWorldPos);
     }
+    if (this.matches) this.matches.update(dt); // after NPCs: swings start on the frame they are due
 
     // Update world (fountain, etc.)
     this.world.update(dt, playerWorldPos);

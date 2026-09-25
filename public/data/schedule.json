@@ -1,0 +1,22 @@
+{
+  "_comment": "Court reservations for member matches (MatchSystem). Times are in-game hours (8.5 or \"8:30\"). 'court' is one court id or a list of alternatives (first free one wins). 'players' are npcs.json ids; \"any\" picks a free member from 'pool'. A match starts once its window opens and the court, weather and players allow it, and ends when someone reaches format.gamesToWin games or the window closes (after the point in play). A booked member who is busy (needed for a mission step, talking to you, already playing) is substituted from the pool after ~12 game minutes. exclude = never scheduled.",
+  "maxConcurrent": 3,
+  "format": {
+    "gamesToWin": 2,
+    "noAd": true,
+    "warmupSeconds": 10
+  },
+  "lateStartHours": 1.0,
+  "pool": ["chad_blake", "tommy_chen", "priya_sharma", "diane_ross", "mrs_wellington", "bob_hendricks", "maria_santos", "kevin_park"],
+  "exclude": ["hank_morris"],
+  "matches": [
+    { "id": "am-1", "court": "court1", "start": "7:30", "end": "10:30", "players": ["chad_blake", "tommy_chen"] },
+    { "id": "am-2", "court": ["court3", "court4", "court5"], "start": "8:00", "end": "11:00", "players": ["priya_sharma", "diane_ross"] },
+    { "id": "am-3", "court": "court2", "start": "9:00", "end": "12:00", "players": ["mrs_wellington", "bob_hendricks"] },
+    { "id": "mid-1", "court": ["court4", "court3", "court5"], "start": "11:30", "end": "14:30", "players": ["chad_blake", "maria_santos"] },
+    { "id": "mid-2", "court": "court1", "start": "12:00", "end": "15:00", "players": ["tommy_chen", "kevin_park"] },
+    { "id": "mid-3", "court": ["court5", "court4", "court3"], "start": "13:00", "end": "16:00", "players": ["diane_ross", "any"] },
+    { "id": "pm-1", "court": "court2", "start": "15:30", "end": "18:30", "players": ["mrs_wellington", "priya_sharma"] },
+    { "id": "pm-2", "court": ["court3", "court4", "court5"], "start": "16:00", "end": "18:45", "players": ["bob_hendricks", "tommy_chen"] }
+  ]
+}

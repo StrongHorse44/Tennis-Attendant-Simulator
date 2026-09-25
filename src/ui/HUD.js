@@ -768,8 +768,9 @@ const CSS = `
   .cc-wallet { min-height: 40px; padding: 3px 10px 3px 4px; gap: 5px; }
   .cc-wallet__coin { width: 28px; height: 28px; font-size: 14px; }
   .cc-wallet__amt { font-size: 16px; }
-  .cc-radio { position: relative; }
+  .cc-radio { position: relative; left: auto; top: auto; }
   .cc-radio__btn { padding: 8px 10px; }
+  .cc-radio__cta { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
