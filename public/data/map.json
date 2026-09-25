@@ -344,6 +344,8 @@
     "garden_south": { "x": -15, "y": 0, "z": -17 },
     "equipmentShed": { "x": -30, "y": 0, "z": -38 },
     "junction_3_4": { "x": 7, "y": 0, "z": -25 },
+    "patio_center": { "x": -18, "y": 0, "z": 6.5 },
+    "proShop_marker": { "x": -20, "y": 0, "z": 30.5 },
     "junction_4_5": { "x": 23, "y": 0, "z": -25 }
   }
 }

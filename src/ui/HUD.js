@@ -90,6 +90,8 @@ const MINIMAP_CSS_SIZE = 136;
 const MINIMAP_INTERVAL = 1000 / 12;   // ~12 fps redraw
 const GROOM_INTERVAL = 1000 / 10;     // ~10 fps DOM updates
 const TOAST_MAX = 3;
+const FLOAT_POOL = 6;
+const CONFETTI_POOL = 28;
 
 const CSS = `
 :root {
@@ -411,7 +413,7 @@ const CSS = `
   z-index: 220;
   pointer-events: none;
 }
-.cc-toasts--below { top: calc(var(--cc-safe-top) + 104px); }
+.cc-toasts--below { top: var(--cc-radio-bottom, calc(var(--cc-safe-top) + 104px)); }
 .cc-toast {
   display: flex;
   align-items: center;
@@ -701,7 +703,77 @@ const CSS = `
   .cc-hud-left--grooming .cc-check li { font-size: 11.5px; min-width: 0; }
   .cc-hud-left--grooming .cc-check li > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+/* Status row: clock pill + wallet */
+.cc-hud-row { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.cc-hud-row > * { pointer-events: auto; }
+.cc-wallet {
+  display: flex; align-items: center; gap: 7px;
+  min-height: 46px; padding: 5px 14px 5px 6px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.cc-wallet__coin {
+  display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f7d98a, var(--cc-gold) 60%, #a97a23);
+  color: var(--cc-green-900); font-weight: 800; font-size: 16px;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.18);
+}
+.cc-wallet__amt { font-family: var(--cc-font-display); font-weight: 600; font-size: 18px; color: #fbf5e2; }
+.cc-wallet--up { border-color: rgba(217, 164, 65, 0.7); transform: scale(1.06); }
+
+/* Radio card actions + answer timer */
+.cc-radio { cursor: default; overflow: hidden; }
+.cc-radio__actions { display: flex; gap: 8px; margin-top: 6px; }
+.cc-radio__actions:empty { display: none; }
+.cc-radio__btn { min-height: 44px; padding: 8px 16px; font-size: 14px; flex: 1 1 auto; }
+.cc-radio__timer { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(244,232,193,0.12); }
+.cc-radio__timer i { display: block; height: 100%; background: var(--cc-gold); transform-origin: left; }
+
+/* Floating "+$X" and confetti */
+.cc-fx { position: fixed; inset: 0; pointer-events: none; z-index: 230; overflow: hidden; }
+.cc-float {
+  position: absolute; left: 0; top: 0; opacity: 0;
+  transform: translate(-50%, 0);
+  padding: 4px 10px; border-radius: 999px;
+  font: 700 17px/1 var(--cc-font-display);
+  color: #fff7dc; background: rgba(23, 58, 38, 0.82);
+  border: 1px solid rgba(217, 164, 65, 0.7);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  white-space: nowrap;
+}
+.cc-float--tip { color: #ffe39a; }
+.cc-float--wage { color: var(--cc-cream); }
+.cc-float--go { animation: cc-float-up 1.6s cubic-bezier(0.2, 0.8, 0.3, 1) forwards; }
+@keyframes cc-float-up {
+  0% { opacity: 0; transform: translate(-50%, 8px) scale(0.8); }
+  15% { opacity: 1; transform: translate(-50%, -6px) scale(1.08); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -70px) scale(1); }
+}
+.cc-confetto {
+  position: absolute; left: 50%; top: 30%;
+  width: 8px; height: 12px; border-radius: 2px;
+  background: var(--c); opacity: 0;
+}
+.cc-confetto:nth-child(3n) { width: 6px; height: 6px; border-radius: 50%; }
+.cc-confetto--go { animation: cc-confetti var(--d, 1.2s) cubic-bezier(0.15, 0.7, 0.4, 1) forwards; }
+@keyframes cc-confetti {
+  0% { opacity: 1; transform: translate(-50%, 0) rotate(0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(var(--dy) + 140px)) rotate(var(--r)); }
+}
+@media (max-width: 640px) {
+  .cc-wallet { min-height: 40px; padding: 3px 10px 3px 4px; gap: 5px; }
+  .cc-wallet__coin { width: 28px; height: 28px; font-size: 14px; }
+  .cc-wallet__amt { font-size: 16px; }
+  .cc-radio { position: relative; }
+  .cc-radio__btn { padding: 8px 10px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .cc-float--go, .cc-wallet { animation-duration: 0.01s; transition: none; }
   .cc-action--pulse, .cc-action--pulse::after, .cc-radio, .cc-radio__led, .cc-radio__wave i, .cc-inv__slot--new { animation: none; }
 }
 `;
@@ -789,34 +861,45 @@ export class HUD {
     // ── Left column: time pill, radio (narrow screens), tasks, grooming ──
     this._leftCol = el('div', 'cc-hud-left', ui);
 
-    this.timeWeatherEl = el('div', 'cc-glass cc-time', this._leftCol);
+    const statusRow = el('div', 'cc-hud-row', this._leftCol);
+    this.timeWeatherEl = el('div', 'cc-glass cc-time', statusRow);
     this._timeIconEl = el('span', 'cc-time__icon', this.timeWeatherEl);
     const tMain = el('span', 'cc-time__main', this.timeWeatherEl);
     this._timeClockEl = el('span', 'cc-time__clock', tMain);
     this._timePeriodEl = el('span', 'cc-time__period', tMain);
 
-    // Radio dispatch (walkie-talkie card). Fixed top-centre on wide screens; flows in the
-    // left column on phones.
-    this.radioIndicator = el('button', 'cc-radio', this._leftCol);
-    this.radioIndicator.type = 'button';
+    // Wallet (ticks up toward the real balance in update())
+    this.walletEl = el('div', 'cc-glass cc-wallet', statusRow);
+    this.walletEl.setAttribute('role', 'status');
+    this.walletEl.setAttribute('aria-label', 'Wallet');
+    const coin = el('span', 'cc-wallet__coin', this.walletEl);
+    coin.textContent = '$';
+    this._walletTextEl = el('span', 'cc-wallet__amt', this.walletEl);
+    this._walletTextEl.textContent = '0';
+    this._walletTarget = 0;
+    this._walletShown = 0;
+    this._walletText = '0';
+
+    // Radio card (walkie-talkie): dispatches with On it / Busy, the manager's clock-in and
+    // closing calls. Fixed top-centre on wide screens; flows in the left column on phones.
+    this.radioIndicator = el('div', 'cc-radio', this._leftCol);
+    this.radioIndicator.setAttribute('role', 'group');
     const dev = el('span', 'cc-radio__device', this.radioIndicator);
     el('span', 'cc-radio__grille', dev);
     el('span', 'cc-radio__led', dev);
     const rBody = el('span', 'cc-radio__body', this.radioIndicator);
     const ch = el('span', 'cc-radio__ch', rBody);
-    ch.innerHTML = '<span class="cc-radio__wave"><i></i><i></i><i></i></span>Dispatch · Ch 3';
+    ch.innerHTML = '<span class="cc-radio__wave"><i></i><i></i><i></i></span>';
+    this._radioChEl = el('span', '', ch);
     this._radioTitleEl = el('span', 'cc-radio__title', rBody);
     this._radioCtaEl = el('span', 'cc-radio__cta', rBody);
-    this._radioCtaEl.innerHTML = '<b>Tap to accept</b> ▸';
-    let radioTouch = false;
-    const radioAccept = () => {
-      this.hideRadioDispatch();
-      const cb = this.radioCallback;
-      this.radioCallback = null;
-      if (cb) cb();
-    };
-    this.radioIndicator.addEventListener('touchend', (e) => { e.preventDefault(); radioTouch = true; radioAccept(); });
-    this.radioIndicator.addEventListener('click', () => { if (radioTouch) { radioTouch = false; return; } radioAccept(); });
+    this._radioActionsEl = el('span', 'cc-radio__actions', rBody);
+    this._radioTimerEl = el('span', 'cc-radio__timer', this.radioIndicator);
+    this._radioTimerFill = el('i', '', this._radioTimerEl);
+    this._radioKind = null;
+    this._radioTimerFrac = -1;
+    // (DOM overlay: taps never reach the canvas listeners, and window-level listeners
+    // such as the audio unlock still see them.)
 
     // Tasks (collapsible)
     this.taskListEl = el('div', 'cc-glass cc-tasks', this._leftCol);
@@ -885,6 +968,22 @@ export class HUD {
     // ── Toast stack ──
     this.notificationEl = el('div', 'cc-toasts', ui);
     this.notificationEl.setAttribute('aria-live', 'polite');
+
+    // ── Pooled "+$X" floaters and confetti (reused DOM, CSS-animated) ──
+    this._fxLayer = el('div', 'cc-fx', ui);
+    this._floats = [];
+    for (let i = 0; i < FLOAT_POOL; i++) {
+      const f = el('div', 'cc-float', this._fxLayer);
+      this._floats.push(f);
+    }
+    this._floatNext = 0;
+    this._confetti = [];
+    const colors = [THEME.gold, THEME.cream, THEME.clay, THEME.ok, '#7db5ee', '#f2c14e'];
+    for (let i = 0; i < CONFETTI_POOL; i++) {
+      const c = el('i', 'cc-confetto', this._fxLayer);
+      c.style.setProperty('--c', colors[i % colors.length]);
+      this._confetti.push(c);
+    }
 
     // Initial state
     this.taskListOpen = window.innerWidth >= 900 && window.innerHeight >= 600;
@@ -1077,22 +1176,71 @@ export class HUD {
     }, 260);
   }
 
-  showRadioDispatch(mission, callback) {
-    this._radioTitleEl.textContent = (mission && mission.title) || 'New dispatch';
-    this.radioIndicator.setAttribute('aria-label', `Radio dispatch: ${this._radioTitleEl.textContent}. Tap to accept.`);
+  /**
+   * Show the walkie-talkie card.
+   *   kind     – 'dispatch' | 'clockIn' | 'info' (a dispatch shows its answer timer)
+   *   channel  – small caps header, title – big line, text – optional small line
+   *   actions  – [{ label, primary, onClick }] (each button hides the card first)
+   */
+  showRadioCard({ kind = 'info', channel = 'Staff radio', title = '', text = '', actions = [] } = {}) {
+    this._radioKind = kind;
+    this._radioChEl.textContent = channel;
+    this._radioTitleEl.textContent = title;
+    this._radioCtaEl.textContent = text;
+    this._radioCtaEl.style.display = text ? '' : 'none';
+    this._radioActionsEl.textContent = '';
+    for (const a of actions) {
+      const b = el('button', 'cc-btn cc-radio__btn' + (a.primary ? ' cc-btn--primary' : ''), this._radioActionsEl);
+      b.type = 'button';
+      b.textContent = a.label;
+      let touched = false;
+      const fire = () => {
+        this.hideRadioDispatch();
+        if (a.onClick) a.onClick();
+      };
+      b.addEventListener('touchend', (e) => { e.preventDefault(); touched = true; fire(); });
+      b.addEventListener('click', () => { if (touched) { touched = false; return; } fire(); });
+    }
+    this._radioTimerEl.style.display = kind === 'dispatch' ? '' : 'none';
+    this._radioTimerFrac = -1;
+    this.radioIndicator.setAttribute('aria-label', `${channel}: ${title}`);
     // restart the arrival animation
     this.radioIndicator.style.display = 'none';
     void this.radioIndicator.offsetWidth;
     this.radioIndicator.style.display = 'flex';
+    // Toasts sit just under the card (its height depends on the text)
+    const r = this.radioIndicator.getBoundingClientRect();
+    document.documentElement.style.setProperty('--cc-radio-bottom', Math.round(r.bottom + 10) + 'px');
     this.notificationEl.classList.add('cc-toasts--below');
-    this.radioCallback = () => {
-      this.showNotification(`New task: ${mission.title}`, 3, 'radio');
-      if (callback) callback(mission);
-    };
+  }
+
+  /**
+   * Radio dispatch card with "On it" / "Busy". onAccept(mission) / onDecline(mission).
+   * (Old 2-argument calls still work: the callback runs on "On it".)
+   */
+  showRadioDispatch(mission, onAccept, onDecline) {
+    const title = (mission && mission.title) || 'New dispatch';
+    this.radioCallback = onAccept || null;
+    this.showRadioCard({
+      kind: 'dispatch',
+      channel: 'Dispatch · Ch 3',
+      title,
+      text: mission && mission.description ? mission.description : '',
+      actions: [
+        { label: 'On it', primary: true, onClick: () => { this.radioCallback = null; if (onAccept) onAccept(mission); } },
+        { label: 'Busy', onClick: () => { this.radioCallback = null; if (onDecline) onDecline(mission); } },
+      ],
+    });
+  }
+
+  /** Is a radio card of this kind (or any, if omitted) on screen? */
+  isRadioCardVisible(kind) {
+    return this.radioIndicator.style.display === 'flex' && (!kind || this._radioKind === kind);
   }
 
   hideRadioDispatch() {
     this.radioIndicator.style.display = 'none';
+    this._radioKind = null;
     this.notificationEl.classList.remove('cc-toasts--below');
   }
 
@@ -1100,12 +1248,74 @@ export class HUD {
     const time = this.weather.getTimeString();
     const ic = this.weather.getWeatherIcon();
     const period = this.weather.getPeriod();
-    const key = time + '|' + ic + '|' + period;
+    const day = this.weather.day || 1;
+    const key = time + '|' + ic + '|' + period + '|' + day;
     if (key === this._timeKey) return;
     this._timeKey = key;
     this._timeClockEl.textContent = time;
     this._timeIconEl.textContent = ic;
-    this._timePeriodEl.textContent = period;
+    this._timePeriodEl.textContent = `Day ${day} · ${period}`;
+  }
+
+  // ─────────────────────────── Wallet / rewards ───────────────────────────
+
+  /** Set the wallet balance; the counter ticks up to it (instant = jump, e.g. after loading). */
+  setWallet(amount, instant = false) {
+    this._walletTarget = Math.max(0, Math.round(amount) || 0);
+    if (instant || this._walletTarget < this._walletShown) {
+      this._walletShown = this._walletTarget;
+      this._setWalletText(this._walletShown);
+    }
+  }
+
+  _setWalletText(v) {
+    const t = String(Math.round(v));
+    if (t === this._walletText) return;
+    this._walletText = t;
+    this._walletTextEl.textContent = t;
+  }
+
+  /**
+   * Floating "+$X" at a screen position (css px); without one it rises from the wallet.
+   * kind: 'tip' | 'task' | 'wage' | 'bonus' (colour / label).
+   */
+  showMoneyFloat(amount, x, y, kind = 'tip') {
+    if (!(amount > 0)) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const r = this.walletEl.getBoundingClientRect();
+      x = r.left + r.width / 2;
+      y = r.bottom + 16;
+    }
+    const f = this._floats[this._floatNext];
+    this._floatNext = (this._floatNext + 1) % this._floats.length;
+    f.className = 'cc-float cc-float--' + kind;
+    f.textContent = (kind === 'tip' ? 'Tip +$' : '+$') + Math.round(amount);
+    const w = window.innerWidth;
+    f.style.left = Math.max(40, Math.min(w - 40, x)).toFixed(0) + 'px';
+    f.style.top = Math.max(60, y).toFixed(0) + 'px';
+    void f.offsetWidth; // restart the animation
+    f.classList.add('cc-float--go');
+  }
+
+  /** Confetti burst (pooled DOM). Skipped with prefers-reduced-motion. */
+  celebrate() {
+    if (this._reducedMotion === undefined) {
+      try { this._reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { this._reducedMotion = false; }
+    }
+    if (this._reducedMotion) return;
+    const n = this._confetti.length;
+    for (let i = 0; i < n; i++) {
+      const c = this._confetti[i];
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+      const sp = 90 + Math.random() * 170;
+      c.style.setProperty('--dx', (Math.cos(a) * sp).toFixed(0) + 'px');
+      c.style.setProperty('--dy', (Math.sin(a) * sp * 0.7 - 60).toFixed(0) + 'px');
+      c.style.setProperty('--r', ((Math.random() * 2 - 1) * 540).toFixed(0) + 'deg');
+      c.style.setProperty('--d', (0.9 + Math.random() * 0.6).toFixed(2) + 's');
+      c.classList.remove('cc-confetto--go');
+    }
+    void this._fxLayer.offsetWidth;
+    for (let i = 0; i < n; i++) this._confetti[i].classList.add('cc-confetto--go');
   }
 
   // ─────────────────────────── Minimap ───────────────────────────
@@ -1156,20 +1366,20 @@ export class HUD {
     const my = (z) => (z - X.cz) * X.s + size / 2;
     const pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
 
-    // Active mission markers (target waypoints and NPCs to talk to)
+    // Active mission markers: the place of every current step (goTo / pickup / deliver /
+    // groom) and the NPCs to talk to
     const missions = this.missions.getActiveMissions();
     let npcTargets = null;
     for (let m = 0; m < missions.length; m++) {
-      const step = this.missions.getCurrentStep(missions[m].id);
-      if (!step) continue;
-      if (step.npcId) {
+      const mission = missions[m];
+      const npcId = this.missions.getStepNpcId ? this.missions.getStepNpcId(mission) : null;
+      if (npcId) {
         if (!npcTargets) npcTargets = this._npcTargetSet || (this._npcTargetSet = new Set());
-        npcTargets.add(step.npcId);
+        npcTargets.add(npcId);
       }
-      if (step.target && mapData && mapData.waypoints) {
-        const wp = mapData.waypoints[step.target + '_center'] || mapData.waypoints[step.target];
-        if (wp) this._drawObjective(ctx, mx(wp.x), my(wp.z), pulse);
-      }
+      const step = mission.steps ? mission.steps[mission.currentStep] : null;
+      const pt = step && this.missions.getStepTargetPoint ? this.missions.getStepTargetPoint(step) : null;
+      if (pt) this._drawObjective(ctx, mx(pt.x), my(pt.z), pulse);
     }
 
     // NPCs
@@ -1659,6 +1869,30 @@ export class HUD {
   // ─────────────────────────── Per-frame ───────────────────────────
 
   update(dt) {
+    // Wallet counter ticks toward the balance
+    if (this._walletShown < this._walletTarget) {
+      const d = this._walletTarget - this._walletShown;
+      this._walletShown = Math.min(this._walletTarget, this._walletShown + Math.max(12, d * 3) * dt);
+      this._setWalletText(Math.floor(this._walletShown));
+      if (!this._walletPulsing) {
+        this._walletPulsing = true;
+        this.walletEl.classList.add('cc-wallet--up');
+      }
+    } else if (this._walletPulsing) {
+      this._walletPulsing = false;
+      this.walletEl.classList.remove('cc-wallet--up');
+    }
+
+    // Dispatch card answer timer (game time: freezes while paused)
+    if (this._radioKind === 'dispatch' && this.missions.pendingDispatch) {
+      const frac = Math.max(0, Math.min(1, this.missions.pendingDispatchTimer / (GAME.dispatchCardTimeout || 25)));
+      const q = Math.round(frac * 200) / 200;
+      if (q !== this._radioTimerFrac) {
+        this._radioTimerFrac = q;
+        this._radioTimerFill.style.transform = `scaleX(${q})`;
+      }
+    }
+
     // Toast timers
     if (this.notificationTimer > 0) this.notificationTimer -= dt;
     for (let i = 0; i < this._toasts.length; i++) {

@@ -416,6 +416,82 @@ export class SoundSystem {
     } catch (e) { /* ignore audio errors */ }
   }
 
+  /**
+   * Continuous bristle scrape for the towed brush. `level` 0..1 (0 = silent, fades out),
+   * `speed` 0..1 (normalised brush speed): pitch and loudness rise with speed.
+   * Cheap to call every frame: parameters only change when the values move noticeably.
+   */
+  setBrushScrape(level, speed = 0) {
+    if (!this.initialized) return;
+    try {
+      const lv = Math.max(0, Math.min(1, level || 0));
+      const sp = Math.max(0, Math.min(1, speed || 0));
+      if (!this._scrape) {
+        if (lv <= 0) return;
+        const ctx = this.ctx;
+        const len = ctx.sampleRate * 2;
+        const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        // Grainy noise with bristle "ticks" so it reads as dragging, not hiss
+        let b = 0;
+        for (let i = 0; i < len; i++) {
+          b = b * 0.6 + (Math.random() - 0.5) * 0.8;
+          data[i] = b + (Math.random() < 0.004 ? (Math.random() - 0.5) * 1.6 : 0);
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = true;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 380;
+        bp.Q.value = 0.9;
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 160;
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        src.connect(bp);
+        bp.connect(hp);
+        hp.connect(gain);
+        gain.connect(this.masterGain);
+        src.start();
+        this._scrape = { src, bp, gain, lv: -1, sp: -1 };
+      }
+      const s = this._scrape;
+      if (Math.abs(lv - s.lv) < 0.03 && Math.abs(sp - s.sp) < 0.03) return;
+      s.lv = lv; s.sp = sp;
+      const now = this.ctx.currentTime;
+      s.gain.gain.setTargetAtTime(lv * (0.05 + 0.1 * sp), now, lv > 0 ? 0.06 : 0.12);
+      s.bp.frequency.setTargetAtTime(260 + 620 * sp, now, 0.08);
+      s.src.playbackRate.setTargetAtTime(0.75 + 0.6 * sp, now, 0.08);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Sparkly chime when a court hits a grooming milestone: level 1 = excellent, 2 = perfect (100%). */
+  playGroomChime(level = 1) {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+      const notes = level >= 2 ? [784, 988, 1175, 1568, 1976] : [880, 1109, 1319];
+      notes.forEach((freq, i) => {
+        const start = now + i * 0.075;
+        for (const [mult, type, amp] of [[1, 'sine', 0.07], [2.01, 'triangle', 0.02]]) {
+          const osc = this.ctx.createOscillator();
+          osc.type = type;
+          osc.frequency.value = freq * mult;
+          const gain = this.ctx.createGain();
+          gain.gain.setValueAtTime(0, start);
+          gain.gain.linearRampToValueAtTime(amp, start + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.0008, start + 0.9);
+          osc.connect(gain);
+          gain.connect(this.masterGain);
+          osc.start(start);
+          osc.stop(start + 0.92);
+        }
+      });
+    } catch (e) { /* ignore audio errors */ }
+  }
+
   playProximityWarning() {
     if (!this.initialized) return;
     try {
@@ -499,6 +575,86 @@ export class SoundSystem {
       gain.connect(this.masterGain);
       source.start(now);
       source.stop(now + 0.15);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** One enveloped oscillator note into the master gain (helper for jingles). */
+  _note(freq, start, dur, peak, type = 'sine', dest = null) {
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(peak, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+    osc.connect(gain);
+    gain.connect(dest || this.masterGain);
+    osc.start(start);
+    osc.stop(start + dur + 0.02);
+  }
+
+  /** Mission complete: a bright four-note fanfare (G-C-E-G) over a soft chord. */
+  playMissionComplete() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+      const lead = [392, 523.25, 659.25, 783.99];
+      lead.forEach((f, i) => {
+        const t = now + i * 0.09;
+        this._note(f, t, i === 3 ? 0.7 : 0.22, 0.07, 'triangle');
+        this._note(f * 2, t, 0.12, 0.018, 'sine');
+      });
+      const t = now + 0.27;
+      for (const f of [261.63, 329.63, 392]) this._note(f, t, 0.9, 0.03, 'sine');
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Tip / pay: two quick bright "coin" blips. */
+  playCoin() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+      this._note(987.77, now, 0.08, 0.05, 'square');
+      this._note(1318.51, now + 0.07, 0.35, 0.05, 'square');
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Walkie-talkie squelch + call beep for radio cards. */
+  playRadioChirp() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+      const n = Math.floor(this.ctx.sampleRate * 0.12);
+      const buffer = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1800;
+      bp.Q.value = 0.8;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.05, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      src.connect(bp);
+      bp.connect(g);
+      g.connect(this.masterGain);
+      src.start(now);
+      src.stop(now + 0.12);
+      this._note(1200, now + 0.13, 0.09, 0.04, 'square');
+      this._note(1600, now + 0.23, 0.12, 0.04, 'square');
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Rank up: rising arpeggio with a shimmer. */
+  playRankUp() {
+    if (!this.initialized) return;
+    try {
+      const now = this.ctx.currentTime;
+      const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
+      notes.forEach((f, i) => this._note(f, now + i * 0.08, 0.5, 0.06, 'triangle'));
+      for (let i = 0; i < 6; i++) this._note(2093 + i * 180, now + 0.45 + i * 0.04, 0.2, 0.012, 'sine');
     } catch (e) { /* ignore audio errors */ }
   }
 

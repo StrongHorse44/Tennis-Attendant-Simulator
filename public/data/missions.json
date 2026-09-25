@@ -23,7 +23,42 @@
       "icon": "brush",
       "baseReward": 20,
       "estimatedTime": 180
+    },
+    "routine": {
+      "label": "Shift Routine",
+      "icon": "clipboard",
+      "baseReward": 8,
+      "estimatedTime": 60
     }
+  },
+
+  "shift": {
+    "hourlyWage": 12,
+    "manager": "Mr. Ashford (Club Manager)",
+    "openingMission": "shift_opening_checklist",
+    "closingMission": "shift_closing_duties",
+    "rushWindows": [
+      { "label": "Morning rush", "start": 9.5, "end": 11.5 },
+      { "label": "After-work rush", "start": 15.5, "end": 17.5 }
+    ],
+    "rep": {
+      "task": 2,
+      "satisfied": 3,
+      "neutral": 1,
+      "unsatisfied": 0,
+      "groomExcellent": 5,
+      "groomGood": 2,
+      "checklist": 3
+    },
+    "repPoints": 5,
+    "groomBonus": { "excellent": 15, "good": 6, "needsWork": 0 },
+    "ranks": [
+      { "id": "rookie", "title": "Rookie Attendant", "points": 0, "unlock": "Your first staff polo and a golf cart key." },
+      { "id": "court", "title": "Court Attendant", "points": 200, "perks": { "cartSpeed": 0.1 }, "unlock": "Tuned cart motor: +10% top speed." },
+      { "id": "senior", "title": "Senior Attendant", "points": 550, "perks": { "brushWidth": 0.5 }, "unlock": "Wide drag brush: +0.5 m sweep." },
+      { "id": "lead", "title": "Grounds Lead", "points": 1000, "perks": { "capColor": "#d9a441" }, "unlock": "The gold Grounds Lead cap." },
+      { "id": "head", "title": "Head of Grounds", "points": 1700, "perks": { "cartSpeed": 0.2, "tipBonus": 0.2 }, "unlock": "Members tip 20% more, and the cart gets another motor tune (+20%)." }
+    ]
   },
 
   "missions": [
@@ -80,6 +115,8 @@
       "title": "Towel Delivery",
       "description": "Fresh towels need to go to Court 4.",
       "source": "taskBoard",
+      "repeatable": true,
+      "client": "diane_ross",
       "steps": [
         {
           "action": "pickup",
@@ -101,6 +138,8 @@
       "title": "Ball Hopper Retrieval",
       "description": "Pick up the ball hopper from the garden shed and bring it to Court 2.",
       "source": "radio",
+      "repeatable": true,
+      "client": "chad_blake",
       "steps": [
         {
           "action": "pickup",
@@ -169,6 +208,8 @@
       "title": "Water Delivery",
       "description": "Bring water bottles to the patio area.",
       "source": "taskBoard",
+      "repeatable": true,
+      "client": "bob_hendricks",
       "steps": [
         {
           "action": "pickup",
@@ -227,6 +268,8 @@
       "title": "Lost Racket",
       "description": "Someone left a racket at Court 1. Return it to the pro shop.",
       "source": "radio",
+      "repeatable": true,
+      "client": "kevin_park",
       "steps": [
         {
           "action": "pickup",
@@ -296,6 +339,8 @@
       "title": "Groom the Clay Courts",
       "description": "All three clay courts need grooming before the afternoon matches. Grab the drag brush and sweep them.",
       "source": "taskBoard",
+      "repeatable": true,
+      "client": "hank_morris",
       "steps": [
         {
           "action": "dialogue",
@@ -327,6 +372,8 @@
       "title": "Quick Court Sweep",
       "description": "The clay courts need a quick touch-up. Hank says to focus on the heavy traffic areas.",
       "source": "radio",
+      "repeatable": true,
+      "client": "hank_morris",
       "steps": [
         {
           "action": "goTo",
@@ -346,6 +393,8 @@
       "title": "Morning Court Prep",
       "description": "All three clay courts need grooming before the morning session. Hank's counting on you.",
       "source": "taskBoard",
+      "repeatable": true,
+      "client": "hank_morris",
       "steps": [
         {
           "action": "dialogue",
@@ -370,10 +419,61 @@
           "dialogueKey": "morning_prep_done"
         }
       ]
+    },
+    {
+      "id": "shift_opening_checklist",
+      "type": "routine",
+      "title": "Opening Checklist",
+      "description": "Open up the club for the day.",
+      "source": "shift",
+      "repeatable": true,
+      "client": "hank_morris",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "proShop",
+          "prompt": "Unlock the Pro Shop and flip the sign to OPEN."
+        },
+        {
+          "action": "goTo",
+          "target": "patio",
+          "prompt": "Put up the umbrellas on the clubhouse patio."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Get the morning court report from Hank.",
+          "dialogueKey": "opening_briefing"
+        }
+      ]
+    },
+    {
+      "id": "shift_closing_duties",
+      "type": "routine",
+      "title": "Closing Duties",
+      "description": "Lock up before you clock out at 7 PM.",
+      "source": "shift",
+      "repeatable": true,
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "equipmentShed",
+          "prompt": "Lock up the equipment shed for the night."
+        },
+        {
+          "action": "goTo",
+          "target": "proShop",
+          "prompt": "Cash out the register at the Pro Shop."
+        }
+      ]
     }
   ],
 
   "dialogues": {
+    "opening_briefing": [
+      { "speaker": "Hank Morris", "text": "Morning! Clay took a beating yesterday, so keep an eye on Courts 3 to 5." },
+      { "speaker": "Hank Morris", "text": "Rush hours are mid-morning and late afternoon. The radio gets busy then, so pace yourself." }
+    ],
     "reservation_dispute_1": [
       { "speaker": "Mrs. Wellington", "text": "I have had this court reserved for WEEKS. And now this person just walks on?" },
       { "speaker": "Mrs. Wellington", "text": "Check the schedule. You'll see I'm right." }

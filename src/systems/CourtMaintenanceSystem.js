@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GAME, SIZES } from '../utils/Constants.js';
+import { GroomFX } from './GroomFX.js';
+import { GroomSummary } from '../ui/GroomSummary.js';
 
 /**
  * CourtMaintenanceSystem - manages clay court grooming minigame
@@ -18,6 +20,12 @@ import { GAME, SIZES } from '../utils/Constants.js';
  *
  * Courtside tasks (coolers, cups, trash) must be completed during grooming.
  * Proximity feedback warns if too close/far from fences and nets.
+ *
+ * Painting: each frame the towed brush's footprint (GAME.groomBrushWidth x groomBrushDepth,
+ * facing the pull direction) is swept from last frame's brush position to this one into
+ * every clay court's paint mask (Court.groomStroke) — cleanliness and coverage are read
+ * back from those masks. Feel: speed-tied scrape loop, dust (GolfCart), floating per-court
+ * % labels, sparkle + chime at excellent / 100% (GroomFX) and an end-of-session heatmap card.
  */
 export class CourtMaintenanceSystem {
   constructor(courts, cart, dialogueSystem, soundSystem, mapData) {
@@ -35,9 +43,18 @@ export class CourtMaintenanceSystem {
     this.activeCourts = [];       // all clay courts being groomed
     this.groomStartCleanliness = 0;
     this.groomTimer = 0;
-    this.groomCellsHit = new Map(); // courtId -> Set of cell indices (row * gridCols + col)
     this._resultsTimer = 0;
     this._brushPos = new THREE.Vector3();
+    this._prevBrush = { x: 0, z: 0, valid: false };
+    this._milestones = new Map();   // courtId -> 0 none / 1 excellent / 2 perfect (this session)
+    this._labelTimer = 0;
+    this._scrapeLevel = 0;
+    this.groomCamera = false;       // high-angle groom camera requested (see computeGroomCameraPose)
+
+    // In-world feedback (labels, sparkles) + end-of-session card; built once, hidden
+    const scene = this.clayCourts.length ? this.clayCourts[0].scene : null;
+    this.fx = new GroomFX(scene, this.clayCourts);
+    this.summary = new GroomSummary();
     this._progress = {
       cleanliness: 0, coverage: 0, time: 0, speed: 0, speedOk: true,
       proximity: null, courtsideTasks: null,
@@ -121,7 +138,11 @@ export class CourtMaintenanceSystem {
 
     if (this.state === 'grooming') {
       this._updateGrooming(dt, weatherState);
-    } else if (this.state === 'results') {
+    } else {
+      this._setScrape(0, 0);
+    }
+    this.fx.update(dt);
+    if (this.state === 'results') {
       // Return to idle shortly after showing results (game time, so it respects pause)
       this._resultsTimer -= dt;
       if (this._resultsTimer <= 0) this.state = 'idle';
@@ -140,15 +161,15 @@ export class CourtMaintenanceSystem {
     }
     const grids = {};
     for (const court of this.clayCourts) {
-      if (court && court.id && typeof court.getGridHex === 'function') {
-        const hex = court.getGridHex();
-        if (hex) grids[court.id] = hex;
+      if (court && court.id && typeof court.getMaskData === 'function') {
+        const data = court.getMaskData();
+        if (data) grids[court.id] = data;
       }
     }
     let session = null;
     if (this.state === 'grooming') {
       const hit = {};
-      for (const [id, set] of this.groomCellsHit) hit[id] = [...set];
+      for (const court of this.activeCourts) hit[court.id] = court.getHitData();
       session = {
         time: this.groomTimer,
         startCleanliness: this.groomStartCleanliness,
@@ -181,14 +202,14 @@ export class CourtMaintenanceSystem {
       for (const t of this.courtsideTasks) if (session.tasksDone.includes(t.id)) t.completed = true;
     }
     if (session.hit && typeof session.hit === 'object') {
+      // base64 bit mask (current saves) or a list of old 8 x 14 cell indices (upsampled)
       for (const court of this.activeCourts) {
-        const cells = session.hit[court.id];
-        const set = this.groomCellsHit.get(court.id);
-        if (!Array.isArray(cells) || !set) continue;
-        const max = court.gridRows * court.gridCols;
-        for (const c of cells) if (Number.isInteger(c) && c >= 0 && c < max) set.add(c);
+        const data = session.hit[court.id];
+        if (data) court.setHitData(data);
       }
     }
+    // Don't re-celebrate courts that were already done before the save
+    for (const court of this.activeCourts) this._milestones.set(court.id, this._courtMilestone(court));
     return true;
   }
 
@@ -201,8 +222,9 @@ export class CourtMaintenanceSystem {
     const grids = (state.grids && typeof state.grids === 'object') ? state.grids : {};
     if (state.courts && typeof state.courts === 'object') {
       for (const court of this.clayCourts) {
-        // Per-cell pattern when available (keeps groomed stripes), else the average
-        if (typeof court.setGridHex === 'function' && court.setGridHex(grids[court.id])) continue;
+        // Per-cell paint mask when available (keeps groomed stripes; old 8x14 hex grids are
+        // upsampled), else the average
+        if (typeof court.setMaskData === 'function' && court.setMaskData(grids[court.id])) continue;
         const c = state.courts[court.id];
         if (Number.isFinite(c) && typeof court.setAllDirt === 'function') {
           court.setAllDirt(1 - Math.max(0, Math.min(1, c)));
@@ -260,20 +282,8 @@ export class CourtMaintenanceSystem {
   stopGrooming() {
     if (this.state !== 'grooming' || this.activeCourts.length === 0) return;
 
-    // Calculate combined score across all courts
-    let totalCleanliness = 0;
-    let totalCells = 0;
-    let totalHitCells = 0;
-
-    for (const court of this.activeCourts) {
-      totalCleanliness += court.getCleanliness() * court.gridRows * court.gridCols;
-      totalCells += court.gridRows * court.gridCols;
-      const hitSet = this.groomCellsHit.get(court.id) || new Set();
-      totalHitCells += hitSet.size;
-    }
-
-    const cleanliness = totalCells > 0 ? totalCleanliness / totalCells : 0;
-    const coverage = totalCells > 0 ? totalHitCells / totalCells : 0;
+    // Combined score across all courts, read back from the paint masks
+    const { cleanliness, coverage } = this._totals();
     const improvement = cleanliness - this.groomStartCleanliness;
 
     // Check courtside task completion
@@ -306,9 +316,12 @@ export class CourtMaintenanceSystem {
 
     this.state = 'results';
     this._resultsTimer = 0.1;
+    const groomed = this.activeCourts;
     this.activeCourts = [];
-    this.groomCellsHit.clear();
     this.courtsideTasks = [];
+    this._setScrape(0, 0);
+    this.fx.showLabels(false);
+    this.summary.show(this.lastScore, groomed);
 
     if (this.onGroomEnd) {
       this.onGroomEnd(this.lastScore, message);
@@ -321,6 +334,56 @@ export class CourtMaintenanceSystem {
     return this.state === 'grooming';
   }
 
+  /** Slab-weighted cleanliness + coverage of the active courts (reused result object). */
+  _totals() {
+    const t = this._tot || (this._tot = { cleanliness: 0, coverage: 0 });
+    let clean = 0, hit = 0, cells = 0;
+    for (const court of this.activeCourts) {
+      const n = court.scoreCells || 0;
+      clean += court.getCleanliness() * n;
+      hit += court.getHitCount ? court.getHitCount() : 0;
+      cells += n;
+    }
+    t.cleanliness = cells > 0 ? clean / cells : 0;
+    t.coverage = cells > 0 ? hit / cells : 0;
+    return t;
+  }
+
+  /** 0 = not yet, 1 = excellent (clean ≥ threshold, ≥ 70% brushed), 2 = perfect (≈100%). */
+  _courtMilestone(court) {
+    const clean = court.getCleanliness(), cov = court.getCoverage();
+    if (clean >= 0.995 && cov >= 0.98) return 2;
+    if (clean >= GAME.groomScoreThreshold && cov >= 0.7) return 1;
+    return 0;
+  }
+
+  _setScrape(level, speed) {
+    if (level === 0 && this._scrapeLevel === 0) return;
+    this._scrapeLevel = level;
+    if (this.sound && typeof this.sound.setBrushScrape === 'function') this.sound.setBrushScrape(level, speed);
+  }
+
+  /** Toggle the high-angle groom camera flag (main.js reads computeGroomCameraPose). */
+  toggleGroomCamera(on = !this.groomCamera) {
+    this.groomCamera = !!on;
+    return this.groomCamera;
+  }
+
+  /**
+   * High-angle groom camera pose: looks down on the brush from behind and above so the
+   * lanes and missed strips read clearly. Writes into outPos / outLook (no allocation).
+   * Returns false when not grooming or the flag is off (use the normal follow camera).
+   */
+  computeGroomCameraPose(outPos, outLook, yaw) {
+    if (!this.groomCamera || this.state !== 'grooming' || !this.cart.hasBrush) return false;
+    const bs = this.cart.brushState;
+    const cp = this.cart.getPosition();
+    const lx = (cp.x + bs.x) * 0.5, lz = (cp.z + bs.z) * 0.5;
+    outLook.set(lx, 0.2, lz);
+    outPos.set(lx - Math.sin(yaw) * 5.5, 15, lz - Math.cos(yaw) * 5.5);
+    return true;
+  }
+
   getActiveCourts() {
     return this.activeCourts;
   }
@@ -328,21 +391,10 @@ export class CourtMaintenanceSystem {
   /** Live grooming progress. Returns a REUSED object (don't keep a reference across frames). */
   getGroomingProgress() {
     if (this.activeCourts.length === 0) return null;
-
-    let totalCleanliness = 0;
-    let totalCells = 0;
-    let totalHitCells = 0;
-
-    for (const court of this.activeCourts) {
-      totalCleanliness += court.getCleanliness() * court.gridRows * court.gridCols;
-      totalCells += court.gridRows * court.gridCols;
-      const hitSet = this.groomCellsHit.get(court.id) || new Set();
-      totalHitCells += hitSet.size;
-    }
-
+    const t = this._totals();
     const p = this._progress;
-    p.cleanliness = totalCells > 0 ? totalCleanliness / totalCells : 0;
-    p.coverage = totalCells > 0 ? totalHitCells / totalCells : 0;
+    p.cleanliness = t.cleanliness;
+    p.coverage = t.coverage;
     p.time = this.groomTimer;
     p.speed = Math.abs(this.cart.currentSpeed);
     p.speedOk = p.speed <= GAME.groomSpeedLimit;
@@ -422,19 +474,20 @@ export class CourtMaintenanceSystem {
   _beginGrooming() {
     this.state = 'grooming';
     this.activeCourts = [...this.clayCourts]; // groom all clay courts at once
-    this.groomCellsHit.clear();
 
-    // Initialize per-court hit tracking
-    let totalCleanliness = 0;
-    let totalCells = 0;
+    // Fresh coverage masks for this session
+    this._milestones.clear();
     for (const court of this.activeCourts) {
-      this.groomCellsHit.set(court.id, new Set());
-      totalCleanliness += court.getCleanliness() * court.gridRows * court.gridCols;
-      totalCells += court.gridRows * court.gridCols;
+      court.beginSession();
+      this._milestones.set(court.id, 0);
     }
-    this.groomStartCleanliness = totalCells > 0 ? totalCleanliness / totalCells : 0;
+    this.groomStartCleanliness = this._totals().cleanliness;
     this.groomTimer = 0;
     this.brushSoundTimer = 0;
+    this._prevBrush.valid = false;
+    this._labelTimer = 0;
+    this.fx.showLabels(true);
+    this._updateLabels();
 
     // Generate courtside tasks for this session
     this._generateCourtsideTasks();
@@ -485,67 +538,46 @@ export class CourtMaintenanceSystem {
 
     this.groomTimer += dt;
 
-    // Don't groom in rain
-    if (weatherState === 'rainy') return;
-
     const brushPos = this.cart.getBrushWorldPosition(this._brushPos);
     if (!brushPos) return;
-
-    const speed = Math.abs(this.cart.currentSpeed);
-
-    // Update proximity feedback
-    this._updateProximity(brushPos);
-
-    // Only groom when moving at reasonable speed
-    if (speed < 0.3 || speed > GAME.groomSpeedPenalty) return;
-
-    // Groom across ALL active courts
-    const brushRadius = GAME.groomBrushWidth / 2;
-    let totalAffected = 0;
-
-    for (const court of this.activeCourts) {
-      const affected = court.groomAt(brushPos.x, brushPos.z, brushRadius);
-
-      if (affected > 0) {
-        totalAffected += affected;
-
-        // Track which cells were hit (only scan the cells under the brush)
-        const center = court.config.center;
-        const cellSize = GAME.groomCellSize;
-        const x0 = center.x - SIZES.courtWidth / 2;
-        const z0 = center.z - SIZES.courtDepth / 2;
-        const hitSet = this.groomCellsHit.get(court.id);
-        const r2 = brushRadius * brushRadius;
-        const colMin = Math.max(0, Math.floor((brushPos.x - brushRadius - x0) / cellSize));
-        const colMax = Math.min(court.gridCols - 1, Math.floor((brushPos.x + brushRadius - x0) / cellSize));
-        const rowMin = Math.max(0, Math.floor((brushPos.z - brushRadius - z0) / cellSize));
-        const rowMax = Math.min(court.gridRows - 1, Math.floor((brushPos.z + brushRadius - z0) / cellSize));
-
-        if (hitSet) {
-          for (let row = rowMin; row <= rowMax; row++) {
-            for (let col = colMin; col <= colMax; col++) {
-              const dx = brushPos.x - (x0 + (col + 0.5) * cellSize);
-              const dz = brushPos.z - (z0 + (row + 0.5) * cellSize);
-              if (dx * dx + dz * dz < r2) {
-                hitSet.add(row * court.gridCols + col);
-              }
-            }
-          }
-        }
-      }
+    const bs = this.cart.brushState;
+    const prev = this._prevBrush;
+    const bx = brushPos.x, bz = brushPos.z;
+    if (!prev.valid || Math.abs(bx - prev.x) + Math.abs(bz - prev.z) > 4) {
+      prev.x = bx; prev.z = bz; prev.valid = true;   // start / teleport: no streak
     }
 
-    if (totalAffected > 0) {
-      // Play brush scraping sound periodically
-      this.brushSoundTimer -= dt;
-      if (this.brushSoundTimer <= 0) {
-        this.sound.playBrushScrape();
-        this.brushSoundTimer = 0.4;
-      }
+    // Proximity feedback (brush centre to fences / nets)
+    this._updateProximity(brushPos);
 
-      if (this.onGroomUpdate) {
-        this.onGroomUpdate(this.getGroomingProgress());
+    const speed = Math.abs(this.cart.currentSpeed);
+    let covered = 0;
+
+    // Don't groom in rain (wet clay turns to mud); only at a sensible speed
+    if (weatherState !== 'rainy' && speed >= 0.3 && speed <= GAME.groomSpeedPenalty) {
+      const lim = GAME.groomSpeedLimit, pen = GAME.groomSpeedPenalty;
+      const strength = speed <= lim ? 1 : 1 - 0.7 * (speed - lim) / Math.max(0.01, pen - lim);
+      const width = GAME.groomBrushWidth, depth = GAME.groomBrushDepth || 0.55;
+      for (let i = 0; i < this.activeCourts.length; i++) {
+        covered += this.activeCourts[i].groomStroke(prev.x, prev.z, bx, bz, bs.hx, bs.hz, width, depth, strength);
       }
+    }
+    prev.x = bx; prev.z = bz;
+
+    // Scrape loop: louder / higher with brush speed, silent off the clay
+    const sn = Math.min(1, bs.speed / 6);
+    this._setScrape(covered > 0 ? 0.35 + 0.65 * sn : 0, sn);
+
+    if (covered > 0) {
+      this._checkMilestones();
+      if (this.onGroomUpdate) this.onGroomUpdate(this.getGroomingProgress());
+    }
+
+    // Floating % labels (~6 Hz; canvases redraw only when the numbers change)
+    this._labelTimer -= dt;
+    if (this._labelTimer <= 0) {
+      this._labelTimer = 0.16;
+      this._updateLabels();
     }
 
     // Check if cart left the entire clay court area (all 3 courts combined)
@@ -562,6 +594,30 @@ export class CourtMaintenanceSystem {
 
     if (!isNearAnyCourt) {
       this.stopGrooming();
+    }
+  }
+
+  _updateLabels() {
+    for (let i = 0; i < this.activeCourts.length; i++) {
+      const c = this.activeCourts[i];
+      const clean = Math.floor(c.getCleanliness() * 100 + 0.5);
+      const cover = Math.floor(c.getCoverage() * 100);
+      this.fx.setCourt(c, clean, cover, this._milestones.get(c.id) || 0);
+    }
+  }
+
+  /** Sparkle + chime the first time a court reaches excellent, and again at 100%. */
+  _checkMilestones() {
+    for (let i = 0; i < this.activeCourts.length; i++) {
+      const c = this.activeCourts[i];
+      const was = this._milestones.get(c.id) || 0;
+      if (was >= 2) continue;
+      const now = this._courtMilestone(c);
+      if (now <= was) continue;
+      this._milestones.set(c.id, now);
+      this.fx.celebrate(c, now);
+      if (this.sound && typeof this.sound.playGroomChime === 'function') this.sound.playGroomChime(now);
+      this._labelTimer = 0;
     }
   }
 

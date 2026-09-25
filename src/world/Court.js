@@ -13,11 +13,15 @@ import { EnvState } from '../graphics/EnvState.js';
  * Draw calls per court: surface, matte props, painted-metal props, chain-link, windscreen,
  * net mesh, sign faces, lamp glass, lamp halos (~9, everything else is merged).
  *
- * Clay grooming API (used by CourtMaintenanceSystem) is unchanged:
- *   id, config, isClay, gridRows, gridCols, dirtGrid,
- *   getDirtAt, groomAt, degradeSurface, getCleanliness, setAllDirt
- * The dirt visual is a gridCols x gridRows DataTexture sampled by the surface shader
- * (R = dirt, G/B = last brush direction for the fresh drag stripes).
+ * Clay grooming API (used by CourtMaintenanceSystem, SaveSystem and match play):
+ *   id, config, isClay, gridRows, gridCols (paint-mask size), cellSize, maskBounds,
+ *   getDirtAt, groomAt (legacy round stamp), groomStroke (swept brush footprint),
+ *   wearAt (localized footwork wear), degradeSurface, getCleanliness, getCoverage,
+ *   beginSession, setAllDirt, getMaskData / setMaskData, getHitData / setHitData
+ * The paint mask is a gridCols x gridRows RGBA DataTexture over the whole clay pad
+ * (GAME.groomMaskRes cells per unit): R = dirt, G = lateral position across the brush
+ * (draws the bristle lines along the driven path), B/A = pull direction x stroke strength
+ * (lane shading). Scoring (cleanliness / coverage) uses the cells over the 16 x 28 slab.
  */
 
 // ── Visual court layout (court-local units; the 16 x 28 slab stays the physics size) ──
@@ -73,7 +77,8 @@ uniform float uBaseScale;
 uniform float uFlood;
 #ifdef COURT_CLAY
 uniform sampler2D uDirtMap;
-uniform vec4 uGrid;       // grid min x/z (court-local), grid size x/z
+uniform vec4 uGrid;       // mask min x/z (court-local), mask size x/z
+uniform vec2 uStripe;     // bristle lines across the brush, brush width
 #endif
 
 float courtRect(vec2 q, vec2 c, vec2 h, vec2 fw) {
@@ -111,20 +116,36 @@ const SURFACE_FRAG_BODY = /* glsl */`
   vec3 col;
 #ifdef COURT_CLAY
   vec2 warp = vec2(texture2D(uNoiseMap, cw * 0.23 + 0.7).r, texture2D(uNoiseMap, cw * 0.23 + 0.2).r) - 0.5;
-  vec4 dt = texture2D(uDirtMap, (p + warp * 1.6 - uGrid.xy) / uGrid.zw);
+  vec4 dt = texture2D(uDirtMap, (p + warp * 0.16 - uGrid.xy) / uGrid.zw);
   float dirt = clamp(dt.r + wear * 0.2, 0.0, 1.0);
-  float dk = smoothstep(0.03, 0.75, dirt);
-  // fresh drag-brush stripes, along the direction the brush last travelled (G: 1 = along x)
-  float k = 26.0;
-  float wob = (nMid - 0.5) * 3.0;
-  float stripes = mix(sin(p.x * k + wob), sin(p.y * k + wob), dt.g);
-  float sAA = 1.0 - smoothstep(0.25, 0.7, max(fw.x, fw.y) * k / 6.2832 * 1.5);
-  vec3 clean = base * vec3(1.07, 1.05, 1.04) * (1.0 + 0.06 * stripes * sAA) * (0.97 + 0.06 * nLarge);
+  float dk = smoothstep(0.02, 0.55, dirt);
+  // Brush strokes: G = lateral position across the brush, BA = pull direction * strength
+  vec2 sdir = dt.ba * 2.0 - 1.0;
+  float sLen = length(sdir);
+  float sStr = clamp(sLen * 1.05 - 0.05, 0.0, 1.0);
+  float fresh = sStr * (1.0 - dk);
+  vec2 sN = sdir / max(sLen, 1e-3);
+  // bristle lines follow the driven path (curves included)
+  float lu = dt.g * uStripe.x;
+  float lAA = 1.0 - smoothstep(0.3, 0.8, fwidth(lu));
+  float lines = sin((lu + (nMid - 0.5) * 0.35) * 6.2832) * 0.7 + sin((lu * 2.41 + nLarge * 3.0) * 6.2832) * 0.3;
+  // lane seams (the lateral coordinate jumps where one pass overwrote another) + lane edges
+  float seamR = fwidth(dt.g) * uStripe.y / max(max(fw.x, fw.y) * 1.3333, 1e-5);
+  float seam = smoothstep(2.5, 6.0, seamR);
+  float edge = 1.0 - smoothstep(0.0, 0.05, min(dt.g, 1.0 - dt.g));
+  float berm = max(seam, edge) * fresh;
+  // mowing-style lanes: pulled toward / away from the viewer read lighter / darker
+  vec2 toCam = cameraPosition.xz - cw;
+  float lane = dot(sN, toCam / max(length(toCam), 1e-3));
+  vec3 clean = base * vec3(1.12, 1.07, 1.04) * (0.98 + 0.04 * nLarge);
+  clean *= 1.0 + fresh * (0.05 + 0.09 * lane + 0.08 * lines * lAA) - 0.14 * berm;
   // scuffed clay: darker blotches, footwork slides kicking up loose (lighter) clay
   float scuff = smoothstep(0.4, 0.72, texture2D(uNoiseMap, cw * 0.55 + 0.13).r);
   float slide = smoothstep(0.58, 0.8, texture2D(uNoiseMap, vec2(cw.x * 1.7, cw.y * 0.28)).r);
-  vec3 dirty = base * mix(vec3(0.88, 0.82, 0.8), vec3(0.68, 0.58, 0.56), scuff) * (0.9 + 0.14 * nLarge);
-  dirty = mix(dirty, base * vec3(1.14, 1.07, 1.0), slide * 0.5);
+  float speck = smoothstep(0.62, 0.78, texture2D(uNoiseMap, cw * 2.9 + 0.41).r);
+  vec3 dirty = base * mix(vec3(0.84, 0.77, 0.75), vec3(0.62, 0.52, 0.5), scuff) * (0.86 + 0.16 * nLarge);
+  dirty *= 1.0 - 0.12 * speck;
+  dirty = mix(dirty, base * vec3(1.1, 1.03, 0.96), slide * 0.45);
   col = mix(clean, dirty, dk);
   // white tape, dusted with clay when the court needs grooming
   vec3 lineCol = mix(uLineColor, base * 1.1, 0.1 + 0.5 * dk);
@@ -314,6 +335,28 @@ function hashStr(s) {
 
 const _m4 = new THREE.Matrix4();
 
+const MASK_RES = GAME.groomMaskRes || 4;
+const TAU = Math.PI * 2;
+const LEGACY_COLS = 8;       // pre-mask saves: 8 x 14 cells of 2 units over the 16 x 28 slab
+const LEGACY_ROWS = 14;
+
+function bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(bytes.length, i + 0x8000)));
+  }
+  return btoa(s);
+}
+
+function b64ToBytes(str) {
+  const bin = atob(str);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
 /**
  * Court - tennis court with surface, lines, net, fencing, and benches
  */
@@ -326,235 +369,496 @@ export class Court {
     this.mesh.name = `court:${config.id}`;
     this.id = config.id;
     this.isClay = config.type === 'clay';
+    this._pad = this._computePad();
 
-    // Surface grid for clay court maintenance
+    // Paint mask for clay court maintenance (see the header comment)
     this.gridCols = 0;
     this.gridRows = 0;
-    this.dirtGrid = null;       // 2D array of dirtiness values (0=clean, 1=dirty)
-    this.dirtTexture = null;    // gridCols x gridRows RGBA DataTexture (visual only)
+    this.cellSize = 1 / MASK_RES;
+    this.maskBounds = null;     // world-space { x0, z0, x1, z1 } covered by the mask
+    this.dirt = null;           // Float32Array per cell (0 = clean, 1 = dirty)
+    this.mask = null;           // Uint8Array RGBA (the DataTexture's data)
+    this.hit = null;            // Uint8Array per cell: brushed during the current session
+    this.dirtTexture = null;
     this.surfaceMesh = null;    // shader-painted court surface
+    this.scoreCells = 0;        // cells over the playing slab (cleanliness / coverage)
+    this._hitCount = 0;
+    this._cleanCache = -1;
+    this._lastGroom = null;     // last groomAt position (legacy stamp direction)
 
-    this._lastGroom = null;     // last groomAt position (for stripe direction)
-
-    if (this.isClay) {
-      this._buildDirtGrid();
-    }
+    if (this.isClay) this._buildMask();
 
     this._build();
     this.scene.add(this.mesh);
   }
 
-  /**
-   * Get dirtiness at a world position. Returns -1 if outside the court.
-   */
+  // ───────────────────────────── Paint mask: queries ─────────────────────────────
+
+  /** Mask cell index at a world position, or -1 outside the mask. */
+  cellIndexAt(worldX, worldZ) {
+    const B = this.maskBounds;
+    if (!B) return -1;
+    const c = Math.floor((worldX - B.x0) * MASK_RES);
+    const r = Math.floor((worldZ - B.z0) * MASK_RES);
+    if (c < 0 || c >= this.gridCols || r < 0 || r >= this.gridRows) return -1;
+    return r * this.gridCols + c;
+  }
+
+  /** Dirtiness (0..1) at a world position. Returns -1 if outside the clay mask. */
   getDirtAt(worldX, worldZ) {
-    if (!this.dirtGrid) return -1;
-    const cell = this._worldToGrid(worldX, worldZ);
-    if (!cell) return -1;
-    return this.dirtGrid[cell.row][cell.col];
+    const i = this.cellIndexAt(worldX, worldZ);
+    return i < 0 ? -1 : this.dirt[i];
+  }
+
+  /** Overall cleanliness of the playing slab (0 = all dirty, 1 = all clean). Cached until the mask changes. */
+  getCleanliness() {
+    if (!this.dirt) return 1;
+    if (this._cleanCache >= 0) return this._cleanCache;
+    const cols = this.gridCols;
+    let total = 0;
+    for (let r = this._sr0; r <= this._sr1; r++) {
+      const row = r * cols;
+      for (let c = this._sc0; c <= this._sc1; c++) total += this.dirt[row + c];
+    }
+    this._cleanCache = this.scoreCells > 0 ? 1 - total / this.scoreCells : 1;
+    return this._cleanCache;
+  }
+
+  /** Fraction (0..1) of the playing slab brushed since beginSession(). */
+  getCoverage() {
+    return this.scoreCells > 0 ? this._hitCount / this.scoreCells : 0;
+  }
+
+  /** Brushed cell count over the playing slab since beginSession(). */
+  getHitCount() {
+    return this._hitCount;
+  }
+
+  /** Start a grooming session: clears the brushed-cells mask used for coverage. */
+  beginSession() {
+    if (!this.hit) return;
+    this.hit.fill(0);
+    this._hitCount = 0;
+  }
+
+  // ───────────────────────────── Paint mask: painting ─────────────────────────────
+
+  /**
+   * Sweep the brush footprint (a width x depth rectangle facing (hx, hz), the direction
+   * the brush is pulled) from (ax, az) to (bx, bz) — gapless however far it moved this
+   * frame. Cleans by `GAME.groomPassClean * strength` per full pass, writes the stroke
+   * (lateral position + pull direction) for the drag stripes and marks cells as brushed.
+   * Returns the number of cells under the footprint (0 when it isn't on this court).
+   */
+  groomStroke(ax, az, bx, bz, hx, hz, width, depth, strength = 1) {
+    const B = this.maskBounds;
+    if (!B) return 0;
+    const hw = width * 0.5, hd = depth * 0.5, R = hw + hd;
+    const minX = Math.min(ax, bx) - R, maxX = Math.max(ax, bx) + R;
+    const minZ = Math.min(az, bz) - R, maxZ = Math.max(az, bz) + R;
+    if (maxX < B.x0 || minX > B.x1 || maxZ < B.z0 || minZ > B.z1) return 0;
+
+    const sx = bx - ax, sz = bz - az;
+    const segL2 = sx * sx + sz * sz;
+    const segL = Math.sqrt(segL2);
+    let hl = Math.sqrt(hx * hx + hz * hz);
+    if (hl < 1e-6) {
+      if (segL < 1e-6) return 0;
+      hx = sx; hz = sz; hl = segL;
+    }
+    hx /= hl; hz /= hl;
+    const nx = -hz, nz = hx;                     // lateral axis across the brush
+    const s = clamp01(strength);
+    const clean = GAME.groomPassClean * s * Math.min(1, segL / Math.max(0.05, depth));
+    const vis = 0.35 + 0.65 * s;                 // stroke strength drawn (fast = faint, torn)
+    const gB = Math.round(128 + 127 * hx * vis);
+    const gA = Math.round(128 + 127 * hz * vis);
+
+    const cols = this.gridCols;
+    const c0 = Math.max(0, Math.floor((minX - B.x0) * MASK_RES));
+    const c1 = Math.min(cols - 1, Math.floor((maxX - B.x0) * MASK_RES));
+    const r0 = Math.max(0, Math.floor((minZ - B.z0) * MASK_RES));
+    const r1 = Math.min(this.gridRows - 1, Math.floor((maxZ - B.z0) * MASK_RES));
+    const inv = 1 / MASK_RES;
+    const mask = this.mask, dirt = this.dirt, hit = this.hit;
+    let covered = 0;
+
+    for (let r = r0; r <= r1; r++) {
+      const cz = B.z0 + (r + 0.5) * inv;
+      const inRow = r >= this._sr0 && r <= this._sr1;
+      for (let c = c0; c <= c1; c++) {
+        const cx = B.x0 + (c + 0.5) * inv;
+        let t = 0;
+        if (segL2 > 1e-8) {
+          t = ((cx - ax) * sx + (cz - az) * sz) / segL2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+        }
+        const rx = cx - (ax + sx * t), rz = cz - (az + sz * t);
+        const lat = rx * nx + rz * nz;
+        if (lat > hw || lat < -hw) continue;
+        const lon = rx * hx + rz * hz;
+        if (lon > hd || lon < -hd) continue;
+        const i = r * cols + c;
+        const k = i * 4;
+        covered++;
+        mask[k + 1] = Math.round((lat / width + 0.5) * 255);
+        mask[k + 2] = gB;
+        mask[k + 3] = gA;
+        if (clean > 0 && dirt[i] > 0) this._setDirt(i, dirt[i] - clean);
+        if (!hit[i]) {
+          hit[i] = 1;
+          if (inRow && c >= this._sc0 && c <= this._sc1) this._hitCount++;
+        }
+      }
+    }
+    if (covered > 0) this.dirtTexture.needsUpdate = true;
+    return covered;
   }
 
   /**
-   * Groom (clean) cells near a world position within a given radius.
-   * Returns number of cells affected.
+   * Legacy round stamp: clean cells within `radius` of a world position (0.15 per call)
+   * and mark them brushed. Prefer groomStroke(). Returns the number of cells cleaned.
    */
   groomAt(worldX, worldZ, radius) {
-    if (!this.dirtGrid) return 0;
-    const { center } = this.config;
-    const w = SIZES.courtWidth;
-    const d = SIZES.courtDepth;
-    const cellSize = GAME.groomCellSize;
-    let affected = 0;
-
-    // Brush travel direction (visual only): axial, encoded as cos2θ / sin2θ
-    let dirC = -2, dirS = 0;
+    const B = this.maskBounds;
+    if (!B) return 0;
+    let hx = 0, hz = -1;
     const last = this._lastGroom;
     if (last) {
       const mx = worldX - last.x, mz = worldZ - last.z;
       const l2 = mx * mx + mz * mz;
-      if (l2 > 0.0004 && l2 < 6.25) {
-        dirC = (mx * mx - mz * mz) / l2;
-        dirS = (2 * mx * mz) / l2;
-      }
+      if (l2 > 0.0004 && l2 < 6.25) { const l = Math.sqrt(l2); hx = mx / l; hz = mz / l; }
       last.x = worldX; last.z = worldZ;
     } else {
       this._lastGroom = { x: worldX, z: worldZ };
     }
-
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
-        // Cell center in world coords
-        const cx = center.x - w / 2 + (col + 0.5) * cellSize;
-        const cz = center.z - d / 2 + (row + 0.5) * cellSize;
-        const dx = worldX - cx;
-        const dz = worldZ - cz;
-        if (dx * dx + dz * dz < radius * radius) {
-          if (dirC > -2) this._setCellDirection(row, col, dirC, dirS);
-          if (this.dirtGrid[row][col] <= 0) continue;
-          this.dirtGrid[row][col] = Math.max(0, this.dirtGrid[row][col] - 0.15);
-          this._updateCellVisual(row, col);
-          affected++;
-        }
-      }
-    }
+    let affected = 0;
+    this._forCellsInRadius(worldX, worldZ, radius, (i, dx, dz) => {
+      const k = i * 4;
+      const lat = dx * -hz + dz * hx;
+      this.mask[k + 1] = Math.round(clamp01(lat / (2 * radius) + 0.5) * 255);
+      this.mask[k + 2] = Math.round(128 + 127 * hx);
+      this.mask[k + 3] = Math.round(128 + 127 * hz);
+      this._markHit(i);
+      if (this.dirt[i] <= 0) return;
+      this._setDirt(i, this.dirt[i] - 0.15);
+      affected++;
+    });
+    this.dirtTexture.needsUpdate = true;
     return affected;
   }
 
   /**
-   * Add dirt to all cells (simulates play degradation).
+   * Localized wear (footwork, sliding, a dropped hopper...): adds up to `amount` dirt
+   * with a soft falloff inside `radius` world units of (x, z) and scuffs the drag stripes
+   * there. Safe to call every frame; no allocations. Returns the number of cells touched.
+   * @param {number} x world X
+   * @param {number} z world Z
+   * @param {number} [radius=0.6] world units
+   * @param {number} [amount=0.05] dirt added at the centre (0..1)
    */
+  wearAt(x, z, radius = 0.6, amount = 0.05) {
+    const B = this.maskBounds;
+    if (!B || !(radius > 0) || !(amount > 0)) return 0;
+    if (x + radius < B.x0 || x - radius > B.x1 || z + radius < B.z0 || z - radius > B.z1) return 0;
+    const r2 = radius * radius;
+    const cols = this.gridCols, inv = 1 / MASK_RES;
+    const c0 = Math.max(0, Math.floor((x - radius - B.x0) * MASK_RES));
+    const c1 = Math.min(cols - 1, Math.floor((x + radius - B.x0) * MASK_RES));
+    const r0 = Math.max(0, Math.floor((z - radius - B.z0) * MASK_RES));
+    const r1 = Math.min(this.gridRows - 1, Math.floor((z + radius - B.z0) * MASK_RES));
+    const mask = this.mask;
+    let n = 0;
+    for (let r = r0; r <= r1; r++) {
+      const dz = B.z0 + (r + 0.5) * inv - z;
+      for (let c = c0; c <= c1; c++) {
+        const dx = B.x0 + (c + 0.5) * inv - x;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > r2) continue;
+        const f = 1 - d2 / r2;
+        const i = r * cols + c, k = i * 4;
+        this._setDirt(i, this.dirt[i] + amount * f);
+        const keep = 1 - Math.min(1, amount * f * 5);
+        mask[k + 2] = Math.round(128 + (mask[k + 2] - 128) * keep);
+        mask[k + 3] = Math.round(128 + (mask[k + 3] - 128) * keep);
+        n++;
+      }
+    }
+    if (n > 0) this.dirtTexture.needsUpdate = true;
+    return n;
+  }
+
+  /** Add dirt to every cell (play degradation over time). */
   degradeSurface(amount) {
-    if (!this.dirtGrid) return;
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
-        this.dirtGrid[row][col] = Math.min(1, this.dirtGrid[row][col] + amount);
-        this._updateCellVisual(row, col);
-      }
-    }
+    if (!this.dirt) return;
+    for (let i = 0; i < this.dirt.length; i++) this._setDirt(i, this.dirt[i] + amount);
+    this.dirtTexture.needsUpdate = true;
   }
 
-  /**
-   * Get overall cleanliness (0=all dirty, 1=all clean).
-   */
-  getCleanliness() {
-    if (!this.dirtGrid) return 1;
-    let total = 0;
-    const count = this.gridRows * this.gridCols;
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
-        total += (1 - this.dirtGrid[row][col]);
-      }
-    }
-    return total / count;
-  }
-
-  /**
-   * Set all cells to a given dirtiness level.
-   */
+  /** Set every cell to a given dirtiness level (keeps the stroke pattern). */
   setAllDirt(level) {
-    if (!this.dirtGrid) return;
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
-        this.dirtGrid[row][col] = level;
-        this._updateCellVisual(row, col);
-      }
+    if (!this.dirt) return;
+    const v = clamp01(Number(level) || 0);
+    for (let i = 0; i < this.dirt.length; i++) this._setDirt(i, v);
+    this.dirtTexture.needsUpdate = true;
+  }
+
+  // ───────────────────────────── Paint mask: save / load ─────────────────────────────
+
+  /**
+   * Compact snapshot for saves: `v2:<cols>x<rows>:<base64>`, 3 bytes per cell (row-major):
+   * dirt (0..255), lateral stroke position (0..255), and the stroke direction packed as
+   * (64-step angle << 2) | strength 1..3, or 0 for an unbrushed cell.
+   */
+  getMaskData() {
+    if (!this.mask) return '';
+    const n = this.gridCols * this.gridRows;
+    const out = new Uint8Array(n * 3);
+    const m = this.mask;
+    for (let i = 0; i < n; i++) {
+      const k = i * 4, o = i * 3;
+      out[o] = m[k];
+      out[o + 1] = m[k + 1];
+      const dx = (m[k + 2] - 128) / 127, dz = (m[k + 3] - 128) / 127;
+      const len = Math.sqrt(dx * dx + dz * dz);
+      if (len < 0.08) { out[o + 2] = 0; continue; }
+      let a = Math.atan2(dz, dx);
+      if (a < 0) a += TAU;
+      const q = Math.round((a / TAU) * 64) & 63;
+      const st = Math.max(1, Math.min(3, Math.round(len * 3)));
+      out[o + 2] = (q << 2) | st;
     }
+    return `v2:${this.gridCols}x${this.gridRows}:${bytesToB64(out)}`;
   }
 
   /**
-   * Compact per-cell snapshot for saves: 6 hex chars per cell (row-major) —
-   * dirt, then the two brush-direction channels (the groomed stripe pattern).
+   * Restore a getMaskData() snapshot, or a pre-mask save's 8 x 14 hex grid (6 or 2 hex
+   * chars per cell), which is upsampled. Returns false (and changes nothing) when the
+   * data doesn't fit this court.
    */
-  getGridHex() {
-    if (!this.dirtGrid || !this.dirtTexture) return '';
-    const data = this.dirtTexture.image.data;
-    let out = '';
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
-        const i = (row * this.gridCols + col) * 4;
-        const v = Math.round(Math.min(1, Math.max(0, this.dirtGrid[row][col])) * 255);
-        out += (v | 0x100).toString(16).slice(1) +
-          (data[i + 1] | 0x100).toString(16).slice(1) +
-          (data[i + 2] | 0x100).toString(16).slice(1);
+  setMaskData(data) {
+    if (!this.mask || typeof data !== 'string' || !data) return false;
+    if (data.startsWith('v2:')) {
+      const m = /^v2:(\d+)x(\d+):([A-Za-z0-9+/=]+)$/.exec(data);
+      if (!m || +m[1] !== this.gridCols || +m[2] !== this.gridRows) return false;
+      let bytes;
+      try { bytes = b64ToBytes(m[3]); } catch (e) { return false; }
+      const n = this.gridCols * this.gridRows;
+      if (bytes.length !== n * 3) return false;
+      const mask = this.mask;
+      for (let i = 0; i < n; i++) {
+        const o = i * 3, k = i * 4;
+        this.dirt[i] = bytes[o] / 255;
+        mask[k] = bytes[o];
+        mask[k + 1] = bytes[o + 1];
+        const d = bytes[o + 2];
+        if (d === 0) { mask[k + 2] = 128; mask[k + 3] = 128; continue; }
+        const a = ((d >> 2) / 64) * TAU, st = (d & 3) / 3;
+        mask[k + 2] = Math.round(128 + 127 * Math.cos(a) * st);
+        mask[k + 3] = Math.round(128 + 127 * Math.sin(a) * st);
       }
+      this._cleanCache = -1;
+      this.dirtTexture.needsUpdate = true;
+      return true;
     }
-    return out;
+    return this.setGridHex(data);
   }
 
-  /**
-   * Restore a getGridHex() snapshot (6 hex/cell), or a dirt-only one (2 hex/cell).
-   * Returns false (and changes nothing) when the string doesn't match this grid.
-   */
+  /** Pre-mask save format (8 x 14 cells, 6 or 2 hex chars each): bilinear upsample. */
   setGridHex(hex) {
-    if (!this.dirtGrid || !this.dirtTexture || typeof hex !== 'string') return false;
-    const cells = this.gridRows * this.gridCols;
+    if (!this.mask || typeof hex !== 'string') return false;
+    const cells = LEGACY_COLS * LEGACY_ROWS;
     const per = hex.length === cells * 6 ? 6 : hex.length === cells * 2 ? 2 : 0;
     if (!per || !/^[0-9a-f]*$/i.test(hex)) return false;
-    const data = this.dirtTexture.image.data;
-    for (let row = 0; row < this.gridRows; row++) {
-      for (let col = 0; col < this.gridCols; col++) {
-        const k = (row * this.gridCols + col);
-        const o = k * per;
-        this.dirtGrid[row][col] = parseInt(hex.substr(o, 2), 16) / 255;
-        if (per === 6) {
-          data[k * 4 + 1] = parseInt(hex.substr(o + 2, 2), 16);
-          data[k * 4 + 2] = parseInt(hex.substr(o + 4, 2), 16);
+    const old = new Float32Array(cells);
+    for (let k = 0; k < cells; k++) old[k] = parseInt(hex.substr(k * per, 2), 16) / 255;
+    const hwS = SIZES.courtWidth / 2, hdS = SIZES.courtDepth / 2;
+    const lane = GAME.groomBrushWidth || 3;
+    const cols = this.gridCols, p = this._pad, inv = 1 / MASK_RES;
+    for (let r = 0; r < this.gridRows; r++) {
+      const lz = p.z0 + (r + 0.5) * inv;
+      const fz = Math.max(0, Math.min(LEGACY_ROWS - 1, (lz + hdS) / 2 - 0.5));
+      const z0 = Math.min(LEGACY_ROWS - 2, Math.floor(fz)), tz = fz - z0;
+      for (let c = 0; c < cols; c++) {
+        const lx = p.x0 + (c + 0.5) * inv;
+        const fx = Math.max(0, Math.min(LEGACY_COLS - 1, (lx + hwS) / 2 - 0.5));
+        const x0 = Math.min(LEGACY_COLS - 2, Math.floor(fx)), tx = fx - x0;
+        const a = old[z0 * LEGACY_COLS + x0], b = old[z0 * LEGACY_COLS + x0 + 1];
+        const cc = old[(z0 + 1) * LEGACY_COLS + x0], d = old[(z0 + 1) * LEGACY_COLS + x0 + 1];
+        const v = (a + (b - a) * tx) * (1 - tz) + (cc + (d - cc) * tx) * tz;
+        const i = r * cols + c, k = i * 4;
+        this.dirt[i] = v;
+        this.mask[k] = Math.round(clamp01(v) * 255);
+        // Old saves kept only an axis per cell: a groomed court gets up-and-back lanes
+        if (v < 0.4) {
+          const ul = (lx + hwS) / lane;
+          const li = Math.floor(ul);
+          const hz = (li & 1) ? 1 : -1;
+          const st = 1 - v / 0.4;
+          this.mask[k + 1] = Math.round((ul - li) * 255);
+          this.mask[k + 2] = 128;
+          this.mask[k + 3] = Math.round(128 + 127 * hz * st);
+        } else {
+          this.mask[k + 1] = 128; this.mask[k + 2] = 128; this.mask[k + 3] = 128;
         }
-        this._updateCellVisual(row, col);
       }
     }
+    this._cleanCache = -1;
     this.dirtTexture.needsUpdate = true;
     return true;
   }
 
-  _worldToGrid(worldX, worldZ) {
-    const { center } = this.config;
-    const w = SIZES.courtWidth;
-    const d = SIZES.courtDepth;
-    const cellSize = GAME.groomCellSize;
-
-    const localX = worldX - (center.x - w / 2);
-    const localZ = worldZ - (center.z - d / 2);
-    const col = Math.floor(localX / cellSize);
-    const row = Math.floor(localZ / cellSize);
-
-    if (col < 0 || col >= this.gridCols || row < 0 || row >= this.gridRows) return null;
-    return { row, col };
+  /** Session brushed-cells mask as base64 bits (row-major over the whole mask). */
+  getHitData() {
+    if (!this.hit) return '';
+    const n = this.hit.length;
+    const bytes = new Uint8Array((n + 7) >> 3);
+    for (let i = 0; i < n; i++) if (this.hit[i]) bytes[i >> 3] |= 1 << (i & 7);
+    return bytesToB64(bytes);
   }
 
-  _buildDirtGrid() {
-    const w = SIZES.courtWidth;
-    const d = SIZES.courtDepth;
-    const cellSize = GAME.groomCellSize;
+  /**
+   * Restore getHitData(), or a pre-mask save's list of 8 x 14 cell indices (each marks
+   * the 2 x 2 unit block it covered). Returns the brushed slab cell count.
+   */
+  setHitData(data) {
+    if (!this.hit) return 0;
+    this.beginSession();
+    const n = this.hit.length;
+    if (typeof data === 'string' && data) {
+      let bytes;
+      try { bytes = b64ToBytes(data); } catch (e) { return 0; }
+      if (bytes.length !== ((n + 7) >> 3)) return 0;
+      for (let i = 0; i < n; i++) if (bytes[i >> 3] & (1 << (i & 7))) this._markHit(i);
+    } else if (Array.isArray(data)) {
+      const B = this.maskBounds, { center } = this.config;
+      const x0 = center.x - SIZES.courtWidth / 2, z0 = center.z - SIZES.courtDepth / 2;
+      for (const cell of data) {
+        if (!Number.isInteger(cell) || cell < 0 || cell >= LEGACY_COLS * LEGACY_ROWS) continue;
+        const cx0 = x0 + (cell % LEGACY_COLS) * 2, cz0 = z0 + Math.floor(cell / LEGACY_COLS) * 2;
+        const cA = Math.max(0, Math.ceil((cx0 - B.x0) * MASK_RES - 0.5));
+        const cB = Math.min(this.gridCols - 1, Math.floor((cx0 + 2 - B.x0) * MASK_RES - 0.5 - 1e-6));
+        const rA = Math.max(0, Math.ceil((cz0 - B.z0) * MASK_RES - 0.5));
+        const rB = Math.min(this.gridRows - 1, Math.floor((cz0 + 2 - B.z0) * MASK_RES - 0.5 - 1e-6));
+        for (let r = rA; r <= rB; r++) for (let c = cA; c <= cB; c++) this._markHit(r * this.gridCols + c);
+      }
+    }
+    return this._hitCount;
+  }
 
-    this.gridCols = Math.floor(w / cellSize);
-    this.gridRows = Math.floor(d / cellSize);
-    this.dirtGrid = [];
+  /** Debug/summary: draw the slab's dirt (and brushed cells) into a 2D context at (ox, oy), `px` pixels per cell. */
+  drawHeatmap(ctx, ox, oy, px = 1) {
+    if (!this.dirt || !ctx) return;
+    const cols = this.gridCols;
+    const w = this._sc1 - this._sc0 + 1, h = this._sr1 - this._sr0 + 1;
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    for (let r = 0; r < h; r++) {
+      for (let c = 0; c < w; c++) {
+        const i = (r + this._sr0) * cols + (c + this._sc0);
+        const v = clamp01(this.dirt[i]);
+        const o = (r * w + c) * 4;
+        // clean → fresh clay orange, dirty → dark scuffed brown, never brushed → dimmed
+        const dim = this.hit[i] ? 1 : 0.8;
+        d[o] = (226 - 110 * v) * dim;
+        d[o + 1] = (120 - 60 * v) * dim;
+        d[o + 2] = (72 - 30 * v) * dim;
+        d[o + 3] = 255;
+      }
+    }
+    if (px === 1) { ctx.putImageData(img, ox, oy); return; }
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    tmp.getContext('2d').putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tmp, ox, oy, w * px, h * px);
+  }
 
-    const data = new Uint8Array(this.gridCols * this.gridRows * 4);
-    this.dirtTexture = new THREE.DataTexture(data, this.gridCols, this.gridRows, THREE.RGBAFormat, THREE.UnsignedByteType);
+  // ───────────────────────────── Paint mask: internals ─────────────────────────────
+
+  _setDirt(i, v) {
+    v = v < 0 ? 0 : v > 1 ? 1 : v;
+    if (this.dirt[i] === v) return;
+    this.dirt[i] = v;
+    this._cleanCache = -1;
+    this.mask[i * 4] = (v * 255 + 0.5) | 0;
+  }
+
+  _markHit(i) {
+    if (this.hit[i]) return;
+    this.hit[i] = 1;
+    const r = (i / this.gridCols) | 0, c = i - r * this.gridCols;
+    if (r >= this._sr0 && r <= this._sr1 && c >= this._sc0 && c <= this._sc1) this._hitCount++;
+  }
+
+  _forCellsInRadius(x, z, radius, fn) {
+    const B = this.maskBounds, inv = 1 / MASK_RES, r2 = radius * radius;
+    const c0 = Math.max(0, Math.floor((x - radius - B.x0) * MASK_RES));
+    const c1 = Math.min(this.gridCols - 1, Math.floor((x + radius - B.x0) * MASK_RES));
+    const r0 = Math.max(0, Math.floor((z - radius - B.z0) * MASK_RES));
+    const r1 = Math.min(this.gridRows - 1, Math.floor((z + radius - B.z0) * MASK_RES));
+    for (let r = r0; r <= r1; r++) {
+      const dz = z - (B.z0 + (r + 0.5) * inv);
+      for (let c = c0; c <= c1; c++) {
+        const dx = x - (B.x0 + (c + 0.5) * inv);
+        if (dx * dx + dz * dz < r2) fn(r * this.gridCols + c, -dx, -dz);
+      }
+    }
+  }
+
+  /** Pad extents (court-local). Hard: blue court + green surround; clay: slab + side buffers. */
+  _computePad() {
+    const w = SIZES.courtWidth, d = SIZES.courtDepth;
+    const fenceZ = d / 2 + 0.5;
+    let x0, x1;
+    if (this.isClay) {
+      const buffer = SIZES.clayCourtBuffer || 0;
+      x0 = -w / 2 - (this.config.adjacentLeft ? 0 : buffer);
+      x1 = w / 2 + (this.config.adjacentRight ? 0 : buffer);
+    } else {
+      x0 = -w / 2 - HARD_PAD_EXTRA_X;
+      x1 = w / 2 + HARD_PAD_EXTRA_X;
+    }
+    return { x0, x1, z0: -fenceZ, z1: fenceZ };
+  }
+
+  _buildMask() {
+    const p = this._pad, { center } = this.config;
+    const cols = Math.max(1, Math.round((p.x1 - p.x0) * MASK_RES));
+    const rows = Math.max(1, Math.round((p.z1 - p.z0) * MASK_RES));
+    this.gridCols = cols;
+    this.gridRows = rows;
+    this.maskBounds = {
+      x0: center.x + p.x0, z0: center.z + p.z0,
+      x1: center.x + p.x0 + cols / MASK_RES, z1: center.z + p.z0 + rows / MASK_RES,
+    };
+    // Scoring region: cells whose centres lie on the 16 x 28 playing slab
+    const hw = SIZES.courtWidth / 2, hd = SIZES.courtDepth / 2;
+    this._sc0 = Math.max(0, Math.ceil((-hw - p.x0) * MASK_RES - 0.5));
+    this._sc1 = Math.min(cols - 1, Math.floor((hw - p.x0) * MASK_RES - 0.5));
+    this._sr0 = Math.max(0, Math.ceil((-hd - p.z0) * MASK_RES - 0.5));
+    this._sr1 = Math.min(rows - 1, Math.floor((hd - p.z0) * MASK_RES - 0.5));
+    this.scoreCells = (this._sc1 - this._sc0 + 1) * (this._sr1 - this._sr0 + 1);
+
+    const n = cols * rows;
+    this.dirt = new Float32Array(n).fill(0.6);   // start 60% dirty
+    this.hit = new Uint8Array(n);
+    const data = new Uint8Array(n * 4);
+    const d0 = Math.round(0.6 * 255);
+    for (let i = 0; i < n; i++) {
+      data[i * 4] = d0;
+      data[i * 4 + 1] = 128;
+      data[i * 4 + 2] = 128;   // no stroke yet
+      data[i * 4 + 3] = 128;
+    }
+    this.mask = data;
+    this.dirtTexture = new THREE.DataTexture(data, cols, rows, THREE.RGBAFormat, THREE.UnsignedByteType);
     this.dirtTexture.magFilter = THREE.LinearFilter;
     this.dirtTexture.minFilter = THREE.LinearFilter;
     this.dirtTexture.generateMipmaps = false;
     this.dirtTexture.wrapS = this.dirtTexture.wrapT = THREE.ClampToEdgeWrapping;
     this.dirtTexture.name = `courtDirt:${this.id}`;
-
-    for (let row = 0; row < this.gridRows; row++) {
-      this.dirtGrid[row] = [];
-      for (let col = 0; col < this.gridCols; col++) {
-        // Start at 60% dirty
-        this.dirtGrid[row][col] = 0.6;
-        const i = (row * this.gridCols + col) * 4;
-        data[i + 1] = 0;     // default stripes run along the court length
-        data[i + 2] = 128;
-        data[i + 3] = 255;
-        this._updateCellVisual(row, col);
-      }
-    }
     this.dirtTexture.needsUpdate = true;
-  }
-
-  _updateCellVisual(row, col) {
-    if (!this.dirtTexture) return;
-    const v = Math.round(Math.min(1, Math.max(0, this.dirtGrid[row][col])) * 255);
-    const data = this.dirtTexture.image.data;
-    const i = (row * this.gridCols + col) * 4;
-    if (data[i] !== v) {
-      data[i] = v;
-      this.dirtTexture.needsUpdate = true;
-    }
-  }
-
-  _setCellDirection(row, col, c2, s2) {
-    const data = this.dirtTexture.image.data;
-    const i = (row * this.gridCols + col) * 4;
-    const g = Math.round((c2 * 0.5 + 0.5) * 255);
-    const b = Math.round((s2 * 0.5 + 0.5) * 255);
-    if (data[i + 1] !== g || data[i + 2] !== b) {
-      data[i + 1] = g;
-      data[i + 2] = b;
-      this.dirtTexture.needsUpdate = true;
-    }
   }
 
   // ───────────────────────────── Build ─────────────────────────────
@@ -570,18 +874,8 @@ export class Court {
     this._halo = [];
     this._rand = seededRandom(hashStr(this.id));
 
-    // Pad extents (court-local). Hard: blue court + green surround; clay: slab + side buffers.
     const fenceZ = d / 2 + 0.5;
-    let padX0, padX1;
-    if (this.isClay) {
-      const buffer = SIZES.clayCourtBuffer || 0;
-      padX0 = -w / 2 - (this.config.adjacentLeft ? 0 : buffer);
-      padX1 = w / 2 + (this.config.adjacentRight ? 0 : buffer);
-    } else {
-      padX0 = -w / 2 - HARD_PAD_EXTRA_X;
-      padX1 = w / 2 + HARD_PAD_EXTRA_X;
-    }
-    this._pad = { x0: padX0, x1: padX1, z0: -fenceZ, z1: fenceZ };
+    const padX0 = this._pad.x0, padX1 = this._pad.x1;
 
     this._addSurface(center);
     this._addCurbs();
@@ -638,9 +932,9 @@ export class Court {
       uFlood: _shared.flood,
     };
     if (this.isClay) {
-      const w = SIZES.courtWidth, d = SIZES.courtDepth, cs = GAME.groomCellSize;
       uniforms.uDirtMap = { value: this.dirtTexture };
-      uniforms.uGrid = { value: new THREE.Vector4(-w / 2, -d / 2, this.gridCols * cs, this.gridRows * cs) };
+      uniforms.uGrid = { value: new THREE.Vector4(p.x0, p.z0, this.gridCols / MASK_RES, this.gridRows / MASK_RES) };
+      uniforms.uStripe = { value: new THREE.Vector2(15, GAME.groomBrushWidth || 3) };
     }
     this._surfaceUniforms = uniforms;
 

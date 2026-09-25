@@ -24,12 +24,25 @@ import {
   SaveSystem, SettingsStore, captureSaveData, applySaveData, createDefaultStats, createDefaultFlags,
 } from './systems/SaveSystem.js';
 import { PauseMenu } from './ui/PauseMenu.js';
+import { ShiftSystem } from './systems/ShiftSystem.js';
+import { ShiftReport } from './ui/ShiftReport.js';
+import { MissionMarkers } from './systems/MissionMarkers.js';
+import { buildWorldFacts, DETECTABLE_AREAS } from './systems/MissionValidation.js';
+import { ITEMS } from './systems/InventorySystem.js';
 
 /** Seconds of unpaused play between autosaves. */
 const AUTOSAVE_INTERVAL = 30;
 const ZERO_MOVE = Object.freeze({ x: 0, y: 0 });
 const GROOM_RATING_RANK = { needsWork: 1, good: 2, excellent: 3 };
 const TASK_LABELS = { cooler: 'Swap\nCooler', cups: 'Add\nCups', trash: 'Empty\nTrash' };
+/** Unmodified tuning values; rank perks scale from these (see Game._applyPerks). */
+const BASE_CART_MAX_SPEED = SIZES.cartMaxSpeed;
+const BASE_BRUSH_WIDTH = GAME.groomBrushWidth;
+/** Height (m) of the floating objective marker above each kind of area. */
+const MARKER_HEIGHT = { proShop: 3.6, patio: 3.4, garden: 4.2, equipmentShed: 4.6 };
+const MARKER_HEIGHT_COURT = 3.2;
+/** Groom result → how the client (Hank) feels about it (tip mood). */
+const GROOM_MOOD = { excellent: 'satisfied', good: 'neutral', needsWork: 'unsatisfied' };
 
 class Game {
   constructor() {
@@ -243,8 +256,17 @@ class Game {
     // Setup inventory
     this.inventory = new InventorySystem();
 
-    // Setup mission system
+    // Setup mission system (only missions whose every step works in this world are offered)
     this.missionSystem = new MissionSystem(this.missionData, this.dialogueSystem, this.inventory);
+    this.missionSystem.setWorldFacts(
+      buildWorldFacts({ map: this.mapData, npcs: this.npcData, missions: this.missionData, items: ITEMS }),
+      this._buildTargetPoints()
+    );
+    this.missionMarkers = new MissionMarkers(this.scene, this.missionSystem);
+
+    // Shift loop: clock-in, rush windows, closing duties, report card, pay / tips / rank
+    this.shift = new ShiftSystem(this.missionData.shift, this.npcData, this.weather, this.missionSystem);
+    this.weather.timeOfDay = this.shift.startHour; // a new game starts at clock-in (a save overrides)
 
     // Setup HUD
     this.hud = new HUD(this.weather, this.missionSystem, this.inventory);
@@ -273,16 +295,17 @@ class Game {
       // Stats (persisted)
       const courtIds = score.courtId ? score.courtId.split(',') : [];
       this._recordGroomStats(score, courtIds.length);
+      this.shift.recordGroom(score);
 
-      // Check if any active groom mission step matches
-      for (const mission of this.missionSystem.getActiveMissions()) {
+      // One session grooms every clay court: advance every active groom step it covered
+      const active = this.missionSystem.getActiveMissions().slice();
+      for (const mission of active) {
         const step = this.missionSystem.getCurrentStep(mission.id);
         if (step && step.action === 'groom' && courtIds.includes(step.target)) {
           this.missionSystem.advanceMissionStep(mission.id);
-          this.hud.updateTaskList();
-          break;
         }
       }
+      this.hud.updateTaskList();
       this.saveGame();
     };
 
@@ -307,25 +330,43 @@ class Game {
     // Register NPCs with mission system
     this.missionSystem.registerNPCs(this.npcs);
 
-    // Wire up radio dispatch
+    // Radio dispatch: a card with "On it" / "Busy" (Busy just passes, no penalty)
     this.missionSystem.onRadioDispatch = (mission) => {
+      this.sound.playRadioChirp();
       this.hud.showRadioDispatch(mission, () => {
+        const active = this.missionSystem.acceptDispatch();
+        if (active) {
+          this.sound.playNotification();
+          this.hud.showNotification(`New task: ${active.title}`, 3, 'radio');
+        } else {
+          this.hud.showNotification('Your task list is full. Finish something first!', 3, 'radio');
+        }
         this.hud.updateTaskList();
+      }, () => {
+        this.missionSystem.declineDispatch('busy');
+        this.hud.showNotification("Dispatch: no problem, we'll send someone else.", 3, 'radio');
       });
     };
-
-    // Stats + autosave on mission completion
-    this.missionSystem.onMissionComplete = () => {
-      this.stats.missionsCompleted++;
-      // Defer so the completing flow (dialogue / HUD updates) finishes first
-      setTimeout(() => this.saveGame(), 0);
+    this.missionSystem.onDispatchClosed = (mission, accepted, reason) => {
+      if (reason === 'timeout' || reason === 'offShift' || reason === 'newDay') {
+        if (this.hud.isRadioCardVisible('dispatch')) this.hud.hideRadioDispatch();
+        if (reason === 'timeout') this.hud.showNotification('Dispatch reassigned the call.', 2.5, 'radio');
+      }
     };
+    this.missionSystem.onMissionUpdate = () => {
+      if (this.hud) this.hud.updateTaskList();
+    };
+
+    // Completion: pay + tips, jingle, toast, confetti, stats, autosave
+    this.missionSystem.onMissionComplete = (mission) => this._onMissionComplete(mission);
     this.missionSystem.onReaction = (npcId, mood) => {
       const sat = this.stats.satisfaction;
       if (mood === 'satisfied') sat.satisfied++;
       else if (mood === 'unsatisfied') sat.unsatisfied++;
       else sat.neutral++;
+      this.shift.recordReaction(mood);
     };
+    this._wireShift();
 
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);
@@ -334,7 +375,9 @@ class Game {
     this._updateLoadingBar(90);
 
     // Restore saved progress (after the world, entities and systems exist)
-    this._loadGame();
+    const hadSave = this._loadGame();
+    if (!hadSave) this.shift.setState({ phase: 'preShift' });
+    this.hud.setWallet(this.shift.wallet, true);
 
     // Pause menu (+ on-screen pause button under the minimap)
     this._createPauseMenu();
@@ -389,11 +432,15 @@ class Game {
     this.hud.updateInventory();
     this.hud.updateTaskList();
 
-    // First run: tutorial after a short delay (game time). Returning players: welcome back.
+    // First run: tutorial after a short delay (game time); it ends by clocking in.
+    // Returning players: welcome back (and the clock-in card if the day hasn't started).
     if (!this.flags.tutorialSeen) {
       this._tutorialAt = performance.now() + 1000;
-    } else if (this.saveSystem.lastLoadStatus === 'ok' || this.saveSystem.lastLoadStatus === 'migrated') {
-      this.hud.showNotification(`Welcome back! Day ${this.weather.day || 1}, ${this.weather.getTimeString()}`, 3);
+    } else {
+      if (this.saveSystem.lastLoadStatus === 'ok' || this.saveSystem.lastLoadStatus === 'migrated') {
+        this.hud.showNotification(`Welcome back! Day ${this.weather.day || 1}, ${this.weather.getTimeString()}`, 3);
+      }
+      this.shift.promptClockIn();
     }
 
     // Start game loop
@@ -512,14 +559,160 @@ class Game {
   }
 
   _seedNPCRequests() {
-    const completed = this.missionSystem.completedMissionIds;
     for (const mission of this.missionData.missions) {
-      if (mission.source !== 'random' || !mission.triggerNpc || completed.has(mission.id)) continue;
-      if (Math.random() < 0.5) {
-        const npc = this.npcs.find(n => n.id === mission.triggerNpc);
-        if (npc) npc.setHasRequest(true);
+      if (mission.source !== 'random' || !mission.triggerNpc) continue;
+      if (Math.random() < 0.5) this.missionSystem.offerEncounter(mission.triggerNpc);
+    }
+  }
+
+  /**
+   * Static marker / pin points for every area a mission step can target:
+   * waypoint `<id>_marker`, `<id>_center` or `<id>`, else the area's centre.
+   */
+  _buildTargetPoints() {
+    const points = new Map();
+    const map = this.mapData;
+    const wps = map.waypoints || {};
+    const areas = map.areas || {};
+    const add = (id, fallback, h) => {
+      const wp = wps[id + '_marker'] || wps[id + '_center'] || wps[id] || fallback;
+      if (wp && Number.isFinite(wp.x) && Number.isFinite(wp.z)) points.set(id, { x: wp.x, z: wp.z, h });
+    };
+    for (const c of areas.courts || []) add(c.id, c.center, MARKER_HEIGHT_COURT);
+    for (const id of DETECTABLE_AREAS) if (areas[id]) add(id, areas[id].center, MARKER_HEIGHT[id] || 3.4);
+    return points;
+  }
+
+  // ───────────────────────────── shift loop ─────────────────────────────
+
+  _wireShift() {
+    const shift = this.shift;
+    shift.getCourtQuality = () => {
+      const courts = this.courtMaintenance ? this.courtMaintenance.getState().courts : null;
+      const vals = courts ? Object.values(courts) : [];
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+    shift.onClockInPrompt = (day) => {
+      this.sound.playRadioChirp();
+      this.hud.showRadioCard({
+        kind: 'clockIn',
+        channel: shift.data.manager || 'Club Manager',
+        title: `Good morning! Day ${day} starts now.`,
+        text: 'Shift runs 7 AM to 7 PM. Opening checklist first.',
+        actions: [{ label: 'Clock in', primary: true, onClick: () => this.clockIn() }],
+      });
+    };
+    shift.onClockedIn = (day) => {
+      if (this.hud.isRadioCardVisible('clockIn')) this.hud.hideRadioDispatch();
+      this.sound.playNotification();
+      this.hud.showNotification(`Clocked in for Day ${day}. Opening checklist added to your tasks.`, 4, 'check');
+      this.hud.updateTaskList();
+    };
+    shift.onRushChange = (w) => {
+      if (w) this.hud.showNotification(`${w.label || 'Rush hour'}: the radio is about to get busy!`, 4, 'radio');
+    };
+    shift.onClosingTime = () => {
+      const closing = shift.data.closingMission ? this.missionSystem.startShiftMission(shift.data.closingMission) : null;
+      this.sound.playRadioChirp();
+      this.hud.showRadioCard({
+        kind: 'info',
+        channel: shift.data.manager || 'Club Manager',
+        title: 'Closing time in 30 minutes.',
+        text: closing ? 'Closing duties are on your task list.' : 'Wrap up your tasks.',
+        actions: [{ label: 'Got it', primary: true, onClick: () => {} }],
+      });
+      this.hud.updateTaskList();
+    };
+    shift.onShiftEnd = (report) => {
+      if (this.hud.isRadioCardVisible()) this.hud.hideRadioDispatch();
+      this.hud.updateTaskList();
+      this.hud.setWallet(shift.wallet, true);
+      this.sound.playGroomComplete();
+      this.pause('report');
+      this.shiftReport.show(report);
+      if (report.rankUp) this.sound.playRankUp();
+      this.saveGame();
+    };
+    shift.onEarn = ({ amount, kind, npcId }) => {
+      this.hud.setWallet(shift.wallet);
+      if (kind === 'tip') {
+        this.stats.tips += amount;
+        const npc = npcId ? this.npcs.find(n => n.id === npcId) : null;
+        const scr = npc && npc.mesh ? this._toScreen(npc.mesh.position, 2.3) : null;
+        this.hud.showMoneyFloat(amount, scr ? scr.x : NaN, scr ? scr.y : NaN, 'tip');
+        this.sound.playCoin();
+      } else if (kind === 'task' || kind === 'bonus') {
+        this.hud.showMoneyFloat(amount, NaN, NaN, 'task');
+      }
+    };
+    shift.onRankUp = (rank) => {
+      this.sound.playRankUp();
+      this.hud.celebrate();
+      this.hud.showNotification(`Promoted to ${rank.title}! ${rank.unlock || ''}`.trim(), 5, 'sparkle');
+    };
+    shift.onPerks = (perks) => this._applyPerks(perks);
+
+    this.shiftReport = new ShiftReport({ onNextDay: () => this.startNextDay() });
+  }
+
+  /** Clock in (clock-in card, or the end of the first-day tutorial). */
+  clockIn() {
+    if (this.shift.clockIn()) this.saveGame();
+  }
+
+  /** Report card "Next day": 7 AM tomorrow, clock-in card, autosave. */
+  startNextDay() {
+    this.shiftReport.hide();
+    this.shift.nextDay();
+    this.hud.updateTaskList();
+    this.hud.setWallet(this.shift.wallet, true);
+    if (this.paused && this.pauseReason === 'report') this.resume();
+    this.saveGame();
+  }
+
+  /** Rank perks: cart top speed, brush width, cap colour (tips are applied in ShiftSystem). */
+  _applyPerks(perks) {
+    if (!perks) return;
+    SIZES.cartMaxSpeed = BASE_CART_MAX_SPEED * (1 + (perks.cartSpeed || 0));
+    GAME.groomBrushWidth = BASE_BRUSH_WIDTH + (perks.brushWidth || 0);
+    if (perks.capColor && this.player && typeof this.player.setCapColor === 'function') {
+      try { this.player.setCapColor(perks.capColor); } catch (e) { /* cosmetic only */ }
+    }
+  }
+
+  _onMissionComplete(mission) {
+    this.stats.missionsCompleted++;
+    // Moods for tipping: choices set them; an errand's client is pleased it got done;
+    // a maintenance client judges the groom.
+    const moods = { ...(mission.reactions || {}) };
+    const client = mission.client ? this.missionSystem.npcsMap.get(mission.client) : null;
+    if (client && !moods[client.id]) {
+      let mood = 'satisfied';
+      if (mission.type === 'maintenance' && this.shift.shift.lastGroomRating) mood = GROOM_MOOD[this.shift.shift.lastGroomRating] || 'neutral';
+      moods[client.id] = mood;
+      if (mission.source !== 'shift') {
+        client.mood = mood;
+        try { client.showReaction(mood === 'satisfied' ? '\uD83D\uDE0A' : mood === 'unsatisfied' ? '\uD83D\uDE24' : '\uD83D\uDC4D'); } catch (e) { /* ignore */ }
       }
     }
+    const result = this.shift.recordMissionComplete(mission, this.missionSystem.npcsMap, moods);
+    this.sound.playMissionComplete();
+    this.hud.celebrate();
+    const pay = result.pay ? ` +$${result.pay}` : '';
+    this.hud.showNotification(`Task complete: ${mission.title}${pay}`, 3.5, 'check');
+    this.hud.updateTaskList();
+    // Defer so the completing flow (dialogue / HUD updates) finishes first
+    setTimeout(() => this.saveGame(), 0);
+  }
+
+  /** World point (+ lift) → CSS px on screen, or null when behind the camera. Reuses a temp. */
+  _toScreen(pos, lift = 0) {
+    const v = this._tmpPos.set(pos.x, pos.y + lift, pos.z).project(this.camera);
+    if (v.z > 1) return null;
+    const out = this._scr || (this._scr = { x: 0, y: 0 });
+    out.x = (v.x + 1) / 2 * window.innerWidth;
+    out.y = (1 - v.y) / 2 * window.innerHeight;
+    return out;
   }
 
   _handleTap(screenX, screenY) {
@@ -771,6 +964,8 @@ class Game {
           this.sound.playPickup();
           this.hud.showNotification(`Picked up: ${item.name}`);
           this.hud.updateTaskList();
+        } else if (!this.inventory.canPickup()) {
+          this.hud.showNotification('Your hands are full. Deliver something first!', 3, 'pickup');
         }
         break;
       }
@@ -891,15 +1086,20 @@ class Game {
       },
       {
         speaker: 'Greenbriar Staff Radio',
-        text: "That's the basics! Explore the club, help the members, and keep those courts looking sharp. Good luck!",
+        text: "Your shift runs 7 AM to 7 PM. You earn a wage plus pay for every task, and happy members tip. Do well and you'll climb from Rookie Attendant to Head of Grounds.",
+      },
+      {
+        speaker: 'Greenbriar Staff Radio',
+        text: "I'm clocking you in now. Start with the opening checklist on your task list. Good luck!",
       },
     ];
 
     let stepIndex = 0;
     const showNext = () => {
       if (stepIndex >= steps.length) {
-        // Never replay the intro once it has been read through
+        // Never replay the intro once it has been read through; the first shift starts now
         this.flags.tutorialSeen = true;
+        if (this.shift.phase === 'preShift') this.shift.clockIn();
         this.saveGame();
         return;
       }
@@ -1102,8 +1302,10 @@ class Game {
       if (progress) this.hud.updateGroomingHUD(progress);
     }
 
-    // Update mission system
+    // Update mission system, objective markers and the shift clock
     this.missionSystem.update(dt, playerWorldPos);
+    this.missionMarkers.update(dt, playerWorldPos, this.camera.position);
+    this.shift.update(dt, !this.dialogueSystem.isActive() && !this.courtMaintenance.isGrooming());
 
     // Update HUD
     this.hud.updateTimeWeather();
@@ -1132,12 +1334,26 @@ class Game {
         courtsGroomed: this.stats.courtsGroomed,
         bestGroomRating: this.stats.bestGroomRating,
         canSave: !this._saveFailed,
+        wallet: this.shift.wallet,
+        ...this._rankSummary(),
       }),
       getAnchor: () => {
         const c = this.hud && this.hud.miniMapCanvas;
         return this.hud && this.hud.miniMapContainer ? this.hud.miniMapContainer : (c ? c.parentElement : null);
       },
     });
+  }
+
+  _rankSummary() {
+    const p = this.shift.getRankProgress();
+    return {
+      rankTitle: p.rank.title,
+      rankFrac: p.frac,
+      rankPoints: p.points,
+      nextRankTitle: p.next ? p.next.title : null,
+      nextRankPoints: p.next ? p.next.points : null,
+      onShift: this.shift.isOnShift(),
+    };
   }
 
   isPaused() {
@@ -1156,7 +1372,8 @@ class Game {
     this.input.setEnabled(false);
     this.sound.setPaused(true);
     if (this.dialogueBox && this.dialogueBox.setPaused) this.dialogueBox.setPaused(true);
-    if (this.pauseMenu) this.pauseMenu.open();
+    // The report card is its own modal; everything else opens the pause menu
+    if (this.pauseMenu && reason !== 'report') this.pauseMenu.open();
   }
 
   resume() {
@@ -1175,6 +1392,7 @@ class Game {
 
   togglePause() {
     if (!this._ready) return;
+    if (this.pauseReason === 'report') return; // the report card's "Next day" resumes
     if (this.paused) {
       if (this.pauseMenu && this.pauseMenu.handleEscape()) return; // stepped back from a sub-view
       this.resume();

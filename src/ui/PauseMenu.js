@@ -11,7 +11,8 @@ import { injectTheme, THEME } from './theme.js';
  *   onReset(),                   // confirmed reset
  *   settings,                    // SettingsStore (volume, muted, cameraSensitivity)
  *   getQuality() -> tier, setQuality(tier),
- *   getSummary() -> { day, time, weatherIcon, weather, missionsCompleted, courtsGroomed, bestGroomRating },
+ *   getSummary() -> { day, time, weatherIcon, weather, missionsCompleted, courtsGroomed, bestGroomRating,
+ *                     wallet?, rankTitle?, rankFrac?, rankPoints?, nextRankTitle?, nextRankPoints? },
  *   getAudioStatus() -> 'ready' | 'pending' | 'unavailable',
  *   getAnchor() -> Element|null  // element the pause button sits under (the minimap)
  * })
@@ -104,6 +105,20 @@ const CSS = `
 }
 .ccp-stat b { display: block; font-family: var(--cc-font-display); font-size: 19px; color: var(--cc-cream); font-weight: 600; }
 .ccp-stat span { display: block; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--cc-cream-dim); margin-top: 2px; }
+
+.ccp-career {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(217, 164, 65, 0.1); border: 1px solid rgba(217, 164, 65, 0.35);
+  border-radius: 10px; padding: 9px 12px; margin: 0 0 4px;
+}
+.ccp-career__wallet { flex: none; text-align: center; min-width: 64px; }
+.ccp-career__wallet b { display: block; font-family: var(--cc-font-display); font-size: 20px; color: #ffe39a; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ccp-career__wallet span { display: block; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--cc-cream-dim); }
+.ccp-career__rank { flex: 1; min-width: 0; }
+.ccp-career__title { font-family: var(--cc-font-display); font-size: 15px; font-weight: 600; color: var(--cc-cream); }
+.ccp-career__bar { height: 6px; border-radius: 999px; background: rgba(244, 232, 193, 0.12); overflow: hidden; margin: 5px 0 3px; }
+.ccp-career__bar i { display: block; height: 100%; width: 0; background: var(--cc-gold); border-radius: inherit; }
+.ccp-career__next { font-size: 11.5px; color: var(--cc-cream-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .ccp-btn { width: 100%; min-height: 52px; font-size: 16px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .ccp-btn svg { width: 18px; height: 18px; flex: none; }
@@ -370,6 +385,22 @@ export class PauseMenu {
       rating: stats.querySelector('[data-ref="rating"]'),
     };
 
+    // Career: wallet + staff rank progress (shift loop)
+    const career = el('div', 'ccp-career');
+    career.innerHTML = `
+      <div class="ccp-career__wallet"><b data-ref="wallet">$0</b><span>Wallet</span></div>
+      <div class="ccp-career__rank">
+        <div class="ccp-career__title" data-ref="rank">Rookie Attendant</div>
+        <div class="ccp-career__bar"><i data-ref="rankBar"></i></div>
+        <div class="ccp-career__next" data-ref="rankNext"></div>
+      </div>`;
+    info.appendChild(career);
+    this.careerEl = career;
+    this.statEls.wallet = career.querySelector('[data-ref="wallet"]');
+    this.statEls.rank = career.querySelector('[data-ref="rank"]');
+    this.statEls.rankBar = career.querySelector('[data-ref="rankBar"]');
+    this.statEls.rankNext = career.querySelector('[data-ref="rankNext"]');
+
     this.resumeBtn = this._button(`${ICONS.play}<span>Resume</span>`, 'cc-btn cc-btn--primary ccp-btn', () => {
       if (this.opts.onResume) this.opts.onResume();
     });
@@ -587,6 +618,16 @@ export class PauseMenu {
     this.statEls.courts.textContent = String(s.courtsGroomed || 0);
     this.statEls.rating.textContent = s.bestGroomRating ? (RATING_LABEL[s.bestGroomRating] || '—') : '—';
     this.statEls.rating.title = s.bestGroomRating || 'No grooming yet';
+    const hasCareer = typeof s.wallet === 'number' && !!s.rankTitle;
+    this.careerEl.style.display = hasCareer ? '' : 'none';
+    if (hasCareer) {
+      this.statEls.wallet.textContent = '$' + Math.round(s.wallet).toLocaleString('en-US');
+      this.statEls.rank.textContent = s.rankTitle;
+      this.statEls.rankBar.style.width = Math.round((s.rankFrac || 0) * 100) + '%';
+      this.statEls.rankNext.textContent = s.nextRankTitle
+        ? `${s.rankPoints} / ${s.nextRankPoints} pts to ${s.nextRankTitle}`
+        : `${s.rankPoints} pts · top rank`;
+    }
     if (this.saveHintEl) {
       this.saveHintEl.textContent = s.canSave === false
         ? 'Esc or P to resume · saving is unavailable in this browser'

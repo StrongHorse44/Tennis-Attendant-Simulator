@@ -226,6 +226,11 @@ export const GAME = {
   courtDegradeAmount: 0.05,   // how much dirtiness accumulates per tick (0-1)
   groomBrushWidth: 3,         // brush sweep width in world units (half each side)
   groomScoreThreshold: 0.85,  // coverage needed for "good" rating
+  groomMaskRes: 4,            // paint-mask cells per world unit (4 → 0.25 m cells, 64×112 over the playing slab)
+  groomBrushDepth: 0.55,      // depth of the brush footprint along the direction of travel (world units)
+  groomPassClean: 0.9,        // dirt removed by one full pass of the brush at a good speed
+  groomTowLength: 1.75,       // hitch pivot → brush centre (world units); the towed brush swings on this bar
+  groomTowMaxAngle: 1.2,      // radians: tow bar can't swing further than this from the cart's axis
 
   // Proximity feedback during grooming (distances are brush-center-to-fence/net)
   // Brush is 3 units wide, so brush edge is ~1.5 units closer than center
@@ -236,6 +241,15 @@ export const GAME = {
 
   // Courtside tasks
   coolerInteractRange: 2.5,   // how close cart must be to interact with cooler/bin
+
+  // Shift loop (ShiftSystem). 12 in-game hours at 24 / dayDurationSeconds h/s ≈ 15 real minutes.
+  // Wages, rush windows, ranks and checklists are data in missions.json → "shift".
+  shiftStartHour: 7,          // clock-in (the next day starts here; the night is skipped)
+  shiftClosingHour: 18.5,     // closing duties are radioed in
+  shiftEndHour: 19,           // clock-out → end-of-shift report card
+  rushDispatchScale: 2.25,    // radio dispatch timer runs this much faster inside rush windows
+  dispatchCardTimeout: 25,    // seconds before an unanswered dispatch card counts as "Busy"
+  dispatchDeclineCooldown: 30,// seconds until the next dispatch after "Busy"
 };
 
 // === Directions for waypoints ===

@@ -138,48 +138,72 @@ function buildSteeringGeo() {
   ]);
 }
 
-function buildBrushGeos() {
+// ── Towed drag brush (world units, NOT scaled with the cart) ──
+// Rig origin = ground point under the hitch pivot; +Z runs back from the hitch toward the brush.
+const HITCH_LOCAL_Z = 1.42;   // cart-local (unscaled) hitch position behind the cart centre
+const HITCH_LOCAL_Y = 0.42;
+const BRUSH_W = 3.0;          // bristle width (matches GAME.groomBrushWidth)
+const FRAME_Z0 = -0.3;        // frame front / rear rails relative to the brush centre
+const FRAME_Z1 = 0.3;
+const RAIL_Y = 0.16;
+const MAT_LEN = 0.5;          // trailing drag mat depth
+const MAT_HINGE = 0.36;       // mat hinge → mat centre (the mat trails on its own pivot)
+
+function buildBrushGeos(towLen) {
   const galv = 0x9EA4AA;
+  const zc = towLen;
+  const zf = zc + FRAME_Z0, zr = zc + FRAME_Z1;
+  const hy = HITCH_LOCAL_Y * SIZES.cartScale;
+  const hw = BRUSH_W / 2 + 0.05;
+  const apex = [0, 0.26, 0.55];
   const metal = [
-    span(0.03, [0, 0.42, 1.42], [-1.0, 0.2, 3.12], galv),
-    span(0.03, [0, 0.42, 1.42], [1.0, 0.2, 3.12], galv),
-    span(0.03, [0, 0.42, 1.42], [0, 0.21, 3.12], galv),
-    P(sphereGeo(0.055, 10, 8), 0, 0.44, 1.41, 0xC4C8CC),                                    // hitch ball
-    P(roundedBox(0.14, 0.08, 0.14, 0.02), 0, 0.42, 1.44, 0x5A5F64),                         // coupler
-    P(roundedBox(2.66, 0.06, 0.06, 0.02), 0, 0.2, 3.15, galv),                              // front rail
-    P(roundedBox(2.66, 0.06, 0.06, 0.02), 0, 0.2, 3.86, galv),                              // rear rail
-    P(roundedBox(0.06, 0.06, 0.77, 0.02), -1.3, 0.2, 3.5, galv),
-    P(roundedBox(0.06, 0.06, 0.77, 0.02), 1.3, 0.2, 3.5, galv),
-    span(0.018, [-1.3, 0.2, 3.15], [-0.4, 0.2, 3.86], galv),
-    span(0.018, [1.3, 0.2, 3.15], [0.4, 0.2, 3.86], galv),
-    span(0.018, [-0.4, 0.2, 3.15], [0.4, 0.2, 3.86], galv),
+    P(roundedBox(0.12, 0.08, 0.14, 0.02), 0, hy, 0.02, 0x5A5F64),                        // coupler
+    P(sphereGeo(0.05, 10, 8), 0, hy + 0.02, 0, 0xC4C8CC),                                 // hitch ball
+    span(0.032, [0, hy, 0.06], apex, galv),                                               // tongue
+    span(0.028, apex, [-hw * 0.92, RAIL_Y, zf], galv),                                     // A-frame
+    span(0.028, apex, [hw * 0.92, RAIL_Y, zf], galv),
+    span(0.024, apex, [0, RAIL_Y, zf], galv),
+    P(roundedBox(hw * 2, 0.06, 0.06, 0.02), 0, RAIL_Y, zf, galv),                         // front rail
+    P(roundedBox(hw * 2, 0.06, 0.06, 0.02), 0, RAIL_Y, zr, galv),                         // rear rail
+    P(roundedBox(0.06, 0.06, zr - zf, 0.02), -hw, RAIL_Y, zc, galv),
+    P(roundedBox(0.06, 0.06, zr - zf, 0.02), hw, RAIL_Y, zc, galv),
+    span(0.016, [-hw, RAIL_Y, zf], [-0.5, RAIL_Y, zr], galv),
+    span(0.016, [hw, RAIL_Y, zf], [0.5, RAIL_Y, zr], galv),
+    span(0.016, [-0.5, RAIL_Y, zf], [0.5, RAIL_Y, zr], galv),
   ];
   for (const sx of [-1, 1]) {
-    // Chains to the trailing drag mat
-    metal.push(span(0.012, [sx * 1.1, 0.2, 3.87], [sx * 1.1, 0.05, 3.97], 0x4A4E52, 5));
+    // chains down to the trailing drag mat
+    metal.push(span(0.011, [sx * 1.2, RAIL_Y, zr + 0.03], [sx * 1.2, 0.035, zr + 0.14], 0x4A4E52, 5));
   }
 
   const soft = [
-    P(roundedBox(2.52, 0.06, 0.4, 0.015), 0, 0.15, 3.5, 0x2D5A3D),
-    P(roundedBox(2.4, 0.03, 0.2, 0.01), 0, 0.19, 3.5, 0x8A6440),                         // brush board
-    P(roundedBox(0.08, 0.16, 0.64, 0.02), -1.29, 0.13, 3.5, 0xE8732A),                      // safety end caps
-    P(roundedBox(0.08, 0.16, 0.64, 0.02), 1.29, 0.13, 3.5, 0xE8732A),
-    P(roundedBox(2.45, 0.012, 0.55, 0.005), 0, 0.04, 4.22, 0x5B5347),                       // drag mat
+    P(roundedBox(BRUSH_W + 0.02, 0.05, 0.5, 0.015), 0, 0.14, zc, 0x2D5A3D),               // brush board
+    P(roundedBox(BRUSH_W - 0.1, 0.025, 0.18, 0.01), 0, 0.175, zc, 0x8A6440),
+    P(roundedBox(0.08, 0.17, 0.66, 0.02), -hw - 0.04, 0.12, zc, 0xE8732A),                // safety end caps
+    P(roundedBox(0.08, 0.17, 0.66, 0.02), hw + 0.04, 0.12, zc, 0xE8732A),
   ];
-  for (let i = 0; i < 6; i++) {
-    soft.push(P(roundedBox(2.45, 0.02, 0.02, 0.005), 0, 0.042, 3.99 + i * 0.09, 0x3F3931));
-  }
-  // Bristle tufts: 5 rows x 26, slightly jittered straw colours
-  const rowsZ = [3.26, 3.38, 3.5, 3.62, 3.74];
-  for (let r = 0; r < rowsZ.length; r++) {
-    for (let i = 0; i < 26; i++) {
-      const x = -1.2 + (i / 25) * 2.4 + (r % 2) * 0.045;
+  // Bristle tufts: 5 rows x 32, slightly jittered straw colours
+  const rows = 5, per = 32;
+  for (let r = 0; r < rows; r++) {
+    const z = zc - 0.2 + r * 0.1;
+    for (let i = 0; i < per; i++) {
+      const x = -BRUSH_W / 2 + 0.06 + (i / (per - 1)) * (BRUSH_W - 0.12) + (r % 2) * 0.035;
       const hsh = hashString(`b${r}:${i}`);
       const col = hsh < 0.33 ? 0xC9A66B : hsh < 0.66 ? 0xB38E55 : 0xD6B67C;
-      soft.push(P(boxGeo(0.075, 0.13, 0.075), x, 0.07, rowsZ[r], col, (hsh - 0.5) * 0.25, 0, (hsh - 0.5) * 0.2));
+      soft.push(P(boxGeo(0.07, 0.12, 0.06), x, 0.06, z, col, (hsh - 0.5) * 0.3, 0, (hsh - 0.5) * 0.2));
     }
   }
   return { metal: mergeParts(metal), soft: mergeParts(soft) };
+}
+
+/** Drag mat (own hinge): origin at the hinge on the ground, trailing toward +Z. */
+function buildMatGeo() {
+  const parts = [P(roundedBox(BRUSH_W, 0.014, MAT_LEN, 0.005), 0, 0.012, MAT_HINGE, 0x5B5347)];
+  for (let i = 0; i < 6; i++) {
+    parts.push(P(roundedBox(BRUSH_W, 0.02, 0.02, 0.005), 0, 0.02, MAT_HINGE - MAT_LEN / 2 + 0.05 + i * 0.08, 0x3F3931));
+  }
+  parts.push(P(roundedBox(BRUSH_W + 0.04, 0.03, 0.04, 0.01), 0, 0.02, MAT_HINGE - MAT_LEN / 2, 0x4A4E52));
+  return mergeParts(parts);
 }
 
 
@@ -209,7 +233,7 @@ class BrushDust {
     const uniforms = {
       uColor: { value: new THREE.Color(0xDDAA82) },
       uScale: { value: 400 },
-      uAlpha: { value: 0.5 },
+      uAlpha: { value: 0.34 },
     };
     this.material = new THREE.ShaderMaterial({
       uniforms,
@@ -222,7 +246,7 @@ class BrushDust {
         void main() {
           vLife = aLife; vSeed = aSeed;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          float size = (0.35 + aLife * 0.9) * (0.8 + aSeed * 0.5);
+          float size = (0.25 + aLife * 0.65) * (0.8 + aSeed * 0.5);
           gl_PointSize = aLife >= 1.0 ? 0.0 : size * uScale / max(0.1, -mv.z);
           gl_Position = projectionMatrix * mv;
         }`,
@@ -251,16 +275,20 @@ class BrushDust {
     scene.add(this.points);
   }
 
-  /** @param {THREE.Matrix4} brushMatrix cart matrixWorld; emitRate particles/s (0 = none). */
-  update(dt, cartMatrix, emitRate) {
+  /**
+   * @param {THREE.Matrix4} rigMatrix towed-brush rig matrixWorld (world units, +Z = back)
+   * @param {number} emitRate particles/s (0 = none)
+   * @param {number} zBack rig-local Z of the brush's trailing edge
+   */
+  update(dt, rigMatrix, emitRate, zBack = 2) {
     if (emitRate > 0) {
       this.acc += dt * emitRate;
       while (this.acc >= 1) {
         this.acc -= 1;
         const i = this.next;
         this.next = (this.next + 1) % DUST_N;
-        // Random spot along the trailing edge of the bristles (cart-local, unscaled)
-        _dv.set((Math.random() - 0.5) * 2.4, 0.08, 3.8 + Math.random() * 0.25).applyMatrix4(cartMatrix);
+        // Random spot along the trailing edge of the bristles / drag mat
+        _dv.set((Math.random() - 0.5) * (BRUSH_W - 0.2), 0.08, zBack + Math.random() * 0.35).applyMatrix4(rigMatrix);
         this.pos[i * 3] = _dv.x; this.pos[i * 3 + 1] = _dv.y; this.pos[i * 3 + 2] = _dv.z;
         this.vel[i * 3] = (Math.random() - 0.5) * 0.5;
         this.vel[i * 3 + 1] = 0.25 + Math.random() * 0.35;
@@ -294,6 +322,7 @@ const _wq = new THREE.Quaternion();
 const _we = new THREE.Euler(0, 0, 0, 'YXZ');
 const _ws = new THREE.Vector3(1, 1, 1);
 const _fwd = new CANNON.Vec3();
+const _hv = new THREE.Vector3();
 
 /**
  * GolfCart - drivable cart with physics
@@ -316,6 +345,19 @@ export class GolfCart {
      *  (e.g. main can set `cart.brushDust = courtMaintenance.isGrooming()` so grass stays clean). */
     this.brushDust = null;
     this._dust = null;
+    // Towed brush (trailer kinematics, visual only): hitch pivot → brush centre on a rigid bar
+    this.towLength = GAME.groomTowLength || 1.75;
+    this.brushRig = null;       // world-space group, origin under the hitch, rotated to the bar
+    this.matRig = null;         // trailing drag mat on its own hinge
+    this.brushState = {
+      x: 0, z: 0,               // brush centre (world)
+      hx: 0, hz: -1,            // pull direction (unit, toward the hitch)
+      speed: 0,                 // brush centre speed (units/s)
+      angle: 0,                 // bar angle relative to the cart axis (radians, + = swung right)
+      groundY: 0,
+    };
+    this._hitch = { x: 0, z: 0, valid: false };
+    this._mat = { x: 0, z: 0 };
 
     this._wheelSpin = 0;
     this._lastLight = -1;
@@ -428,6 +470,37 @@ export class GolfCart {
     this.mesh.position.set(pos.x, pos.y, pos.z);
     this.scene.add(this.mesh);
     this._updateLights(0);
+    this._createBrushRig();
+  }
+
+  /** Towed brush meshes: built once (hidden) so their shaders precompile with the scene. */
+  _createBrushRig() {
+    const geos = getGeometry(`cart-brush|${this.towLength}`, () => buildBrushGeos(this.towLength));
+    const rig = new THREE.Group();
+    rig.name = 'DragBrush';
+    const bob = new THREE.Group();
+    const metal = new THREE.Mesh(geos.metal, mat(0xffffff, { vertexColors: true, roughness: 0.4, metalness: 0.35, name: 'brushMetal' }));
+    const soft = new THREE.Mesh(geos.soft, mat(0xffffff, { vertexColors: true, roughness: 0.9, name: 'brushSoft' }));
+    metal.castShadow = true;
+    soft.castShadow = true;
+    soft.receiveShadow = true;
+    bob.add(metal, soft);
+    rig.add(bob);
+    rig.visible = false;
+    this.scene.add(rig);
+    this.brushRig = rig;
+    this._brushBob = bob;
+
+    const matRig = new THREE.Group();
+    matRig.name = 'DragMat';
+    const matMesh = new THREE.Mesh(getGeometry('cart-drag-mat', buildMatGeo),
+      mat(0xffffff, { vertexColors: true, roughness: 0.9, name: 'brushSoft' }));
+    matMesh.receiveShadow = true;
+    matRig.add(matMesh);
+    matRig.visible = false;
+    this.scene.add(matRig);
+    this.matRig = matRig;
+    this._brushBlob = -1;
   }
 
   _createPhysics(pos) {
@@ -462,6 +535,8 @@ export class GolfCart {
       this.steerAngle += (0 - this.steerAngle) * Math.min(1, dt * 3);
       this._animate(dt);
       this._syncMesh();
+      this._updateBrush(dt);
+      this._updateDust(dt);
       return;
     }
 
@@ -515,6 +590,8 @@ export class GolfCart {
 
     this._animate(dt);
     this._syncMesh();
+    this._updateBrush(dt);
+    this._updateDust(dt);
   }
 
   /** Visual-only animation: wheels, steering wheel, body roll/pitch, brush judder, lights. */
@@ -539,18 +616,6 @@ export class GolfCart {
     this.bodyGroup.rotation.set(this._pitch, 0, this._roll);
     this.bodyGroup.position.y = bump;
 
-    const absSpeed = Math.abs(this.currentSpeed);
-    let dustOn = this.brushDust === null ? this.hasBrush : (this.brushDust && this.hasBrush);
-    if (dustOn && this.brushDust === null && absSpeed > 1.0) dustOn = this._brushOverClay();
-    const rate = dustOn && absSpeed > 1.0 ? 10 + absSpeed * 6 : 0;
-    if (rate > 0 && !this._dust) this._dust = new BrushDust(this.scene);
-    if (this._dust) this._dust.update(dt, this.mesh.matrixWorld, rate);
-
-    if (this.brushMesh) {
-      const sp = Math.min(1, Math.abs(this.currentSpeed) / 5);
-      this.brushMesh.position.y = Math.abs(Math.sin(this._t * 23)) * 0.015 * sp;
-      this.brushMesh.rotation.z = Math.sin(this._t * 9.3) * 0.008 * sp;
-    }
 
     const night = Math.max(EnvState.nightFactor, EnvState.lampFactor * 0.8);
     this._updateLights(night * (this.occupied ? 1 : 0.2));
@@ -561,14 +626,118 @@ export class GolfCart {
     this._clayBounds = Array.isArray(boxes) ? boxes : null;
   }
 
-  /** Auto dust gating: is the brush over a clay court (bounds from setClayAreas)? */
-  _brushOverClay() {
+  /** Is a world point over a clay court (bounds from setClayAreas)? */
+  _overClay(x, z) {
     if (!this._clayBounds || this._clayBounds.length === 0) return false;
-    _dv.set(0, 0, 3.5).applyMatrix4(this.mesh.matrixWorld);
     for (const bx of this._clayBounds) {
-      if (_dv.x >= bx.min.x && _dv.x <= bx.max.x && _dv.z >= bx.min.z && _dv.z <= bx.max.z) return true;
+      if (x >= bx.min.x && x <= bx.max.x && z >= bx.min.z && z <= bx.max.z) return true;
     }
     return false;
+  }
+
+  /** Auto dust gating: is the brush over a clay court? */
+  _brushOverClay() {
+    return this._overClay(this.brushState.x, this.brushState.z);
+  }
+
+  /**
+   * Trailer kinematics for the towed brush (visual + grooming footprint, no physics):
+   * the brush centre is dragged along a rigid bar of `towLength` behind the hitch, so it
+   * swings wide and cuts corners on turns. The drag mat trails the brush on its own hinge.
+   */
+  _updateBrush(dt) {
+    if (!this.hasBrush || !this.brushRig) return;
+    const s = SIZES.cartScale;
+    const bs = this.brushState;
+    const L = this.towLength;
+    // Hitch point (world): cart-local (0, y, HITCH_LOCAL_Z) through the cart's pose
+    _hv.set(0, 0, HITCH_LOCAL_Z * s).applyQuaternion(this.mesh.quaternion);
+    const hx = this.mesh.position.x + _hv.x, hz = this.mesh.position.z + _hv.z;
+    // Cart backward axis on the ground
+    let cbx = _hv.x, cbz = _hv.z;
+    const cbl = Math.hypot(cbx, cbz) || 1;
+    cbx /= cbl; cbz /= cbl;
+
+    const h = this._hitch;
+    const jump = !h.valid || Math.hypot(hx - h.x, hz - h.z) > 2.5;
+    let dx, dz;
+    if (jump) {
+      dx = cbx; dz = cbz;                       // teleport / attach: straight behind
+    } else {
+      dx = bs.x - hx; dz = bs.z - hz;           // pulled along the bar from where it was
+      const l = Math.hypot(dx, dz);
+      if (l < 1e-5) { dx = cbx; dz = cbz; } else { dx /= l; dz /= l; }
+    }
+    // Hitch stop: the bar can't swing past towMaxAngle from the cart axis
+    let ang = Math.atan2(cbx * dz - cbz * dx, cbx * dx + cbz * dz);
+    const maxA = GAME.groomTowMaxAngle || 1.2;
+    if (ang > maxA || ang < -maxA) {
+      ang = ang > 0 ? maxA : -maxA;
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      dx = cbx * c - cbz * sn;
+      dz = cbx * sn + cbz * c;
+    }
+    const nx = hx + dx * L, nz = hz + dz * L;
+    bs.speed = jump || dt <= 0 ? 0 : Math.hypot(nx - bs.x, nz - bs.z) / dt;
+    bs.x = nx; bs.z = nz;
+    bs.hx = -dx; bs.hz = -dz;
+    bs.angle = ang;
+    h.x = hx; h.z = hz; h.valid = true;
+
+    // Ground under the brush: the clay pad top when over clay, else follow the cart's ground
+    const cartGround = this.mesh.position.y;
+    const targetY = this._overClay(nx, nz) ? Math.max(cartGround, SIZES.courtSurfaceY || 0.15) : cartGround;
+    bs.groundY = jump ? targetY : bs.groundY + (targetY - bs.groundY) * Math.min(1, dt * 10);
+
+    const rig = this.brushRig;
+    rig.position.set(hx, bs.groundY, hz);
+    rig.rotation.set(0, Math.atan2(dx, dz), 0);
+    rig.updateMatrixWorld(true);
+
+    // Drag mat: hinge on the rear rail, trails the hinge (second trailer)
+    const hingeD = L + FRAME_Z1 + 0.03;
+    const mhx = hx + dx * hingeD, mhz = hz + dz * hingeD;
+    const m = this._mat;
+    let mdx, mdz;
+    if (jump) { mdx = dx; mdz = dz; } else {
+      mdx = m.x - mhx; mdz = m.z - mhz;
+      const l = Math.hypot(mdx, mdz);
+      if (l < 1e-5) { mdx = dx; mdz = dz; } else { mdx /= l; mdz /= l; }
+      let ma = Math.atan2(dx * mdz - dz * mdx, dx * mdx + dz * mdz);
+      if (ma > 0.6 || ma < -0.6) {
+        ma = ma > 0 ? 0.6 : -0.6;
+        const c = Math.cos(ma), sn = Math.sin(ma);
+        mdx = dx * c - dz * sn; mdz = dx * sn + dz * c;
+      }
+    }
+    m.x = mhx + mdx * MAT_HINGE; m.z = mhz + mdz * MAT_HINGE;
+    this.matRig.position.set(mhx, bs.groundY + 0.012, mhz);
+    this.matRig.rotation.set(0, Math.atan2(mdx, mdz), 0);
+
+    // Bristle judder
+    const sp = Math.min(1, bs.speed / 5);
+    this._brushBob.position.y = Math.abs(Math.sin(this._t * 23)) * 0.012 * sp;
+    this._brushBob.rotation.z = Math.sin(this._t * 9.3) * 0.008 * sp;
+
+    // Soft contact shadow under the frame (helps on low, where there are no shadow maps)
+    if (this._brushBlob >= 0) {
+      this._blobs.set(this._brushBlob, bs.x + bs.hx * -0.1, bs.z + bs.hz * -0.1, BRUSH_W * 1.1, 1.1,
+        Math.atan2(dx, dz), bs.groundY + 0.03);
+    }
+  }
+
+  /** Dust puffs kicked up by the brush (reuses the pooled BrushDust points). */
+  _updateDust(dt) {
+    const bSpeed = this.hasBrush ? this.brushState.speed : 0;
+    let dustOn = this.brushDust === null ? this.hasBrush : (this.brushDust && this.hasBrush);
+    if (dustOn && this.brushDust === null && bSpeed > 0.8) dustOn = this._brushOverClay();
+    // Swinging wide on a turn scrubs the bristles sideways → extra dust
+    const swing = Math.min(1, Math.abs(this.brushState.angle) * 1.5);
+    const rate = dustOn && bSpeed > 0.8 ? 8 + bSpeed * 7 * (1 + swing) : 0;
+    if (rate > 0 && !this._dust) this._dust = new BrushDust(this.scene);
+    if (this._dust && this.brushRig) {
+      this._dust.update(dt, this.brushRig.matrixWorld, rate, this.towLength + FRAME_Z1 - 0.05);
+    }
   }
 
   _updateWheels() {
@@ -615,36 +784,38 @@ export class GolfCart {
   attachBrush() {
     if (this.hasBrush) return;
     this.hasBrush = true;
-
-    const geos = getGeometry('cart-brush', buildBrushGeos);
-    this.brushMesh = new THREE.Group();
-    this.brushMesh.name = 'DragBrush';
-    const metal = new THREE.Mesh(geos.metal, mat(0xffffff, { vertexColors: true, roughness: 0.4, metalness: 0.35, name: 'brushMetal' }));
-    const soft = new THREE.Mesh(geos.soft, mat(0xffffff, { vertexColors: true, roughness: 0.9, name: 'brushSoft' }));
-    metal.castShadow = true;
-    soft.castShadow = true;
-    soft.receiveShadow = true;
-    this.brushMesh.add(metal, soft);
-
-    this.mesh.add(this.brushMesh);
+    this._hitch.valid = false;              // snap straight behind on the next update
+    this.brushRig.visible = true;
+    this.matRig.visible = true;
+    this.brushMesh = this.brushRig;         // legacy name
+    if (this._brushBlob < 0) this._brushBlob = this._blobs.alloc();
+    this._updateBrush(0);
   }
 
   detachBrush() {
-    if (!this.hasBrush || !this.brushMesh) return;
-    this.mesh.remove(this.brushMesh);
-    this.brushMesh = null;
+    if (!this.hasBrush) return;
     this.hasBrush = false;
+    this.brushMesh = null;
+    this.brushRig.visible = false;
+    this.matRig.visible = false;
+    this.brushState.speed = 0;
+    if (this._brushBlob >= 0) this._blobs.hide(this._brushBlob);
   }
 
   /**
-   * Get the world position of the brush head center (for grooming calculations).
+   * World position of the towed brush centre (the grooming footprint's centre).
+   * Pass `target` to avoid allocating. Returns null without a brush.
    */
   getBrushWorldPosition(target) {
     if (!this.hasBrush) return null;
-    // Brush is at local Z=3.5 behind the cart (pass `target` to avoid allocating)
-    const worldPos = (target || new THREE.Vector3()).set(0, 0.1, 3.5);
-    this.mesh.localToWorld(worldPos);
-    return worldPos;
+    const bs = this.brushState;
+    return (target || new THREE.Vector3()).set(bs.x, bs.groundY + 0.1, bs.z);
+  }
+
+  /** Unit direction the brush is being pulled (toward the hitch), on the ground plane. */
+  getBrushHeading(target) {
+    if (!this.hasBrush) return null;
+    return (target || new THREE.Vector3()).set(this.brushState.hx, 0, this.brushState.hz);
   }
 
   getPosition() {

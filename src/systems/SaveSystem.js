@@ -92,7 +92,7 @@ export function createDefaultStats() {
     groomSessions: 0,
     bestGroomRating: null,   // 'needsWork' | 'good' | 'excellent'
     bestGroomCleanliness: 0, // 0..1
-    tips: 0,                 // placeholder currency (Phase 2)
+    tips: 0,                 // lifetime tips ($); the wallet itself lives in the shift state
     satisfaction: { satisfied: 0, neutral: 0, unsatisfied: 0 },
     playTime: 0,             // seconds of unpaused play
   };
@@ -122,6 +122,49 @@ function sanitizeStats(s) {
   };
 }
 
+const SHIFT_PHASES = ['preShift', 'onShift', 'ending', 'report'];
+
+/**
+ * Shift loop state (ShiftSystem.getState). Additive in v1: a save without it returns null
+ * and ShiftSystem derives the phase from the clock.
+ */
+function sanitizeShift(v) {
+  if (!isObj(v)) return null;
+  const c = isObj(v.current) ? v.current : {};
+  const money = (x) => num(x, 0, 0, 1e9);
+  const count = (x) => int(x, 0, 0, 1e6);
+  return {
+    phase: SHIFT_PHASES.includes(v.phase) ? v.phase : 'onShift',
+    wallet: money(v.wallet),
+    lifetimeEarnings: money(v.lifetimeEarnings),
+    lifetimeTips: money(v.lifetimeTips),
+    rep: num(v.rep, 0, 0, 1e9),
+    rankIndex: int(v.rankIndex, 0, 0, 50),
+    shiftsWorked: count(v.shiftsWorked),
+    current: {
+      clockInHour: Number.isFinite(c.clockInHour) ? Math.min(24, Math.max(0, c.clockInHour)) : null,
+      tasks: count(c.tasks),
+      missionPay: money(c.missionPay),
+      tips: money(c.tips),
+      tipCount: count(c.tipCount),
+      satisfied: count(c.satisfied),
+      neutral: count(c.neutral),
+      unsatisfied: count(c.unsatisfied),
+      rep: num(c.rep, 0, 0, 1e9),
+      groomBest: GROOM_RATINGS.includes(c.groomBest) ? c.groomBest : null,
+      openingDone: bool(c.openingDone),
+      closingDone: bool(c.closingDone),
+      closingAnnounced: bool(c.closingAnnounced),
+      startRank: int(c.startRank, 0, 0, 50),
+      startPoints: num(c.startPoints, 0, 0, 1e10),
+      lastGroomRating: GROOM_RATINGS.includes(c.lastGroomRating) ? c.lastGroomRating : null,
+      wagePaid: bool(c.wagePaid),
+      wage: money(c.wage),
+      hours: num(c.hours, 0, 0, 24),
+    },
+  };
+}
+
 /**
  * Validate a parsed save object at the current version. Throws only on structural
  * corruption; individual bad fields are replaced with safe defaults.
@@ -141,7 +184,10 @@ export function sanitizeSave(raw) {
   const courtGrids = {};
   if (isObj(raw.courtGrids)) {
     for (const [id, g] of Object.entries(raw.courtGrids).slice(0, 16)) {
-      if (id.length < 64 && typeof g === 'string' && g.length <= 4096 && /^[0-9a-f]+$/.test(g)) courtGrids[id] = g;
+      if (id.length >= 64 || typeof g !== 'string') continue;
+      // current: paint mask 'v2:<cols>x<rows>:<base64>' (Court.getMaskData); old: 8x14 hex grid
+      if ((g.length <= 262144 && /^v2:\d{1,4}x\d{1,4}:[A-Za-z0-9+/]+=*$/.test(g)) ||
+          (g.length <= 4096 && /^[0-9a-f]+$/.test(g))) courtGrids[id] = g;
     }
   }
   let groomSession = null;
@@ -150,7 +196,10 @@ export function sanitizeSave(raw) {
     const hit = {};
     if (isObj(gs.hit)) {
       for (const [id, cells] of Object.entries(gs.hit).slice(0, 16)) {
-        if (id.length < 64 && Array.isArray(cells)) hit[id] = cells.filter(c => Number.isInteger(c) && c >= 0 && c < 4096).slice(0, 4096);
+        if (id.length >= 64) continue;
+        // current: base64 bit mask (Court.getHitData); old: list of 8x14 cell indices
+        if (typeof cells === 'string' && cells.length <= 65536 && /^[A-Za-z0-9+/]*=*$/.test(cells)) hit[id] = cells;
+        else if (Array.isArray(cells)) hit[id] = cells.filter(c => Number.isInteger(c) && c >= 0 && c < 4096).slice(0, 4096);
       }
     }
     groomSession = {
@@ -195,6 +244,7 @@ export function sanitizeSave(raw) {
     courtGrids,
     groomSession,
     courtDegradeTimer: num(raw.courtDegradeTimer, NaN, 0, 1e6),
+    shift: sanitizeShift(raw.shift),
     flags: {
       tutorialSeen: bool(flags.tutorialSeen),
       groomTutorialSeen: bool(flags.groomTutorialSeen),
@@ -336,6 +386,7 @@ export function captureSaveData(game) {
     courtGrids: cm.grids || {},
     groomSession: cm.session || null,
     courtDegradeTimer: cm.degradeTimer,
+    shift: game.shift ? game.shift.getState() : null,
     flags,
   };
 }
@@ -394,6 +445,8 @@ export function applySaveData(game, data) {
 
   step('inventory', () => inventory.setState(data.inventory));
   step('missions', () => missionSystem.setState(data.missions));
+  // After time/weather (the phase is checked against the clock) and missions (routines)
+  step('shift', () => { if (game.shift) game.shift.setState(data.shift); });
 
   step('cart', () => {
     if (!data.cart) return;

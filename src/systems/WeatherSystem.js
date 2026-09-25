@@ -79,7 +79,9 @@ export class WeatherSystem {
     this.scene = scene;
     this.renderer = renderer;
     this.timeOfDay = GAME.startHour; // hours (0-24)
-    this.day = 1; // in-game day counter (increments at midnight)
+    this.day = 1; // in-game day counter (increments at midnight, or via startNewDay())
+    /** Shift hook: while true the clock stands still (before clock-in, during the report card). */
+    this.clockFrozen = false;
     this.weather = 'sunny'; // sunny, cloudy, rainy, windy
     this.weatherTimer = GAME.weatherCheckInterval;
 
@@ -314,6 +316,19 @@ export class WeatherSystem {
     this._envLastT = -99; // force env map refresh for the new time of day
   }
 
+  /**
+   * Shift hook: jump to `hour` on the next day (skips the empty night). The weather is
+   * re-rolled for the new morning and the env map refreshes at once.
+   */
+  startNewDay(hour = GAME.shiftStartHour ?? 7) {
+    this.day++;
+    this.timeOfDay = hour;
+    this.weatherTimer = GAME.weatherCheckInterval;
+    const mornings = ['sunny', 'sunny', 'sunny', 'cloudy', 'windy'];
+    this.setWeather(mornings[Math.floor(Math.random() * mornings.length)], true);
+    this._envLastT = -99;
+  }
+
   /** Change weather; `instant` skips the smooth transition. */
   setWeather(w, instant = false) {
     if (!WEATHER_TARGETS[w]) return;
@@ -377,7 +392,7 @@ export class WeatherSystem {
 
     // Advance time
     const hoursPerSecond = 24 / GAME.dayDurationSeconds;
-    this.timeOfDay += hoursPerSecond * dt;
+    if (!this.clockFrozen) this.timeOfDay += hoursPerSecond * dt;
     if (this.timeOfDay >= 24) { this.timeOfDay -= 24; this.day++; }
     if (this.timeOfDay < 0) this.timeOfDay += 24;
 
