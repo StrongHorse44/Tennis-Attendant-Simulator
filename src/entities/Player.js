@@ -98,11 +98,13 @@ export class Player {
       // Spawn resting on the ground (sphere centre = radius): no 10 s float-down
       position: new CANNON.Vec3(pos.x, (pos.y || 0) + SIZES.playerRadius * SIZES.playerScale, pos.z),
       shape,
-      linearDamping: 0.95,
+      // Low damping: velocity is set every frame (and zeroed without input), so heavy damping
+      // would only shave the configured walk speed (0.95 cost ~5% per 1/60 s substep).
+      linearDamping: 0.01,
       angularDamping: 1.0,
       fixedRotation: true,
     });
-    this.body.material = new CANNON.Material({ friction: GAME.groundFriction });
+    // No material: contacts use the world's frictionless default (see Game.init).
     this.physicsWorld.addBody(this.body);
     this._settleTime = 1.5;
   }
@@ -174,6 +176,10 @@ export class Player {
       // Face the movement direction
       this.facing.set(Math.sin(worldAngle), 0, Math.cos(worldAngle));
       this.animTime += dt * inputLen * 8;
+    } else {
+      // Contacts are frictionless, so stop explicitly when the stick is released
+      this.body.velocity.x = 0;
+      this.body.velocity.z = 0;
     }
 
     // Locomotion clips: idle → walk → run by stick deflection, cadence matched to ground speed

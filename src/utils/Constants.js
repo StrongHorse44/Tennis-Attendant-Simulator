@@ -208,9 +208,7 @@ export const GAME = {
   maxInventorySlots: 3,
 
   // Physics
-  gravity: -9.82,
-  groundFriction: 0.8,
-  cartFriction: 0.4,
+  gravity: -9.82,           // contacts are frictionless (see Game.init): bodies are velocity/position driven
 
   // NPCs
   maxNPCs: 8,

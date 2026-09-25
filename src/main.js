@@ -189,10 +189,16 @@ class Game {
     this.physicsWorld.broadphase = new CANNON.NaiveBroadphase();
     this.physicsWorld.solver.iterations = 5;
 
-    // Default contact material
+    // Default contact material: frictionless. Every moving body (player, cart, NPCs) is driven by
+    // setting its velocity or position directly, and none of them carry their own material, so
+    // this is the contact used against the ground, courts and statics. cannon-es caps friction
+    // per solver step as an *impulse* of mu*m*g (not mu*m*g*dt), which at mu 0.5 stopped the
+    // player almost dead every step (8 m/s configured -> ~2.2 m/s at 60 fps, ~0.8 m/s at 20 fps).
+    // Stopping is handled explicitly instead (Player zeroes its velocity without input, the cart
+    // tracks currentSpeed and brakes when parked, NPCs zero theirs every update).
     const defaultMat = new CANNON.Material('default');
     const defaultContact = new CANNON.ContactMaterial(defaultMat, defaultMat, {
-      friction: 0.5,
+      friction: 0,
       restitution: 0.1,
     });
     this.physicsWorld.addContactMaterial(defaultContact);

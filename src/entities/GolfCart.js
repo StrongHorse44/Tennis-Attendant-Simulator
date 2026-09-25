@@ -515,7 +515,7 @@ export class GolfCart {
       linearDamping: 0.3,
       angularDamping: 0.85,
     });
-    this.body.material = new CANNON.Material({ friction: GAME.cartFriction });
+    // No material: contacts use the world's frictionless default (velocity-driven, see update()).
 
     // Lock Y-axis rotation to prevent flipping
     this.body.angularFactor = new CANNON.Vec3(0, 1, 0);
