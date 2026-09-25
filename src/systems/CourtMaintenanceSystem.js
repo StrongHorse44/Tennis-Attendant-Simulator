@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { GAME, SIZES } from '../utils/Constants.js';
 
 /**
@@ -26,14 +27,21 @@ export class CourtMaintenanceSystem {
     this.sound = soundSystem;
     this.mapData = mapData;
 
-    this.clayCourts = courts.filter(c => c.isClay);
+    this.courts = Array.isArray(courts) ? courts : [];
+    this.clayCourts = this.courts.filter(c => c && c.isClay);
 
     // State
     this.state = 'idle';
     this.activeCourts = [];       // all clay courts being groomed
     this.groomStartCleanliness = 0;
     this.groomTimer = 0;
-    this.groomCellsHit = new Map(); // courtId -> Set of "row,col"
+    this.groomCellsHit = new Map(); // courtId -> Set of cell indices (row * gridCols + col)
+    this._resultsTimer = 0;
+    this._brushPos = new THREE.Vector3();
+    this._progress = {
+      cleanliness: 0, coverage: 0, time: 0, speed: 0, speedOk: true,
+      proximity: null, courtsideTasks: null,
+    };
 
     // Tutorial
     this.tutorialCompleted = false;
@@ -113,6 +121,93 @@ export class CourtMaintenanceSystem {
 
     if (this.state === 'grooming') {
       this._updateGrooming(dt, weatherState);
+    } else if (this.state === 'results') {
+      // Return to idle shortly after showing results (game time, so it respects pause)
+      this._resultsTimer -= dt;
+      if (this._resultsTimer <= 0) this.state = 'idle';
+    }
+  }
+
+  // ───────────────────────────── save / load ─────────────────────────────
+
+  /** Serializable state: per-court cleanliness (0..1) + per-cell grids, tutorial flag, degrade timer, live session. */
+  getState() {
+    const courts = {};
+    for (const court of this.clayCourts) {
+      if (court && court.id && typeof court.getCleanliness === 'function') {
+        courts[court.id] = Math.round(court.getCleanliness() * 1000) / 1000;
+      }
+    }
+    const grids = {};
+    for (const court of this.clayCourts) {
+      if (court && court.id && typeof court.getGridHex === 'function') {
+        const hex = court.getGridHex();
+        if (hex) grids[court.id] = hex;
+      }
+    }
+    let session = null;
+    if (this.state === 'grooming') {
+      const hit = {};
+      for (const [id, set] of this.groomCellsHit) hit[id] = [...set];
+      session = {
+        time: this.groomTimer,
+        startCleanliness: this.groomStartCleanliness,
+        tasksDone: this.courtsideTasks.filter(t => t.completed).map(t => t.id),
+        hit,
+      };
+    }
+    return {
+      tutorialCompleted: !!this.tutorialCompleted,
+      degradeTimer: this.degradeTimer,
+      courts,
+      grids,
+      session,
+    };
+  }
+
+  /**
+   * Re-open a grooming session captured by getState().session (after the cart
+   * and brush are restored). Returns true if a session was started.
+   */
+  resumeGrooming(session) {
+    if (!session || this.state === 'grooming' || !this.tutorialCompleted) return false;
+    if (!this.cart.hasBrush || this.clayCourts.length === 0) return false;
+    this._beginGrooming();
+    if (Number.isFinite(session.time)) this.groomTimer = Math.max(0, session.time);
+    if (Number.isFinite(session.startCleanliness)) {
+      this.groomStartCleanliness = Math.max(0, Math.min(1, session.startCleanliness));
+    }
+    if (Array.isArray(session.tasksDone)) {
+      for (const t of this.courtsideTasks) if (session.tasksDone.includes(t.id)) t.completed = true;
+    }
+    if (session.hit && typeof session.hit === 'object') {
+      for (const court of this.activeCourts) {
+        const cells = session.hit[court.id];
+        const set = this.groomCellsHit.get(court.id);
+        if (!Array.isArray(cells) || !set) continue;
+        const max = court.gridRows * court.gridCols;
+        for (const c of cells) if (Number.isInteger(c) && c >= 0 && c < max) set.add(c);
+      }
+    }
+    return true;
+  }
+
+  setState(state) {
+    if (!state || typeof state !== 'object') return;
+    if (typeof state.tutorialCompleted === 'boolean') this.tutorialCompleted = state.tutorialCompleted;
+    if (Number.isFinite(state.degradeTimer)) {
+      this.degradeTimer = Math.max(1, Math.min(GAME.courtDegradeInterval, state.degradeTimer));
+    }
+    const grids = (state.grids && typeof state.grids === 'object') ? state.grids : {};
+    if (state.courts && typeof state.courts === 'object') {
+      for (const court of this.clayCourts) {
+        // Per-cell pattern when available (keeps groomed stripes), else the average
+        if (typeof court.setGridHex === 'function' && court.setGridHex(grids[court.id])) continue;
+        const c = state.courts[court.id];
+        if (Number.isFinite(c) && typeof court.setAllDirt === 'function') {
+          court.setAllDirt(1 - Math.max(0, Math.min(1, c)));
+        }
+      }
     }
   }
 
@@ -121,8 +216,8 @@ export class CourtMaintenanceSystem {
    * Returns the first nearby court if applicable, null otherwise.
    */
   getNearbyClayCourtForGrooming(playerPos) {
-    if (!this.cart.hasBrush || !this.cart.occupied) return null;
-    if (this.state === 'grooming') return null;
+    if (!this.cart.hasBrush || !this.cart.occupied || !playerPos) return null;
+    if (this.state === 'grooming' || this.state === 'tutorial') return null;
 
     for (const court of this.clayCourts) {
       const center = court.config.center;
@@ -150,6 +245,8 @@ export class CourtMaintenanceSystem {
    * Grooming covers ALL clay courts simultaneously.
    */
   startGrooming(court) {
+    if (this.state === 'grooming' || this.state === 'tutorial') return;
+    if (this.clayCourts.length === 0) return;
     if (!this.tutorialCompleted) {
       this._startTutorial(court);
       return;
@@ -208,6 +305,7 @@ export class CourtMaintenanceSystem {
     };
 
     this.state = 'results';
+    this._resultsTimer = 0.1;
     this.activeCourts = [];
     this.groomCellsHit.clear();
     this.courtsideTasks = [];
@@ -215,11 +313,6 @@ export class CourtMaintenanceSystem {
     if (this.onGroomEnd) {
       this.onGroomEnd(this.lastScore, message);
     }
-
-    // Return to idle after showing results
-    setTimeout(() => {
-      this.state = 'idle';
-    }, 100);
 
     return this.lastScore;
   }
@@ -232,6 +325,7 @@ export class CourtMaintenanceSystem {
     return this.activeCourts;
   }
 
+  /** Live grooming progress. Returns a REUSED object (don't keep a reference across frames). */
   getGroomingProgress() {
     if (this.activeCourts.length === 0) return null;
 
@@ -246,18 +340,15 @@ export class CourtMaintenanceSystem {
       totalHitCells += hitSet.size;
     }
 
-    const cleanliness = totalCells > 0 ? totalCleanliness / totalCells : 0;
-    const coverage = totalCells > 0 ? totalHitCells / totalCells : 0;
-
-    return {
-      cleanliness,
-      coverage,
-      time: this.groomTimer,
-      speed: Math.abs(this.cart.currentSpeed),
-      speedOk: Math.abs(this.cart.currentSpeed) <= GAME.groomSpeedLimit,
-      proximity: this.proximityState,
-      courtsideTasks: this.courtsideTasks,
-    };
+    const p = this._progress;
+    p.cleanliness = totalCells > 0 ? totalCleanliness / totalCells : 0;
+    p.coverage = totalCells > 0 ? totalHitCells / totalCells : 0;
+    p.time = this.groomTimer;
+    p.speed = Math.abs(this.cart.currentSpeed);
+    p.speedOk = p.speed <= GAME.groomSpeedLimit;
+    p.proximity = this.proximityState;
+    p.courtsideTasks = this.courtsideTasks;
+    return p;
   }
 
   /**
@@ -267,11 +358,15 @@ export class CourtMaintenanceSystem {
   getNearbyCourtTask(cartPos) {
     if (this.state !== 'grooming' || !cartPos) return null;
 
-    for (const task of this.courtsideTasks) {
+    for (let t = 0; t < this.courtsideTasks.length; t++) {
+      const task = this.courtsideTasks[t];
       if (task.completed) continue;
 
-      const junction = this.junctions.find(j => j.id === task.junctionId);
-      if (!junction) continue;
+      let junction = null;
+      for (let j = 0; j < this.junctions.length; j++) {
+        if (this.junctions[j].id === task.junctionId) { junction = this.junctions[j]; break; }
+      }
+      if (!junction || !junction.position) continue;
 
       const pos = junction.position;
       const dx = cartPos.x - pos.x;
@@ -393,7 +488,7 @@ export class CourtMaintenanceSystem {
     // Don't groom in rain
     if (weatherState === 'rainy') return;
 
-    const brushPos = this.cart.getBrushWorldPosition();
+    const brushPos = this.cart.getBrushWorldPosition(this._brushPos);
     if (!brushPos) return;
 
     const speed = Math.abs(this.cart.currentSpeed);
@@ -414,21 +509,26 @@ export class CourtMaintenanceSystem {
       if (affected > 0) {
         totalAffected += affected;
 
-        // Track which cells were hit
+        // Track which cells were hit (only scan the cells under the brush)
         const center = court.config.center;
         const cellSize = GAME.groomCellSize;
-        const w = SIZES.courtWidth;
-        const d = SIZES.courtDepth;
+        const x0 = center.x - SIZES.courtWidth / 2;
+        const z0 = center.z - SIZES.courtDepth / 2;
         const hitSet = this.groomCellsHit.get(court.id);
+        const r2 = brushRadius * brushRadius;
+        const colMin = Math.max(0, Math.floor((brushPos.x - brushRadius - x0) / cellSize));
+        const colMax = Math.min(court.gridCols - 1, Math.floor((brushPos.x + brushRadius - x0) / cellSize));
+        const rowMin = Math.max(0, Math.floor((brushPos.z - brushRadius - z0) / cellSize));
+        const rowMax = Math.min(court.gridRows - 1, Math.floor((brushPos.z + brushRadius - z0) / cellSize));
 
-        for (let row = 0; row < court.gridRows; row++) {
-          for (let col = 0; col < court.gridCols; col++) {
-            const cx = center.x - w / 2 + (col + 0.5) * cellSize;
-            const cz = center.z - d / 2 + (row + 0.5) * cellSize;
-            const dx = brushPos.x - cx;
-            const dz = brushPos.z - cz;
-            if (dx * dx + dz * dz < brushRadius * brushRadius) {
-              hitSet.add(`${row},${col}`);
+        if (hitSet) {
+          for (let row = rowMin; row <= rowMax; row++) {
+            for (let col = colMin; col <= colMax; col++) {
+              const dx = brushPos.x - (x0 + (col + 0.5) * cellSize);
+              const dz = brushPos.z - (z0 + (row + 0.5) * cellSize);
+              if (dx * dx + dz * dz < r2) {
+                hitSet.add(row * court.gridCols + col);
+              }
             }
           }
         }
@@ -450,12 +550,15 @@ export class CourtMaintenanceSystem {
 
     // Check if cart left the entire clay court area (all 3 courts combined)
     const cartPos = this.cart.getPosition();
-    const isNearAnyCourt = this.activeCourts.some(court => {
-      const center = court.config.center;
-      const dx = Math.abs(cartPos.x - center.x);
-      const dz = Math.abs(cartPos.z - center.z);
-      return dx < SIZES.courtWidth / 2 + 8 && dz < SIZES.courtDepth / 2 + 8;
-    });
+    let isNearAnyCourt = false;
+    for (let i = 0; i < this.activeCourts.length; i++) {
+      const center = this.activeCourts[i].config.center;
+      if (Math.abs(cartPos.x - center.x) < SIZES.courtWidth / 2 + 8 &&
+          Math.abs(cartPos.z - center.z) < SIZES.courtDepth / 2 + 8) {
+        isNearAnyCourt = true;
+        break;
+      }
+    }
 
     if (!isNearAnyCourt) {
       this.stopGrooming();
@@ -502,12 +605,12 @@ export class CourtMaintenanceSystem {
     const fenceStatus = this._getProximityStatus(nearestFenceDist);
     const netStatus = this._getProximityStatus(nearestNetDist);
 
-    this.proximityState = {
-      nearestFenceDist: nearestFenceDist === Infinity ? null : nearestFenceDist,
-      nearestNetDist: nearestNetDist === Infinity ? null : nearestNetDist,
-      fenceStatus,
-      netStatus,
-    };
+    // Mutate in place (no per-frame allocation)
+    const ps = this.proximityState;
+    ps.nearestFenceDist = nearestFenceDist === Infinity ? null : nearestFenceDist;
+    ps.nearestNetDist = nearestNetDist === Infinity ? null : nearestNetDist;
+    ps.fenceStatus = fenceStatus;
+    ps.netStatus = netStatus;
 
     if (this.onProximityUpdate) {
       this.onProximityUpdate(this.proximityState);

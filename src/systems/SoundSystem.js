@@ -2,6 +2,9 @@
  * SoundSystem - procedural audio using Web Audio API
  * All public methods are wrapped in try-catch to prevent audio errors from crashing the game.
  */
+/** Master gain at 100% volume (the original fixed level was 0.25). */
+const BASE_MASTER_GAIN = 0.3;
+
 export class SoundSystem {
   constructor() {
     this.ctx = null;
@@ -18,29 +21,103 @@ export class SoundSystem {
     this.ambientStarted = false;
     this.birdTimeoutId = null;
 
+    // Volume / mute / pause (settable before the AudioContext exists; applied on init)
+    this.volume = 0.8;          // 0..1 user master volume
+    this.muted = false;
+    this.paused = false;
+    this.available = true;      // false if Web Audio failed to start
+    this._wantCartEngine = false;
+
     // Auto-init on first user interaction (browser autoplay policy)
     this._boundInit = () => this._init();
-    window.addEventListener('touchstart', this._boundInit, { once: true });
-    window.addEventListener('click', this._boundInit, { once: true });
-    window.addEventListener('touchend', this._boundInit, { once: true });
+    this._initEvents = ['touchstart', 'touchend', 'click', 'keydown', 'pointerdown'];
+    for (const ev of this._initEvents) window.addEventListener(ev, this._boundInit, { once: true });
+  }
+
+  /** Effective master gain for the current volume / mute state. */
+  _targetGain() {
+    if (this.muted) return 0;
+    const v = Math.max(0, Math.min(1, this.volume));
+    return BASE_MASTER_GAIN * v;
+  }
+
+  _applyMasterGain(instant = false) {
+    if (!this.masterGain || !this.ctx) return;
+    try {
+      const g = this._targetGain();
+      const now = this.ctx.currentTime;
+      this.masterGain.gain.cancelScheduledValues(now);
+      if (instant) this.masterGain.gain.setValueAtTime(g, now);
+      else this.masterGain.gain.setTargetAtTime(g, now, 0.03);
+    } catch (e) { /* ignore */ }
+  }
+
+  /** Master volume 0..1. Works before the AudioContext exists. */
+  setMasterVolume(v) {
+    const n = Number(v);
+    this.volume = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : this.volume;
+    this._applyMasterGain();
+  }
+
+  getMasterVolume() {
+    return this.volume;
+  }
+
+  setMuted(m) {
+    this.muted = !!m;
+    this._applyMasterGain();
+  }
+
+  isMuted() {
+    return this.muted;
+  }
+
+  /** True once audio has started (after the first user gesture). */
+  isReady() {
+    return this.initialized;
+  }
+
+  /**
+   * Pause/resume all audio (suspends the AudioContext so the cart engine, ambient
+   * and any scheduled sounds freeze in place).
+   */
+  setPaused(p) {
+    this.paused = !!p;
+    if (!this.ctx) return;
+    try {
+      if (this.paused) {
+        if (this.ctx.state === 'running') this.ctx.suspend();
+      } else if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    } catch (e) { /* ignore */ }
   }
 
   _init() {
     if (this.initialized) return;
+    for (const ev of this._initEvents) window.removeEventListener(ev, this._boundInit);
     try {
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) throw new Error('Web Audio API not supported');
+      this.ctx = new Ctx();
       // Resume context for mobile browsers that start in suspended state
-      if (this.ctx.state === 'suspended') {
+      if (this.ctx.state === 'suspended' && !this.paused) {
         this.ctx.resume();
+      } else if (this.paused && this.ctx.state === 'running') {
+        this.ctx.suspend();
       }
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.25;
+      this.masterGain.gain.value = this._targetGain();
       this.masterGain.connect(this.ctx.destination);
       this.initialized = true;
+      this.available = true;
       this.startAmbient();
+      if (this._wantCartEngine) this.startCartEngine();
     } catch (e) {
       // Audio not available — game continues without sound
       this.initialized = false;
+      this.available = false;
+      console.warn('Sound disabled:', e && e.message ? e.message : e);
     }
   }
 
@@ -76,6 +153,7 @@ export class SoundSystem {
   }
 
   startCartEngine() {
+    this._wantCartEngine = true;
     if (!this.initialized || this.cartOsc) return;
     try {
       const now = this.ctx.currentTime;
@@ -123,6 +201,7 @@ export class SoundSystem {
   }
 
   stopCartEngine() {
+    this._wantCartEngine = false;
     if (!this.cartOsc) return;
     try {
       const now = this.ctx.currentTime;
@@ -438,7 +517,8 @@ export class SoundSystem {
   }
 
   _playBirdChirp() {
-    if (!this.initialized) return;
+    // Skip while paused/muted so chirps don't queue up on a suspended context
+    if (!this.initialized || this.paused || this.muted) return;
     try {
       const now = this.ctx.currentTime;
 

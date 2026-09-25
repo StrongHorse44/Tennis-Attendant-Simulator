@@ -35,14 +35,16 @@
         "label": "Court 1",
         "type": "hard",
         "center": { "x": 5, "y": 0, "z": 5 },
-        "rotation": 0
+        "rotation": 0,
+        "sharedPadRight": true
       },
       {
         "id": "court2",
         "label": "Court 2",
         "type": "hard",
         "center": { "x": 25, "y": 0, "z": 5 },
-        "rotation": 0
+        "rotation": 0,
+        "sharedPadLeft": true
       },
       {
         "id": "court3",
@@ -94,13 +96,13 @@
       "hedges": [
         { "x": -22, "z": -4, "width": 1, "depth": 8 },
         { "x": -8, "z": -4, "width": 1, "depth": 8 },
-        { "x": -15, "z": -18, "width": 14, "depth": 1 }
+        { "x": -17.75, "z": -18, "width": 8.5, "depth": 1 }
       ],
       "flowerBeds": [
         { "x": -19, "z": -7, "width": 3, "depth": 3, "color": 0 },
         { "x": -11, "z": -7, "width": 3, "depth": 3, "color": 1 },
         { "x": -19, "z": -13, "width": 3, "depth": 3, "color": 2 },
-        { "x": -11, "z": -13, "width": 3, "depth": 3, "color": 3 }
+        { "x": -19, "z": -16.4, "width": 3, "depth": 1.6, "color": 3 }
       ]
     },
     "equipmentShed": {
@@ -324,11 +326,11 @@
     "proShopDoor": { "x": -20, "y": 0, "z": 30 },
     "proShopInside": { "x": -20, "y": 0, "z": 26 },
     "taskBoard": { "x": -24, "y": 0, "z": 26 },
-    "patio1": { "x": -26, "y": 0, "z": 6 },
-    "patio2": { "x": -20, "y": 0, "z": 6 },
-    "patio3": { "x": -14, "y": 0, "z": 6 },
-    "court1_bench": { "x": -2, "y": 0, "z": 5 },
-    "court2_bench": { "x": 32, "y": 0, "z": 5 },
+    "patio1": { "x": -23, "y": 0, "z": 6.5 },
+    "patio2": { "x": -17, "y": 0, "z": 6.5 },
+    "patio3": { "x": -12, "y": 0, "z": 6.5 },
+    "court1_bench": { "x": -3.3, "y": 0, "z": 7.4 },
+    "court2_bench": { "x": 33.2, "y": 0, "z": 6.3 },
     "court3_bench": { "x": -10, "y": 0, "z": -25 },
     "court4_bench": { "x": 15, "y": 0, "z": -10 },
     "court5_bench": { "x": 40, "y": 0, "z": -25 },

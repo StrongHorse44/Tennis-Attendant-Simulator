@@ -1,6 +1,20 @@
 import { GAME } from '../utils/Constants.js';
 import { ITEMS } from './InventorySystem.js';
 
+/** Unbiased in-place Fisher-Yates shuffle. */
+export function shuffleInPlace(arr, rand = Math.random) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const t = arr[i];
+    arr[i] = arr[j];
+    arr[j] = t;
+  }
+  return arr;
+}
+
+/** How often (s) nearby random-encounter NPCs are checked (was every frame). */
+const RANDOM_ENCOUNTER_CHECK_INTERVAL = 0.5;
+
 /**
  * MissionSystem - task board, radio dispatch, random encounters
  */
@@ -18,9 +32,26 @@ export class MissionSystem {
     this.radioTimer = GAME.radioDispatchInterval;
     this.randomEncounterCooldown = 0;
 
+    this.randomEncounterCheckTimer = 0;
+
     this.onMissionUpdate = null;
     this.onRadioDispatch = null;
+    /** (mission) => void — fired once whenever a mission completes (any path). */
+    this.onMissionComplete = null;
+    /** (npcId, mood) => void — fired for each NPC reaction to a choice. */
+    this.onReaction = null;
     this.npcsMap = new Map();
+    this._templatesById = new Map();
+    for (const m of this.missionTemplates) {
+      if (m && m.id) this._templatesById.set(m.id, m);
+    }
+  }
+
+  _isActive(id) {
+    for (let i = 0; i < this.activeMissions.length; i++) {
+      if (this.activeMissions[i].id === id) return true;
+    }
+    return false;
   }
 
   registerNPCs(npcs) {
@@ -50,8 +81,11 @@ export class MissionSystem {
       this.randomEncounterCooldown -= dt;
     }
 
-    // Check for random encounter NPCs nearby
-    if (this.randomEncounterCooldown <= 0 && playerPos) {
+    // Check for random encounter NPCs nearby (throttled; the chance is scaled so the
+    // encounter rate matches the old per-frame check at ~60 fps)
+    this.randomEncounterCheckTimer -= dt;
+    if (this.randomEncounterCooldown <= 0 && playerPos && this.randomEncounterCheckTimer <= 0) {
+      this.randomEncounterCheckTimer = RANDOM_ENCOUNTER_CHECK_INTERVAL;
       this._checkRandomEncounters(playerPos);
     }
   }
@@ -63,7 +97,7 @@ export class MissionSystem {
     );
 
     this.taskBoardMissions = [];
-    const shuffled = available.sort(() => Math.random() - 0.5);
+    const shuffled = shuffleInPlace(available);
     for (let i = 0; i < Math.min(3, shuffled.length); i++) {
       this.taskBoardMissions.push(shuffled[i]);
     }
@@ -97,16 +131,15 @@ export class MissionSystem {
   }
 
   _checkRandomEncounters(playerPos) {
-    const available = this.missionTemplates.filter(
-      m => m.source === 'random' && !this.completedMissionIds.has(m.id) &&
-           !this.activeMissions.find(a => a.id === m.id)
-    );
-
-    for (const mission of available) {
+    // Per-check probability equivalent to the old per-frame chance over one interval at 60 fps
+    const p = 1 - Math.pow(1 - GAME.randomEncounterChance, 60 * RANDOM_ENCOUNTER_CHECK_INTERVAL);
+    for (let i = 0; i < this.missionTemplates.length; i++) {
+      const mission = this.missionTemplates[i];
+      if (mission.source !== 'random' || this.completedMissionIds.has(mission.id) || this._isActive(mission.id)) continue;
       if (mission.triggerNpc) {
         const npc = this.npcsMap.get(mission.triggerNpc);
-        if (npc && npc.distanceTo(playerPos) < GAME.interactionRange * 3) {
-          if (Math.random() < GAME.randomEncounterChance) {
+        if (npc && !npc.hasRequest && npc.distanceTo(playerPos) < GAME.interactionRange * 3) {
+          if (Math.random() < p) {
             npc.setHasRequest(true);
             this.randomEncounterCooldown = 30;
             break;
@@ -116,8 +149,10 @@ export class MissionSystem {
     }
   }
 
-  _setupMissionNPCs(mission) {
-    for (const step of mission.steps) {
+  _setupMissionNPCs(mission, fromStep = 0) {
+    const steps = mission.steps || [];
+    for (let i = fromStep; i < steps.length; i++) {
+      const step = steps[i];
       if (step.npcId) {
         const npc = this.npcsMap.get(step.npcId);
         if (npc) {
@@ -157,7 +192,7 @@ export class MissionSystem {
   acceptRandomEncounter(npcId) {
     const mission = this.missionTemplates.find(
       m => m.source === 'random' && m.triggerNpc === npcId &&
-           !this.completedMissionIds.has(m.id)
+           !this.completedMissionIds.has(m.id) && !this._isActive(m.id)
     );
 
     if (mission && this.activeMissions.length < GAME.maxActiveMissions) {
@@ -192,6 +227,24 @@ export class MissionSystem {
     return mission.steps[mission.currentStep];
   }
 
+  /**
+   * Player entered an area: complete any active `goTo` step targeting it.
+   * (goTo steps were previously never completed, stalling those missions.)
+   * Returns the advanced mission or null. Allocation-free; safe to call every frame.
+   */
+  handleArrival(areaId) {
+    if (!areaId) return null;
+    for (let i = 0; i < this.activeMissions.length; i++) {
+      const m = this.activeMissions[i];
+      const step = m.steps[m.currentStep];
+      if (step && step.action === 'goTo' && (step.target === areaId || step.location === areaId)) {
+        this.advanceMissionStep(m.id);
+        return m;
+      }
+    }
+    return null;
+  }
+
   getCurrentStep(missionId) {
     const mission = this.activeMissions.find(m => m.id === missionId);
     if (!mission || mission.currentStep >= mission.steps.length) return null;
@@ -207,6 +260,9 @@ export class MissionSystem {
 
       if (this.onMissionUpdate) {
         this.onMissionUpdate(this.activeMissions);
+      }
+      if (this.onMissionComplete) {
+        try { this.onMissionComplete(mission); } catch (e) { console.error('onMissionComplete failed:', e); }
       }
       return mission;
     }
@@ -241,10 +297,20 @@ export class MissionSystem {
         });
         return true;
       }
+      // Choices pending but not on screen (e.g. restored state): talking to the
+      // NPC from the preceding dialogue step re-opens them.
+      if (step && step.action === 'choose' && !this.dialogueSystem.isActive()) {
+        const prev = mission.steps[mission.currentStep - 1];
+        if (prev && prev.npcId === npc.id) {
+          this._showChoices(mission, step, onComplete);
+          return true;
+        }
+      }
     }
 
     // Default: random greeting
-    const greetings = npc.data.greetings;
+    const greetings = (npc.data && Array.isArray(npc.data.greetings) && npc.data.greetings.length)
+      ? npc.data.greetings : ['Hello there!'];
     const greeting = greetings[Math.floor(Math.random() * greetings.length)];
     this.dialogueSystem.startDialogue(npc, [{ speaker: npc.name, text: greeting }], onComplete);
     return true;
@@ -273,6 +339,9 @@ export class MissionSystem {
         if (choice.reactions) {
           for (const [npcId, mood] of Object.entries(choice.reactions)) {
             const npc = this.npcsMap.get(npcId);
+            if (this.onReaction) {
+              try { this.onReaction(npcId, mood); } catch (e) { /* ignore */ }
+            }
             if (npc) {
               npc.mood = mood;
               const emoji = mood === 'satisfied' ? '\uD83D\uDE0A' :
@@ -317,5 +386,77 @@ export class MissionSystem {
       }
     }
     return null;
+  }
+
+  // ───────────────────────────── save / load ─────────────────────────────
+
+  /** Step index to resume from: rewinds past 'choose' steps to the preceding step. */
+  _rewindChoose(steps, step) {
+    while (step > 0 && steps && steps[step] && steps[step].action === 'choose') step--;
+    return step;
+  }
+
+  /** Serializable mission progress. */
+  getState() {
+    return {
+      // A 'choose' step is persisted as the dialogue step leading into it, so a
+      // reload replays that conversation and the advance-then-choose path shows
+      // the choices again (otherwise nothing could ever re-open them).
+      active: this.activeMissions.map(m => ({ id: m.id, step: this._rewindChoose(m.steps, m.currentStep) })),
+      completed: [...this.completedMissionIds],
+      taskBoard: this.taskBoardMissions.map(m => m.id),
+      radioTimer: this.radioTimer,
+      taskBoardTimer: this.taskBoardTimer,
+    };
+  }
+
+  /**
+   * Restore progress. Unknown mission ids are dropped, step indices are clamped,
+   * and NPC request markers are re-applied for the remaining steps.
+   */
+  setState(state) {
+    if (!state || typeof state !== 'object') return;
+    const known = this._templatesById;
+
+    this.completedMissionIds = new Set();
+    if (Array.isArray(state.completed)) {
+      for (const id of state.completed) if (known.has(id)) this.completedMissionIds.add(id);
+    }
+
+    this.activeMissions = [];
+    if (Array.isArray(state.active)) {
+      for (const a of state.active) {
+        if (!a || this.activeMissions.length >= GAME.maxActiveMissions) continue;
+        const tpl = known.get(a.id);
+        if (!tpl || this.completedMissionIds.has(tpl.id) || this._isActive(tpl.id)) continue;
+        const steps = tpl.steps || [];
+        let step = Number.isInteger(a.step) ? a.step : 0;
+        step = Math.max(0, Math.min(step, Math.max(0, steps.length - 1)));
+        step = this._rewindChoose(steps, step);
+        const mission = { ...tpl, currentStep: step, status: 'active' };
+        this.activeMissions.push(mission);
+        this._setupMissionNPCs(mission, step);
+      }
+    }
+
+    this.taskBoardMissions = [];
+    if (Array.isArray(state.taskBoard)) {
+      for (const id of state.taskBoard) {
+        const tpl = known.get(id);
+        if (tpl && tpl.source === 'taskBoard' && !this.completedMissionIds.has(id) && !this._isActive(id) &&
+            this.taskBoardMissions.length < 3 && !this.taskBoardMissions.includes(tpl)) {
+          this.taskBoardMissions.push(tpl);
+        }
+      }
+    }
+    if (Number.isFinite(state.radioTimer)) {
+      this.radioTimer = Math.max(5, Math.min(GAME.radioDispatchInterval, state.radioTimer));
+    }
+    if (Number.isFinite(state.taskBoardTimer)) {
+      this.taskBoardTimer = Math.max(1, Math.min(GAME.taskBoardRefreshInterval, state.taskBoardTimer));
+    }
+    if (this.taskBoardMissions.length === 0) this.taskBoardTimer = Math.min(this.taskBoardTimer, 5);
+
+    if (this.onMissionUpdate) this.onMissionUpdate(this.activeMissions);
   }
 }

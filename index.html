@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#173a26" />
   <title>Court Call — Tennis Attendant Simulator</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232d5a3d'/%3E%3Ccircle cx='32' cy='32' r='19' fill='%23d8e34a' stroke='%23f4e8c1' stroke-width='3'/%3E%3Cpath d='M16 22c9 3 12 17 3 26M48 16c-9 5-11 20-1 28' fill='none' stroke='%23fbfbef' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Non-render-blocking: the game still boots (with system fallbacks) if Google Fonts is unreachable -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'" />
   <style>
     * {
       margin: 0;
@@ -16,65 +22,198 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #000;
+      background: #173a26;
       touch-action: none;
       -webkit-user-select: none;
       user-select: none;
+      -webkit-tap-highlight-color: transparent;
     }
     #game-canvas {
       display: block;
       width: 100%;
       height: 100%;
     }
+
+    /* ─── Loading screen ─── */
     #loading-screen {
       position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: #2d5a3d;
+      inset: 0;
+      background:
+        radial-gradient(120% 80% at 50% 38%, #2f6444 0%, #214b33 45%, #122c1e 100%);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       z-index: 1000;
-      transition: opacity 0.5s ease;
+      transition: opacity 0.5s ease, visibility 0.5s;
+      padding: env(safe-area-inset-top, 0px) 24px env(safe-area-inset-bottom, 0px);
+      text-align: center;
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+    }
+    #loading-screen::before {
+      /* faint court-line motif */
+      content: '';
+      position: absolute;
+      inset: -20%;
+      background:
+        repeating-linear-gradient(90deg, transparent 0 118px, rgba(244, 232, 193, 0.035) 118px 120px),
+        repeating-linear-gradient(0deg, transparent 0 118px, rgba(244, 232, 193, 0.035) 118px 120px);
+      transform: perspective(600px) rotateX(58deg) translateY(18%);
+      pointer-events: none;
     }
     #loading-screen.hidden {
       opacity: 0;
+      visibility: hidden;
       pointer-events: none;
     }
+    .ld-crest {
+      position: relative;
+      width: 104px;
+      height: 118px;
+      margin-bottom: 18px;
+      filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.35));
+    }
+    .ld-stage {
+      position: relative;
+      width: 120px;
+      height: 64px;
+      margin: 4px 0 6px;
+    }
+    .ld-ball {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: 26px;
+      height: 26px;
+      margin-left: -13px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #f3f98a 0%, #d8e34a 45%, #a9b52a 100%);
+      box-shadow: inset -2px -3px 5px rgba(0, 0, 0, 0.18);
+      animation: ld-bounce 0.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    }
+    .ld-ball::before, .ld-ball::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      width: 12px;
+      height: 20px;
+      border: 2px solid rgba(255, 255, 240, 0.9);
+      border-radius: 50%;
+    }
+    .ld-ball::before { left: -7px; border-left-color: transparent; border-top-color: transparent; border-bottom-color: transparent; }
+    .ld-ball::after { right: -7px; border-right-color: transparent; border-top-color: transparent; border-bottom-color: transparent; }
+    .ld-shadow {
+      position: absolute;
+      left: 50%;
+      bottom: 2px;
+      width: 30px;
+      height: 6px;
+      margin-left: -15px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.35);
+      animation: ld-shadow 0.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    }
+    @keyframes ld-bounce {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      50% { transform: translateY(34px) scale(1.06, 0.92) rotate(160deg); }
+    }
+    @keyframes ld-shadow {
+      0%, 100% { transform: scale(0.55); opacity: 0.45; }
+      50% { transform: scale(1); opacity: 0.9; }
+    }
     #loading-screen h1 {
-      font-family: 'Georgia', serif;
+      position: relative;
+      font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+      font-weight: 600;
       color: #f4e8c1;
-      font-size: 2.5rem;
-      margin-bottom: 0.5rem;
-      letter-spacing: 2px;
+      font-size: clamp(2.2rem, 7vw, 3.2rem);
+      line-height: 1.05;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.4rem;
     }
     #loading-screen p {
-      font-family: 'Georgia', serif;
+      position: relative;
       color: #c4b896;
-      font-size: 1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      max-width: 90vw;
+    }
+    .ld-rule {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 0.9rem;
+      color: #d9a441;
+      font-family: 'Fraunces', Georgia, serif;
+      font-style: italic;
+      font-size: 0.9rem;
+      opacity: 0.9;
+    }
+    .ld-rule::before, .ld-rule::after {
+      content: '';
+      width: 36px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.8), transparent);
     }
     #loading-bar-container {
-      width: 200px;
-      height: 4px;
-      background: rgba(255,255,255,0.2);
-      border-radius: 2px;
-      margin-top: 1.5rem;
+      position: relative;
+      width: min(240px, 70vw);
+      height: 6px;
+      background: rgba(244, 232, 193, 0.14);
+      border: 1px solid rgba(244, 232, 193, 0.12);
+      border-radius: 999px;
+      margin-top: 1.6rem;
       overflow: hidden;
     }
     #loading-bar {
       width: 0%;
       height: 100%;
-      background: #f4e8c1;
-      border-radius: 2px;
+      background: linear-gradient(90deg, #d9a441, #f4e8c1);
+      border-radius: 999px;
       transition: width 0.3s ease;
+      box-shadow: 0 0 10px rgba(217, 164, 65, 0.5);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ld-ball, .ld-shadow { animation: none; }
     }
   </style>
 </head>
 <body>
   <div id="loading-screen">
+    <svg class="ld-crest" viewBox="0 0 104 118" aria-hidden="true">
+      <defs>
+        <linearGradient id="ldShield" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#3a7050"/>
+          <stop offset="1" stop-color="#1c4230"/>
+        </linearGradient>
+      </defs>
+      <path d="M52 4 L96 16 V58 C96 86 76 104 52 114 C28 104 8 86 8 58 V16 Z" fill="url(#ldShield)" stroke="#d9a441" stroke-width="3"/>
+      <path d="M52 12 L88 22 V58 C88 81 72 96 52 105 C32 96 16 81 16 58 V22 Z" fill="none" stroke="#f4e8c1" stroke-opacity="0.35" stroke-width="1.5"/>
+      <!-- crossed rackets -->
+      <g stroke="#f4e8c1" stroke-width="3" fill="none" stroke-linecap="round">
+        <g transform="rotate(-35 52 60)">
+          <ellipse cx="52" cy="44" rx="11" ry="15"/>
+          <line x1="52" y1="59" x2="52" y2="84"/>
+        </g>
+        <g transform="rotate(35 52 60)">
+          <ellipse cx="52" cy="44" rx="11" ry="15"/>
+          <line x1="52" y1="59" x2="52" y2="84"/>
+        </g>
+      </g>
+      <circle cx="52" cy="76" r="7" fill="#d8e34a" stroke="#173a26" stroke-width="1.5"/>
+      <text x="52" y="100" text-anchor="middle" font-family="Fraunces, Georgia, serif" font-size="9" font-weight="700" letter-spacing="1.5" fill="#d9a441">GTSC</text>
+    </svg>
     <h1>Court Call</h1>
     <p>Tennis Attendant Simulator</p>
+    <div class="ld-rule">Greenbriar Tennis &amp; Social Club</div>
+    <div class="ld-stage" aria-hidden="true">
+      <div class="ld-shadow"></div>
+      <div class="ld-ball"></div>
+    </div>
     <div id="loading-bar-container">
       <div id="loading-bar"></div>
     </div>
