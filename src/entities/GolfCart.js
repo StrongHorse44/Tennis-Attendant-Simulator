@@ -508,16 +508,30 @@ export class GolfCart {
 
   _createPhysics(pos) {
     const s = SIZES.cartScale;
-    const shape = new CANNON.Box(
-      new CANNON.Vec3(SIZES.cartWidth / 2 * s, 0.4 * s, SIZES.cartLength / 2 * s)
-    );
+    // Four sphere "wheels" carry the cart, with the chassis box raised above them.
+    // A flat-bottomed box can't climb even the 0.15 m court slab edge; a sphere
+    // taller than the step rolls up it. The spheres' bottoms sit at the old box
+    // bottom (-0.4·s), so the body rests at the same height as before.
+    const hw = SIZES.cartWidth / 2 * s, hl = SIZES.cartLength / 2 * s, hh = 0.4 * s;
+    const wheelR = 0.24;
     this.body = new CANNON.Body({
       mass: 400,
       position: new CANNON.Vec3(pos.x, pos.y + 0.6 * s, pos.z),
-      shape,
       linearDamping: 0.3,
       angularDamping: 0.85,
     });
+    const chassisBottom = -hh + wheelR + 0.06; // clears a 0.15 m step with margin
+    const chassisHalfH = (hh - chassisBottom) / 2;
+    this.body.addShape(
+      new CANNON.Box(new CANNON.Vec3(hw, chassisHalfH, hl)),
+      new CANNON.Vec3(0, chassisBottom + chassisHalfH, 0)
+    );
+    const wheel = new CANNON.Sphere(wheelR);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        this.body.addShape(wheel, new CANNON.Vec3(sx * (hw - wheelR * 0.5), -hh + wheelR, sz * (hl - wheelR)));
+      }
+    }
     // No material: contacts use the world's frictionless default (velocity-driven, see update()).
 
     // Lock Y-axis rotation to prevent flipping
