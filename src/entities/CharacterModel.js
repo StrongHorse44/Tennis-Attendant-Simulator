@@ -560,6 +560,30 @@ export class Character {
     if (this.skinned.geometry !== g) this.skinned.geometry = g;
   }
 
+  /**
+   * Rebuild the body with some style fields changed (e.g. { hatColor, hatBrim }). Colours are
+   * baked into the vertex colours, so this swaps geometry (cached per style variant); bones,
+   * material and animation state are untouched. Rare (rank perks), not for per-frame use.
+   */
+  restyle(patch) {
+    if (!patch) return;
+    const style = { ...this._style, ...patch };
+    const base = this._baseKey || (this._baseKey = this._cacheKey);
+    const key = base ? `${base}|${JSON.stringify(patch)}` : null;
+    const far = this._geoFar !== null && this.skinned.geometry === this._geoFar;
+    let geo = key ? _geoCache.get(key) : null;
+    if (!geo) {
+      geo = buildGeometry(style);
+      if (key) _geoCache.set(key, geo);
+    }
+    this._style = style;
+    this._cacheKey = key;
+    this._geoNear = geo;
+    this._geoFar = null;
+    this.setLod(far);
+    if (!far) this.skinned.geometry = geo;
+  }
+
   // ── Clip playback ──
 
   /**

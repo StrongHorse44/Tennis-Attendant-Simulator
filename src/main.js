@@ -36,9 +36,6 @@ const AUTOSAVE_INTERVAL = 30;
 const ZERO_MOVE = Object.freeze({ x: 0, y: 0 });
 const GROOM_RATING_RANK = { needsWork: 1, good: 2, excellent: 3 };
 const TASK_LABELS = { cooler: 'Swap\nCooler', cups: 'Add\nCups', trash: 'Empty\nTrash' };
-/** Unmodified tuning values; rank perks scale from these (see Game._applyPerks). */
-const BASE_CART_MAX_SPEED = SIZES.cartMaxSpeed;
-const BASE_BRUSH_WIDTH = GAME.groomBrushWidth;
 /** Height (m) of the floating objective marker above each kind of area. */
 const MARKER_HEIGHT = { proShop: 3.6, patio: 3.4, garden: 4.2, equipmentShed: 4.6 };
 const MARKER_HEIGHT_COURT = 3.2;
@@ -315,6 +312,15 @@ class Game {
       this.hud.updateTaskList();
       this.saveGame();
     };
+
+    // Overhead groom camera: key C or the grooming-panel button (only while grooming)
+    const toggleGroomCam = () => {
+      if (this.paused || this.courtMaintenance.state !== 'grooming') return;
+      const on = this.courtMaintenance.toggleGroomCamera();
+      this.hud.setGroomCameraActive(on);
+    };
+    this.input.onKeyPress('KeyC', toggleGroomCam);
+    this.hud.onGroomCameraToggle = toggleGroomCam;
 
     this.courtMaintenance.onGroomUpdate = (progress) => {
       this.hud.updateGroomingHUD(progress);
@@ -602,11 +608,7 @@ class Game {
 
   _wireShift() {
     const shift = this.shift;
-    shift.getCourtQuality = () => {
-      const courts = this.courtMaintenance ? this.courtMaintenance.getState().courts : null;
-      const vals = courts ? Object.values(courts) : [];
-      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    };
+    shift.getCourtQuality = () => (this.courtMaintenance ? this.courtMaintenance.getAverageCleanliness() : null);
     shift.onClockInPrompt = (day) => {
       this.sound.playRadioChirp();
       this.hud.showRadioCard({
@@ -678,7 +680,7 @@ class Game {
   /** Report card "Next day": 7 AM tomorrow, clock-in card, autosave. */
   startNextDay() {
     this.shiftReport.hide();
-    this.shift.nextDay();
+    if (this.shift.nextDay()) this.courtMaintenance.degradeOvernight();
     this.hud.updateTaskList();
     this.hud.setWallet(this.shift.wallet, true);
     if (this.paused && this.pauseReason === 'report') this.resume();
@@ -688,10 +690,14 @@ class Game {
   /** Rank perks: cart top speed, brush width, cap colour (tips are applied in ShiftSystem). */
   _applyPerks(perks) {
     if (!perks) return;
-    SIZES.cartMaxSpeed = BASE_CART_MAX_SPEED * (1 + (perks.cartSpeed || 0));
-    GAME.groomBrushWidth = BASE_BRUSH_WIDTH + (perks.brushWidth || 0);
-    if (perks.capColor && this.player && typeof this.player.setCapColor === 'function') {
-      try { this.player.setCapColor(perks.capColor); } catch (e) { /* cosmetic only */ }
+    // Explicit per-object hooks (the shared SIZES / GAME tuning tables are never mutated)
+    if (this.cart) {
+      this.cart.maxSpeedScale = 1 + (Number(perks.cartSpeed) || 0);
+      this.cart.setBrushWidthBonus(perks.brushWidth || 0);
+    }
+    // Re-applied on every load (ShiftSystem.setState -> onPerks), so the gold cap persists
+    if (this.player) {
+      try { this.player.setCapColor(perks.capColor || null); } catch (e) { /* cosmetic only */ }
     }
   }
 
@@ -1152,7 +1158,10 @@ class Game {
     const yawLerpSpeed = this.player.isInCart ? 4 : 8;
     this.cameraYaw += yawDiff * Math.min(1, dt * yawLerpSpeed);
 
-    this._computeCameraPose(target, this.cameraYaw);
+    // High-angle groom camera while grooming (C / panel button); otherwise the follow camera
+    if (!this.courtMaintenance.computeGroomCameraPose(this._camDesired, this._camLook, this.cameraYaw)) {
+      this._computeCameraPose(target, this.cameraYaw);
+    }
     this.camera.position.lerp(this._camDesired, Math.min(1, dt * SIZES.cameraLerpSpeed));
     this.camera.lookAt(this._camLook);
   }
@@ -1310,6 +1319,7 @@ class Game {
 
     // Update court maintenance system
     const weatherState = this.weather.getWeather();
+    this.courtMaintenance.degradePaused = !!this.weather.clockFrozen;
     this.courtMaintenance.update(dt, playerWorldPos, this.player.isInCart, weatherState);
 
     // Update grooming HUD in real time if grooming

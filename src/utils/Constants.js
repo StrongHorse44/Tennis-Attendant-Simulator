@@ -221,9 +221,11 @@ export const GAME = {
   groomSpeedLimit: 5,         // max speed for quality grooming (units/s)
   groomSpeedPenalty: 8,       // above this speed, no grooming happens
   courtDegradeInterval: 120,  // seconds between court degradation ticks
-  courtDegradeAmount: 0.05,   // how much dirtiness accumulates per tick (0-1)
+  courtDegradeAmount: 0.01,   // uniform dirt per tick (0-1) while the clock runs; matches add about as much again (Court.wearAt)
+  courtOvernightDegrade: 0.12, // uniform dirt added overnight (Next day): wind, dew and debris → a morning groom
+  matchWearScale: 6,          // multiplier on match footwork / bounce wear (MatchSystem → Court.wearAt)
   groomBrushWidth: 3,         // brush sweep width in world units (half each side)
-  groomScoreThreshold: 0.85,  // coverage needed for "good" rating
+  groomScoreThreshold: 0.85,  // cleanliness needed for "excellent" (plus coverage ≥ 70%, tasks ≥ 80%)
   groomMaskRes: 4,            // paint-mask cells per world unit (4 → 0.25 m cells, 64×112 over the playing slab)
   groomBrushDepth: 0.55,      // depth of the brush footprint along the direction of travel (world units)
   groomPassClean: 0.9,        // dirt removed by one full pass of the brush at a good speed

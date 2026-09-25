@@ -15,6 +15,7 @@ const KEY_CAMERA_RATE = 240;
  *   enabled                 — false while paused: gameplay key presses are ignored
  *   onPauseToggle(cb)       — Esc / P (fires even while disabled)
  *   onChoiceKey(cb)         — digit keys 1-9 → cb(index) (dialogue choices)
+ *   onKeyPress(code, cb)    — one-shot gameplay key (e.g. 'KeyC' groom camera); ignored while disabled
  *   consumeAction()         — swallow the current action press (no world action this frame)
  *   resetState()            — clear held keys / edges / camera delta (pause, blur, resume)
  *   update(dt)              — dt optional (keyboard camera rotation is now frame-rate independent)
@@ -36,6 +37,7 @@ export class InputSystem {
     this.tapCallbacks = [];
     this.pauseCallbacks = [];
     this.choiceCallbacks = [];
+    this.keyCallbacks = new Map(); // code -> [cb]
 
     // Keyboard state (desktop fallback)
     this.keys = {};
@@ -82,6 +84,10 @@ export class InputSystem {
         if (!e.repeat) this._actionLatched = true;
         this.actionPressed = true;
         if (e.code === 'Space') e.preventDefault(); // no page scroll / button re-activation
+      }
+      if (!e.repeat && this.keyCallbacks.has(e.code) &&
+          !(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) {
+        for (const cb of this.keyCallbacks.get(e.code)) cb(e.code);
       }
       if (!e.repeat && e.code.startsWith('Digit')) {
         const n = e.code.charCodeAt(5) - 49; // Digit1 → 0
@@ -189,6 +195,12 @@ export class InputSystem {
   /** Digit key 1-9 pressed while enabled → callback(index 0-8). */
   onChoiceKey(callback) {
     this.choiceCallbacks.push(callback);
+  }
+
+  /** Register a one-shot key handler (no repeats; not fired while input is disabled). */
+  onKeyPress(code, callback) {
+    if (!this.keyCallbacks.has(code)) this.keyCallbacks.set(code, []);
+    this.keyCallbacks.get(code).push(callback);
   }
 
   _fireTap(x, y) {

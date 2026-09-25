@@ -50,6 +50,7 @@ export class CourtMaintenanceSystem {
     this._labelTimer = 0;
     this._scrapeLevel = 0;
     this.groomCamera = false;       // high-angle groom camera requested (see computeGroomCameraPose)
+    this.degradePaused = false;     // set by Game each frame from weather.clockFrozen
 
     // In-world feedback (labels, sparkles) + end-of-session card; built once, hidden
     const scene = this.clayCourts.length ? this.clayCourts[0].scene : null;
@@ -127,8 +128,8 @@ export class CourtMaintenanceSystem {
   }
 
   update(dt, playerPos, isInCart, weatherState) {
-    // Degrade courts over time
-    this.degradeTimer -= dt;
+    // Degrade courts over time (not while the shift clock stands still: before clock-in / after 7 PM)
+    if (!this.degradePaused) this.degradeTimer -= dt;
     if (this.degradeTimer <= 0) {
       this.degradeTimer = GAME.courtDegradeInterval;
       for (const court of this.clayCourts) {
@@ -142,6 +143,7 @@ export class CourtMaintenanceSystem {
       this._setScrape(0, 0);
     }
     this.fx.update(dt);
+    this.summary.update(dt);
     if (this.state === 'results') {
       // Return to idle shortly after showing results (game time, so it respects pause)
       this._resultsTimer -= dt;
@@ -315,6 +317,7 @@ export class CourtMaintenanceSystem {
     };
 
     this.state = 'results';
+    this.groomCamera = false; // back to the follow camera when the session ends
     this._resultsTimer = 0.1;
     const groomed = this.activeCourts;
     this.activeCourts = [];
@@ -375,13 +378,28 @@ export class CourtMaintenanceSystem {
    * Returns false when not grooming or the flag is off (use the normal follow camera).
    */
   computeGroomCameraPose(outPos, outLook, yaw) {
-    if (!this.groomCamera || this.state !== 'grooming' || !this.cart.hasBrush) return false;
+    if (!this.groomCamera || this.state !== 'grooming' || !this.cart.hasBrush || !this.cart.occupied) return false;
     const bs = this.cart.brushState;
     const cp = this.cart.getPosition();
     const lx = (cp.x + bs.x) * 0.5, lz = (cp.z + bs.z) * 0.5;
     outLook.set(lx, 0.2, lz);
     outPos.set(lx - Math.sin(yaw) * 5.5, 15, lz - Math.cos(yaw) * 5.5);
     return true;
+  }
+
+  /** Overnight wear (called on "Next day"): a light uniform layer so every day starts with grooming. */
+  degradeOvernight(amount = GAME.courtOvernightDegrade) {
+    if (!(amount > 0)) return;
+    for (const court of this.clayCourts) court.degradeSurface(amount);
+  }
+
+  /** Mean cleanliness (0..1) of the clay courts, or null if there are none. Cheap (no mask encode). */
+  getAverageCleanliness() {
+    let sum = 0, n = 0;
+    for (const court of this.clayCourts) {
+      if (court && typeof court.getCleanliness === 'function') { sum += court.getCleanliness(); n++; }
+    }
+    return n ? sum / n : null;
   }
 
   getActiveCourts() {
@@ -473,6 +491,7 @@ export class CourtMaintenanceSystem {
 
   _beginGrooming() {
     this.state = 'grooming';
+    this.groomCamera = false;
     this.activeCourts = [...this.clayCourts]; // groom all clay courts at once
 
     // Fresh coverage masks for this session
@@ -557,7 +576,8 @@ export class CourtMaintenanceSystem {
     if (weatherState !== 'rainy' && speed >= 0.3 && speed <= GAME.groomSpeedPenalty) {
       const lim = GAME.groomSpeedLimit, pen = GAME.groomSpeedPenalty;
       const strength = speed <= lim ? 1 : 1 - 0.7 * (speed - lim) / Math.max(0.01, pen - lim);
-      const width = GAME.groomBrushWidth, depth = GAME.groomBrushDepth || 0.55;
+      const width = this.cart.getBrushWidth ? this.cart.getBrushWidth() : GAME.groomBrushWidth; // + rank perk
+      const depth = GAME.groomBrushDepth || 0.55;
       for (let i = 0; i < this.activeCourts.length; i++) {
         covered += this.activeCourts[i].groomStroke(prev.x, prev.z, bx, bz, bs.hx, bs.hz, width, depth, strength);
       }

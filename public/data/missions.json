@@ -57,7 +57,7 @@
       { "id": "court", "title": "Court Attendant", "points": 200, "perks": { "cartSpeed": 0.1 }, "unlock": "Tuned cart motor: +10% top speed." },
       { "id": "senior", "title": "Senior Attendant", "points": 550, "perks": { "brushWidth": 0.5 }, "unlock": "Wide drag brush: +0.5 m sweep." },
       { "id": "lead", "title": "Grounds Lead", "points": 1000, "perks": { "capColor": "#d9a441" }, "unlock": "The gold Grounds Lead cap." },
-      { "id": "head", "title": "Head of Grounds", "points": 1700, "perks": { "cartSpeed": 0.2, "tipBonus": 0.2 }, "unlock": "Members tip 20% more, and the cart gets another motor tune (+20%)." }
+      { "id": "head", "title": "Head of Grounds", "points": 1700, "perks": { "cartSpeed": 0.2, "tipBonus": 0.2 }, "unlock": "Members tip 20% more, and the cart motor tune goes up to +20%." }
     ]
   },
 

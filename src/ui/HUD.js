@@ -8,7 +8,8 @@ import { GAME, SIZES } from '../utils/Constants.js';
  * Public API (unchanged): constructor(weather, missions, inventory), setActionButton(label, cb),
  * showNotification(text, duration), showRadioDispatch(mission, cb), updateTimeWeather(),
  * updateMiniMap(playerPos, npcs, cartPos, mapData), updateTaskList(), updateInventory(),
- * showGroomingHUD(), hideGroomingHUD(), updateGroomingHUD(progress), update(dt).
+ * showGroomingHUD(), hideGroomingHUD(), updateGroomingHUD(progress), setGroomCameraActive(on),
+ * onGroomCameraToggle (callback), update(dt).
  *
  * Additive:
  *   showNotification(text, duration, icon?)  — optional icon key (see ICONS) overrides auto-detect
@@ -45,6 +46,7 @@ const ICONS = {
   chevron: svg('<path d="M8 10l4 4 4-4"/>'),
   timer: svg('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2"/><path d="M9.5 2.5h5"/>'),
   speed: svg('<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/>'),
+  camera: svg('<path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
 };
 
 /** Action-button label → icon key. */
@@ -556,6 +558,20 @@ const CSS = `
   font-variant-numeric: tabular-nums;
 }
 .cc-groom__timer .cc-ico { width: 13px; height: 13px; color: var(--cc-cream-dim); }
+.cc-groom__cam {
+  flex: none;
+  width: 44px; height: 44px; margin: -8px -6px -8px 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(244, 232, 193, 0.25);
+  border-radius: 999px;
+  background: rgba(244, 232, 193, 0.08);
+  color: var(--cc-cream);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.cc-groom__cam .cc-ico { width: 18px; height: 18px; }
+.cc-groom__cam[aria-pressed="true"] { background: var(--cc-clay); border-color: var(--cc-gold); }
 .cc-groom__top { display: flex; align-items: center; gap: 12px; }
 .cc-ring { position: relative; width: 64px; height: 64px; flex: none; }
 .cc-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
@@ -1006,6 +1022,22 @@ export class HUD {
     icon('timer', timer);
     this.groomTimerText = el('span', '', timer);
     this.groomTimerText.textContent = '0:00';
+    // High-angle groom camera toggle (also key C); main.js sets onGroomCameraToggle
+    const cam = el('button', 'cc-groom__cam', head);
+    cam.type = 'button';
+    cam.title = 'Overhead camera (C)';
+    cam.setAttribute('aria-label', 'Toggle overhead groom camera');
+    cam.setAttribute('aria-pressed', 'false');
+    icon('camera', cam);
+    const stop = (e) => e.stopPropagation();
+    cam.addEventListener('touchstart', stop, { passive: true });
+    cam.addEventListener('mousedown', stop);
+    cam.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.detail > 0) cam.blur(); // Enter/Space must not re-fire it later
+      if (this.onGroomCameraToggle) this.onGroomCameraToggle();
+    });
+    this._groomCamBtn = cam;
 
     const top = el('div', 'cc-groom__top', g);
     // Cleanliness ring
@@ -1754,7 +1786,13 @@ export class HUD {
     if (this.taskListOpen) this._toggleTaskList();
   }
 
+  /** Reflect the groom-camera state on the panel button. */
+  setGroomCameraActive(on) {
+    if (this._groomCamBtn) this._groomCamBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+
   hideGroomingHUD() {
+    this.setGroomCameraActive(false);
     this.groomingOverlay.style.display = 'none';
     this._leftCol.classList.remove('cc-hud-left--grooming');
     if (this._tasksWasOpen && !this.taskListOpen) this._toggleTaskList();

@@ -2,16 +2,17 @@
 /**
  * Data validator for Court Call (no dependencies): `npm run validate`.
  *
- * Checks public/data/{map,npcs,missions}.json so a hand edit can't ship a mission that
+ * Checks public/data/{map,npcs,missions,schedule}.json so a hand edit can't ship a mission that
  * soft-locks: every step action is supported, every target / location / npc / dialogue key
  * / item resolves, deliver steps have a matching pickup, random missions have a trigger NPC,
  * the shift section points at real missions, and every goTo / pickup / deliver / groom
- * target has a minimap pin. Exits 1 on any error (warnings don't fail).
+ * target has a minimap pin. schedule.json: known court / NPC ids, start < end, two players
+ * per match, format ranges (validateSchedule). Exits 1 on any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildWorldFacts, validateMission, hasMarkerPoint } from '../src/systems/MissionValidation.js';
+import { buildWorldFacts, validateMission, validateSchedule, hasMarkerPoint } from '../src/systems/MissionValidation.js';
 import { ITEMS } from '../src/systems/InventorySystem.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,6 +32,7 @@ function load(name) {
 const map = load('map.json');
 const npcs = load('npcs.json');
 const missions = load('missions.json');
+const schedule = load('schedule.json');
 
 if (map && npcs && missions) {
   const facts = buildWorldFacts({ map, npcs, missions, items: ITEMS });
@@ -95,8 +97,18 @@ if (map && npcs && missions) {
   }
 }
 
+// schedule.json (MatchSystem)
+let nMatches = 0;
+if (map && npcs && schedule) {
+  const facts = buildWorldFacts({ map, npcs, missions: missions || {}, items: ITEMS });
+  nMatches = Array.isArray(schedule.matches) ? schedule.matches.length : 0;
+  for (const p of validateSchedule(schedule, facts)) {
+    (p.level === 'error' ? errors : warnings).push(`schedule.json ${p.msg}`);
+  }
+}
+
 for (const w of warnings) console.warn('warn  ' + w);
 for (const e of errors) console.error('ERROR ' + e);
 const n = map && missions && Array.isArray(missions.missions) ? missions.missions.length : 0;
-console.log(`validate-data: ${n} missions checked, ${errors.length} error(s), ${warnings.length} warning(s)`);
+console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches checked, ${errors.length} error(s), ${warnings.length} warning(s)`);
 process.exit(errors.length ? 1 : 0);

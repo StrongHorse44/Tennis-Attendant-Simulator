@@ -64,6 +64,7 @@ export class Player {
     this.mesh.name = 'Player';
 
     this.character = new Character(PLAYER_STYLE, 'player');
+    this._capColor = PLAYER_STYLE.hatColor; // see setCapColor()
     this.mesh.add(this.character.root);
     // Seated in the cart the game loop no longer calls update(): tick the driving clip from
     // the body's own render callback instead (no main.js wiring). See enterCart().
@@ -217,6 +218,17 @@ export class Player {
 
     // y: on raised surfaces (court pads 0.15, patio 0.10, lot 0.06) the blob must sit on top
     this._blobs.set(this._blobSlot, this.mesh.position.x, this.mesh.position.z, 0.85, 0.85, 0, Math.max(this.mesh.position.y + 0.02, 0.065));
+  }
+
+  /**
+   * Staff cap colour (Grounds Lead rank perk). Accepts a hex number or CSS colour string;
+   * null restores the default club-green cap. Rebuilds the body geometry only on change.
+   */
+  setCapColor(color) {
+    const hex = color == null ? COLORS.playerCap : new THREE.Color(color).getHex();
+    if (hex === this._capColor) return;
+    this._capColor = hex;
+    this.character.restyle({ hatColor: hex, hatBrim: hex });
   }
 
   getPosition() {

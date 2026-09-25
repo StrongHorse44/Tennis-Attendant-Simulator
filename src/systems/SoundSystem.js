@@ -327,39 +327,6 @@ export class SoundSystem {
     } catch (e) { /* ignore audio errors */ }
   }
 
-  playBrushScrape() {
-    if (!this.initialized) return;
-    try {
-      const now = this.ctx.currentTime;
-
-      // Noise burst filtered to sound like bristles on clay
-      const bufferSize = 2048;
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() - 0.5) * Math.exp(-i / 800);
-      }
-
-      const source = this.ctx.createBufferSource();
-      source.buffer = buffer;
-
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.value = 400 + Math.random() * 200;
-      filter.Q.value = 1.5;
-
-      const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.04, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-
-      source.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.masterGain);
-      source.start(now);
-      source.stop(now + 0.2);
-    } catch (e) { /* ignore audio errors */ }
-  }
-
   playBrushAttach() {
     if (!this.initialized) return;
     try {

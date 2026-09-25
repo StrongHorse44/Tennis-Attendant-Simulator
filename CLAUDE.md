@@ -21,8 +21,9 @@ Court Call is a 3D browser-based sandbox game where the player works as a tennis
 - `npm run dev` — start Vite dev server on port 3000 (open `http://localhost:3000/Tennis-Attendant-Simulator/`)
 - `npm run build` — production build to `dist/`
 - `npm run preview` — preview production build
+- `npm run validate` — check `public/data/*.json` (`scripts/validate-data.mjs`): every mission step resolves (actions, targets, NPCs, dialogue keys, items, pickup-before-deliver, minimap pins), the shift section and ranks, and `schedule.json` (court / NPC ids, start < end, two players per match). Exits 1 on any error; warnings don't fail.
 
-There are no tests, linters, or formatters configured yet. The deploy workflow builds and publishes without any checks.
+There are no unit tests, linters or formatters. The deploy workflow runs `npm run validate` before `npm run build`; the Playwright suites used during development live outside the repo.
 
 ## Project Structure
 
@@ -31,27 +32,39 @@ There are no tests, linters, or formatters configured yet. The deploy workflow b
 ├── vite.config.js          # Vite config (port 3000, base: /Tennis-Attendant-Simulator/)
 ├── package.json
 ├── .github/workflows/
-│   └── deploy.yml          # GitHub Pages auto-deploy on push to main
+│   └── deploy.yml          # GitHub Pages auto-deploy on push to main (validate → build → deploy)
+├── scripts/
+│   └── validate-data.mjs   # `npm run validate`: data validator (uses MissionValidation.js)
 ├── src/
-│   ├── main.js             # Game class: init, loop, camera, interactions, pause, save/load, setQuality
+│   ├── main.js             # Game class: init, loop, camera (+ groom camera), interactions, pause, save/load, shift + perk wiring, setQuality
 │   ├── world/
 │   │   ├── World.js        # Ground, paths, courts, buildings, garden, shed, patio, parking, perimeter, trees, lamps, night lights
-│   │   ├── Court.js        # Shader-painted court surface (zones, lines, clay dirt texture), net, fence, lights, props, physics
+│   │   ├── Court.js        # Shader-painted court surface (zones, lines, clay paint mask), groomStroke / wearAt, net, fence, lights, props, physics
 │   │   ├── Building.js     # Pro shop (interior, roof cutaway) and clubhouse structures
 │   │   ├── Garden.js       # Paver walks, hedges, flower beds, animated fountain
 │   │   └── Scenery.js      # Instanced trees/grass/flowers/benches/lamps/blob shadows + wind sway
 │   ├── entities/
-│   │   ├── CharacterModel.js # Shared stylized character builder (1 draw call each), contact shadows, camera tracker
-│   │   ├── Player.js       # Player character: physics body, walk animation, seated in cart
-│   │   ├── GolfCart.js     # Drivable cart: physics, steering, body roll, lights, brush + clay dust
-│   │   └── NPC.js          # NPC: per-NPC looks, wandering AI, name tags, request marker, reactions
+│   │   ├── CharacterModel.js # Stylized skinned character (1 draw call each, far LOD), clip playback API, restyle, contact shadows, camera tracker
+│   │   ├── CharacterRig.js # Shared skeleton layout + bone rotation conventions
+│   │   ├── CharacterAnimations.js # 22 procedural clips (CLIP_DEFS key poses → baked AnimationClips), Animator, contact probe
+│   │   ├── Player.js       # Player character: physics body, locomotion clips, seated in cart, setCapColor (rank perk)
+│   │   ├── GolfCart.js     # Drivable cart: physics, steering, body roll, lights, towed drag brush (trailer kinematics) + clay dust, perk hooks
+│   │   ├── NPC.js          # NPC: per-NPC looks, wandering / sitting / playing states, name tags, request marker, reactions
+│   │   ├── Seats.js        # Benches NPCs can sit on (found from the built world; registerSeat)
+│   │   └── TennisBall.js   # Pooled analytic match ball (parabolic segments) + blob shadow
 │   ├── systems/
-│   │   ├── InputSystem.js  # Keyboard (WASD/arrows/Space/E/Enter/Q/R/Esc/P/1-9) + touch + camera drag
+│   │   ├── InputSystem.js  # Keyboard (WASD/arrows/Space/E/Enter/Q/R/C/Esc/P/1-9) + touch + camera drag
 │   │   ├── WeatherSystem.js# Day/night keyframes, weather, lights, shadows, sky, env map, rain/wind; writes EnvState
 │   │   ├── DialogueSystem.js# Dialogue queue, branching choices, NPC conversation flow
-│   │   ├── MissionSystem.js# Task board, radio dispatch, random encounters, step logic, goTo arrival
+│   │   ├── MissionSystem.js# Task board, radio dispatch (On it / Busy), random encounters, shift routines, step logic, goTo arrival
+│   │   ├── MissionValidation.js # Pure "can this mission be completed?" + schedule checks (runtime + `npm run validate`), parseHour
+│   │   ├── MissionMarkers.js # Floating gold objective markers for place-based steps (pooled)
+│   │   ├── ShiftSystem.js  # Daily loop: clock-in, checklist, rush windows, closing, report; wallet, tips, rank + perks
+│   │   ├── MatchSystem.js  # Scheduled member tennis matches (schedule.json): walk-in, rallies, scoring, rain, clay wear
+│   │   ├── RoutePlanner.js # A* over static physics boxes for scripted NPC walks (match walk-in / walk-off / rain shelter)
 │   │   ├── InventorySystem.js # Carry up to 3 items for errands
-│   │   ├── CourtMaintenanceSystem.js # Clay court grooming minigame
+│   │   ├── CourtMaintenanceSystem.js # Clay court grooming minigame (paint-mask strokes, groom camera, scoring)
+│   │   ├── GroomFX.js      # Floating per-court % labels + sparkle bursts while grooming
 │   │   ├── SoundSystem.js  # Procedural Web Audio API sounds (no audio files), volume/mute/pause
 │   │   └── SaveSystem.js   # Versioned localStorage save (courtcall.save.v1) + SettingsStore
 │   ├── graphics/
@@ -67,15 +80,18 @@ There are no tests, linters, or formatters configured yet. The deploy workflow b
 │   │   ├── Joystick.js     # Virtual joystick (touch + mouse fallback)
 │   │   ├── DialogueBox.js  # Bottom-center dialogue overlay with choices (typewriter)
 │   │   ├── PauseMenu.js    # Pause button + menu: Resume, Settings (volume, graphics, camera), Save, Reset
-│   │   └── HUD.js          # Mini-map, task list, clock/weather, inventory, action button, toasts, grooming overlay
+│   │   ├── HUD.js          # Mini-map, task list, clock/weather, wallet, radio dispatch card, inventory, action button, toasts, grooming overlay (+ groom camera button)
+│   │   ├── GroomSummary.js # End-of-groom card with the paint-mask heatmap (auto-hides in game time)
+│   │   └── ShiftReport.js  # End-of-shift report card (pay, tips, happiness, court quality, rank) + Next day
 │   └── utils/
 │       ├── Constants.js    # Colors, sizes, game tuning values, area enums
 │       └── AssetLoader.js  # JSON data loader with cache + AssetLoadError (per-file failures)
 └── public/
     ├── data/
     │   ├── map.json        # Club layout: areas, courts, paths, waypoints
-    │   ├── npcs.json       # NPC definitions: names, archetypes, dialogue pools
-    │   └── missions.json   # Mission templates, dialogue scripts, branching choices
+    │   ├── npcs.json       # NPC definitions: names, archetypes (tipChance / tipRange), dialogue pools
+    │   ├── missions.json   # Mission templates, dialogue scripts, branching choices, taskTypes pay, "shift" (wage, rush, ranks)
+    │   └── schedule.json   # Court reservations for member matches (MatchSystem)
     └── assets/             # Future: models, textures, audio files
 ```
 
@@ -84,24 +100,57 @@ There are no tests, linters, or formatters configured yet. The deploy workflow b
 - **Game loop** is in `src/main.js`. The `Game` class owns the scene, physics world, all systems and entities. `_gameLoop()` runs via `requestAnimationFrame`, clamps `dt` to 0.05 s, and wraps `_update(dt)` and `_render(dt)` in separate try/catch blocks. `_reportLoopError` logs each distinct error once and warns again at 600 repeats. While paused, the loop only re-renders when the canvas was invalidated (resize or quality change).
 - **Startup**: `AssetLoader.loadAllData()` loads the three JSON files with `Promise.allSettled`. Failures throw an `AssetLoadError` listing every bad file, and `_showFatalError` shows them on the loading screen with a Reload button. `_normalizeData()` then fills in anything missing (areas, courts, paths, spawn points, waypoints, NPC and mission lists) so a hand-edited file can't crash the game. Finally `_precompileShaders()` compiles every shader variant, including hidden night and rain objects, before the loading screen hides.
 - **Physics** uses Cannon.js with `NaiveBroadphase`. The ground is a `CANNON.Plane` and buildings and walls are static `CANNON.Box` bodies, plus thin colonnade columns and trunk bodies for the tree belts. Player and NPCs are `CANNON.Sphere` bodies. The cart is a dynamic `CANNON.Box` (400 kg, Y-axis angular lock to prevent flipping).
+  - **Contacts are frictionless** (`defaultContactMaterial.friction = 0` in `Game.init`; no body carries its own `CANNON.Material`). cannon-es caps friction per solver step as an *impulse* of μ·m·g rather than μ·m·g·dt, so at μ 0.5 a velocity-driven body was stopped almost dead every step: the player walked 2.15 m/s at 60 fps and 0.78 m/s at 20 fps against a configured 8. Every moving body is kinematically driven, so stopping is explicit instead: `Player.update` zeroes horizontal velocity without input (player `linearDamping` is 0.01), the cart tracks `currentSpeed` and brakes when parked, and NPCs translate their body position directly (`NPC._walkStep`) and zero velocity every update. Measured now: player 8.0 m/s (7.95 at 20 fps), cart 6.96 of 7 (its 0.3 linear damping).
+  - Don't add friction back to make something stop or grip; set its velocity. If a future body really needs friction (a loose ball, a pushed cooler), give it and the statics explicit `CANNON.Material`s and a `ContactMaterial` for that pair only.
 - **World building** is data-driven. `World.js` reads `data/map.json` and builds courts, buildings, paths, etc. To add or move areas, edit `public/data/map.json`. Static decoration is parented to `World.staticRoot` and merged with `mergeStaticMeshes(root, { cellSize: 32 })`. Repeated props go through the shared `Scenery` batch (`addTree`, `addBench`, `addLamp`, `addTuft`, `addFlowerClump`, `addBlob`, then `build()` once).
-- **NPCs** are defined in `public/data/npcs.json`. Each has an archetype (`entitled`/`friendly`/`clueless`), preferred areas, greeting pools and dialogue lines. Wandering uses waypoints from `map.json`. Each NPC is a `CharacterModel.Character`. Its look comes from `NPC_STYLES` in `NPC.js` (keyed by id) or, failing that, from `_deriveStyle()` (deterministic from id + archetype). The state machine has `idle`, `wandering`, `talking` and `playing`, but nothing sets `playing` yet. Name tags are canvas sprites (pill with an archetype color dot) that fade with camera distance. The request marker is a bouncing 3D "!" mesh. Reactions are emoji sprites that float up and fade.
-- **Missions** are defined in `public/data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`). `MissionSystem` manages active missions (max 3), the task board and radio dispatch. `goTo` steps complete when the player enters the target area: `Game._updateInteractions` calls `MissionSystem.handleArrival(areaId)`, and `_detectCurrentArea` recognises court ids, `proShop`, `patio`, `garden` and `equipmentShed`. Two hooks: `onMissionComplete(mission)` updates stats and autosaves, and `onReaction(npcId, mood)` counts satisfaction.
+- **NPCs** are defined in `public/data/npcs.json`. Each has an archetype (`entitled`/`friendly`/`clueless`), preferred areas, greeting pools and dialogue lines. Wandering uses waypoints from `map.json`. Each NPC is a `CharacterModel.Character`. Its look comes from `NPC_STYLES` in `NPC.js` (keyed by id) or, failing that, from `_deriveStyle()` (deterministic from id + archetype). The state machine has `idle`, `wandering`, `talking`, `sitting` (on a bench from `Seats.js`) and `playing` (owned by `MatchSystem`; `npc.playing` is true while booked into a match). Name tags are canvas sprites (pill with an archetype color dot) that fade with camera distance. The request marker is a bouncing 3D "!" mesh. Reactions are emoji sprites that float up and fade.
+- **Missions** are defined in `public/data/missions.json`. Each mission has typed steps (`goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`). `MissionSystem` manages active missions (max 3; `source: "shift"` routines don't use a slot), the task board, radio dispatch and random encounters. `goTo` steps complete when the player enters the target area: `Game._updateInteractions` calls `MissionSystem.handleArrival(areaId)`, and `_detectCurrentArea` recognises court ids, `proShop`, `patio`, `garden` and `equipmentShed`. Hooks: `onMissionComplete(mission)` (pay, tips, stats, autosave), `onReaction(npcId, mood)`, `onRadioDispatch` / `onDispatchClosed` (the HUD dispatch card) and `onMissionUpdate`.
+  - **Completability**: `MissionValidation.js` is the single source of truth. `Game` hands `buildWorldFacts()` to the mission system, which never offers or dispatches a mission with a dead step; `npm run validate` runs the same checks in CI.
+  - **Findability**: the "!" marker goes only on the NPC of each active mission's *current* step (`getStepNpcId`) and on NPCs with an offered random encounter. Place-based steps (`goTo`, `pickup`/`deliver` `location`, `groom`) get a floating gold marker from `MissionMarkers` (pooled, hidden when you stand on the spot) and a minimap pin; both use `getStepTargetPoint(step)` → a static `{x, z, h}` from `Game._buildTargetPoints()` (court and area centres, set through `setWorldFacts`).
+  - **Radio dispatch** offers a mission on a HUD card with **On it** / **Busy**; only "On it" makes it active. An unanswered card counts as Busy after `GAME.dispatchCardTimeout` (no penalty), then `dispatchDeclineCooldown` passes before the next. Dispatch only runs on shift and runs `rushDispatchScale`× faster inside rush windows. Accepting a random encounter plays its first dialogue step and advances.
+  - Missions are one-shot per day: `newDay()` (Next day) lets repeatable missions return; shift routines come back every day.
 - **Dialogue** flows through `DialogueSystem`, which controls `DialogueBox`, a typewriter overlay. Space, Enter, E or a tap finishes the line, then advances. Keys 1–9 pick a choice. Dialogues are keyed in `public/data/missions.json` under `dialogues`. A missing key logs one warning and shows a fallback line. Speaker names are color-coded by archetype.
 - **Camera** follows the player or cart in third person with lerp smoothing. In cart mode it follows the cart's heading. On foot, the player rotates it with Q/R or by dragging on the right side of the screen (>35% width), scaled by the camera-sensitivity setting. Portrait screens get FOV 72 and a slightly pulled-back camera. `_snapCamera()` jumps straight to the follow pose after a save loads.
-- **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. Footsteps, cart engine, UI clicks, pickups, notifications, bird chirps, brush scraping, brush attach, groom complete, proximity warnings, cooler swap and trash pickup are all synthesized at runtime. There are no audio files. The system initializes on the first user interaction (browser autoplay rules). `setMasterVolume`, `setMuted` and `setPaused` work before init too. `available` becomes false if Web Audio fails, and the pause menu then says so.
+  - **Groom camera**: while grooming (in the cart, brush attached), **C** or the camera button on the grooming panel calls `CourtMaintenanceSystem.toggleGroomCamera()`. `_updateCamera` asks `computeGroomCameraPose(_camDesired, _camLook, cameraYaw)` first (a high-angle view 15 m up over the brush) and falls back to `_computeCameraPose` when it returns false. The flag resets when a session starts or ends, and the HUD button's `aria-pressed` is cleared in `hideGroomingHUD()`.
+- **Sound** is fully procedural via the Web Audio API in `SoundSystem.js`. Footsteps, cart engine, UI clicks, pickups, notifications, bird chirps, the brush scrape loop (`setBrushScrape(level, speed)`), brush attach, groom chimes and completion, proximity warnings, cooler swap, trash pickup, mission complete, coins, radio chirps, rank-up and match ball hits / bounces (`playBallHit(volume, kind)`, distance-attenuated) are all synthesized at runtime. There are no audio files. The system initializes on the first user interaction (browser autoplay rules). `setMasterVolume`, `setMuted` and `setPaused` work before init too. `available` becomes false if Web Audio fails, and the pause menu then says so.
 - **Court Maintenance** is managed by `CourtMaintenanceSystem.js`.
   - **Setup**: three adjacent clay courts (3, 4 and 5) are all groomed in a single session. The player attaches a drag brush to the golf cart at the equipment shed, then drives onto any clay court to begin.
-  - **Dirt data**: each court keeps an 8×14 `dirtGrid`, mirrored into a `DataTexture` that the court surface shader samples. R is dirt; G/B hold the last brush direction, which draws the fresh drag stripes.
+  - **Paint mask**: each clay court keeps a `gridCols × gridRows` RGBA `DataTexture` over its whole pad at `GAME.groomMaskRes` (4) cells per unit (0.25 m cells; 64×112 over the 16×28 playing slab), sampled by the court surface shader. R = dirt, G = lateral position across the brush (draws bristle lines along the driven path), B/A = pull direction × stroke strength (lane shading). Cleanliness and coverage are read back from the cells over the playing slab (`getCleanliness`, `getCoverage`, cached until the mask changes).
+  - **Strokes**: every frame the towed brush's footprint (`cart.getBrushWidth()` × `GAME.groomBrushDepth`) is swept from the previous brush position to the current one with `court.groomStroke(ax, az, bx, bz, hx, hz, width, depth, strength)`; one full pass at a good speed removes `groomPassClean` dirt. Above `groomSpeedLimit` strength falls off; above `groomSpeedPenalty` or in rain nothing is painted.
+  - **Towed brush**: `GolfCart` models the brush as a trailer on a rigid bar (`groomTowLength` from the hitch, swing clamped to `groomTowMaxAngle`) plus a trailing drag mat on its own hinge. `cart.brushState` (`x, z, hx, hz, speed, angle, groundY`) is the brush centre and pull direction everything else reads. Visual only; physics never sees it.
+  - **Wear**: `court.wearAt(x, z, radius, amount)` adds localized dirt (MatchSystem footwork and bounces, ×`GAME.matchWearScale`). `degradeSurface(amount)` adds a uniform layer: `courtDegradeAmount` every `courtDegradeInterval` s while the shift clock runs (`degradePaused` mirrors `weather.clockFrozen`), and `courtOvernightDegrade` on Next day (`degradeOvernight()`), so every morning starts with grooming to do.
+  - **Feedback**: `GroomFX` floats a "Court N · 72%" label over each court and bursts sparkles at excellent / 100%; scrape loudness and pitch follow brush speed (`SoundSystem.setBrushScrape`); `GroomSummary` shows the rating card with a heatmap of the three masks and auto-hides after a few *game* seconds (ticked from `CourtMaintenanceSystem.update`, so it holds while paused).
   - **Technique**: fence perimeter first (stay close), then near the nets, then fill in the middles and the areas between courts. Proximity feedback shows the distance to the nearest fence or net (green optimal, yellow warning, red danger).
   - **Courtside tasks**: swap coolers, add cups and empty trash at the junctions between courts during the session.
   - **Rating**: "excellent" needs cleanliness ≥ `groomScoreThreshold`, coverage ≥ 70% and ≥ 80% of courtside tasks done.
-  - **Rules**: a first-time tutorial from Hank teaches the technique. Courts degrade over time, and rain blocks grooming.
-  - **Integration**: the `groom` mission step integrates with `MissionSystem`. `getState()`/`setState()`/`resumeGrooming()` save per-cell grids and can reopen a session that was in progress when the game was saved.
+  - **Rules**: a first-time tutorial from Hank teaches the technique. Courts wear from play and a light uniform tick, and rain blocks grooming. A clay court being groomed ends any match on it and can't be booked until the session ends.
+  - **Integration**: the `groom` mission step integrates with `MissionSystem`, and `onGroomEnd` feeds `ShiftSystem.recordGroom` (the groom bonus is paid with the maintenance mission). `getState()`/`setState()`/`resumeGrooming()` save the masks (`v2:` base64, see the save table) and can reopen a session that was in progress when the game was saved; old 8×14 hex grids are upsampled on load.
 - **Court Junctions** are defined in `map.json` under `areas.courtJunctions`. Each junction sits between two adjacent clay courts at the net line and holds igloo coolers and trash bins. `World.js` builds the 3D objects. During grooming, `CourtMaintenanceSystem` generates courtside tasks for each junction.
-- **Player/Cart interaction**: `Player.enterCart()` seats the player mesh in the cart's driver seat (parented to the cart, static seated pose), disables collision and hands movement to the cart. `getPosition()` then returns the cart position. `Player.exitCart()` places the player beside the cart and re-enables collision. The cart uses velocity-based driving, not force-based, because box-on-plane friction eats applied forces. Body roll, pitch, bump, wheel steer, lights and brush dust are visual only and don't touch physics. Player and cart meshes are scaled down (`SIZES.playerScale` = 0.85, `SIZES.cartScale` = 0.75) to fit the court sizes.
+- **Player/Cart interaction**: `Player.enterCart()` seats the player mesh in the cart's driver seat (parented to the cart, `drive` clip ticked from the mesh's `onBeforeRender`), disables collision and hands movement to the cart. `getPosition()` then returns the cart position. `Player.exitCart()` places the player beside the cart and re-enables collision. The cart uses velocity-based driving (`currentSpeed` toward `SIZES.cartMaxSpeed × cart.maxSpeedScale`), not force-based; contacts are frictionless (see Physics). Body roll, pitch, bump, wheel steer, lights and brush dust are visual only and don't touch physics. Player and cart meshes are scaled down (`SIZES.playerScale` = 0.85, `SIZES.cartScale` = 0.75) to fit the court sizes.
 - **Court collisions**: Nets and back fences have static CANNON.Box physics bodies, preventing the cart and player from driving through them. Net collision spans the full width at net height. Fence collision spans behind each baseline.
 - **Perimeter path**: A golf cart path runs around the entire map perimeter, connecting to existing court and entrance paths for a continuous driving loop. The perimeter fence (stone piers, iron pickets, gated north entrance) keeps the original 2 m physics walls.
+
+### Shift loop (`systems/ShiftSystem.js`, `ui/ShiftReport.js`)
+
+- **Phases**: `preShift` (clock frozen at `GAME.shiftStartHour` 7:00, clock-in radio card, no dispatch) → `onShift` (clock runs; the opening checklist, `missions.json → shift.openingMission`, starts; rush windows from `shift.rushWindows` speed up dispatch; at `shiftClosingHour` 18:30 the closing duties are radioed in) → `ending` (clock frozen at `shiftEndHour` 19:00, waits for a quiet moment: no dialogue, not grooming) → `report` (game paused with reason `'report'`, report card) → **Next day** (`Game.startNextDay`: 7:00 the next morning, `missions.newDay()`, overnight court wear, clock-in card). The night is skipped. A shift is about 15 real minutes.
+- **Money**: wages (`shift.hourlyWage` × hours worked), mission pay (`taskTypes[type].baseReward`, plus `groomBonus[rating]` on a maintenance mission after a groom) and tips. A tip rolls the client's archetype `tipChance` / `tipRange` (npcs.json), scaled by mood (`tipMoods`) and the Head of Grounds `tipBonus`. `onEarn` drives the HUD wallet and "+$X" floaters.
+- **Rank**: points = lifetime earnings + rep × `shift.repPoints`; rep comes from tasks, satisfied members, grooms and checklists (`shift.rep`). `shift.ranks` (points strictly increasing, first at 0) are Rookie Attendant → Court Attendant → Senior Attendant → Grounds Lead → Head of Grounds. Perks are cumulative (later ranks override a key): `cartSpeed` (fraction), `brushWidth` (m), `capColor`, `tipBonus`.
+- **Perk hooks**: `ShiftSystem.onPerks(perks)` → `Game._applyPerks`, which sets `cart.maxSpeedScale`, `cart.setBrushWidthBonus()` (paint width *and* the brush mesh) and `player.setCapColor()` (`Character.restyle({ hatColor, hatBrim })`, a cached geometry swap). `SIZES` / `GAME` are never mutated. `onPerks` also fires from `setState()`, so perks re-apply on every load.
+- The report card shows tasks, tips, member happiness, court quality (`CourtMaintenanceSystem.getAverageCleanliness()`), pay breakdown, checklists and rank progress.
+
+### Characters and clips (`entities/CharacterModel.js`, `CharacterAnimations.js`, `CharacterRig.js`)
+
+- Every person is one `SkinnedMesh` with the shared 19-bone rig (`BONE_DEFS` in `CharacterRig.js`, including racket and ball prop bones that are hidden by scaling them to 0), all vertex-coloured with one material. The clips are **procedural**: `CLIP_DEFS` holds sparse key poses (per-bone Euler degrees, order `'YXZ'`, optional `hipsPos` and leg IK sole targets), resampled at 30 fps with Catmull-Rom and baked once into shared `THREE.AnimationClip`s. No external model or animation files.
+- 22 clips: `idle`, `idle_look`, `idle_shift`, `idle_watch`, `walk`, `run`, `talk`, `greet`, `wave`, `react_happy`, `react_annoyed`, `shrug`, `sit`, `drive`, `ready`, `split_step`, `shuffle_left`, `shuffle_right`, `forehand`, `backhand`, `serve`, `pickup_ball`.
+- API on `Character`: `setLocomotion(move01, cyclesPerSecond, run01)` + `update(dt)` (idle/walk/run blend); `play(name, { fade, loop, timeScale, then, onDone, startAt, fadeOut })` (looping clips become the base pose, one-shots fade back to it; returns the duration); `stop()`; `onClipEvent(clip, event, cb)` (`contact`, serve `release`, `grab`, `land`, every one-shot `end`; `'*'` = any clip); `getClipDuration`, `getClipEventTime`, `getContactPointWorld(name, out)` (racket head at contact, from the cached probe); `lookAt(target)`; `setSeated(on)`; `setLod(far)`; `restyle(patch)`; `updateEvery` (mixer every Nth frame on low / far).
+
+### Matches (`systems/MatchSystem.js`, `public/data/schedule.json`)
+
+- `schedule.json`: `maxConcurrent` (0–5), `format` (`gamesToWin` 1–6, `noAd`, `warmupSeconds`), `lateStartHours` (how long after `start` a match may still begin), `pool` (members for `"any"` and substitutes), `exclude` (never scheduled; Hank), and `matches[]` of `{ id, court, start, end, players }`. `court` is an id or a list of alternatives (first free wins); times are hours (`8.5`) or `"8:30"`; `players` are two npcs.json ids or `"any"`. A booked member who is busy (mission step, talking to you, already playing) is substituted from the pool after about 12 game minutes.
+- Flow: `walkIn` (fence-aware route from `RoutePlanner`) → `warmup` → `setup` / `point` (serve with toss, rallies, net and out errors, winners, no-ad scoring) → `handshake` → `walkOut` to a preferred area. Rain sends players to the nearest benches (`rain` phase) and resumes when it clears; grooming a clay court ends its match; talking to a player pauses the rally and replays the point.
+- The ball is analytic (`TennisBall`: parabolic segments on the match clock). Each contact is planned: the receiver runs to where the racket head will meet the ball (`getContactPointWorld`) and starts the swing exactly `contact` seconds early; the remaining flight is re-aimed at the real racket at swing start. One pooled ball per court, no per-frame allocation, frustum LOD on low.
+- Wear on clay is queued and flushed to `court.wearAt` every 0.4 s (one texture upload per court). Hit and bounce "pocks" go through `SoundSystem.playBallHit(volume, kind)` with distance attenuation.
+- Matches are not saved; after a load the schedule restarts any match still inside its late-start window. Dev: `__game.matches.debugStart('court1', ['chad_blake', 'tommy_chen'], { teleport: true, warmup: 0, gamesToWin: 1 })`, `.debugStop(id)`, `.list()`, `.enabled`.
 
 ### Rendering pipeline (`src/graphics/`)
 
@@ -113,7 +162,7 @@ There are no tests, linters, or formatters configured yet. The deploy workflow b
 - **Rain and wind**: GPU-animated rain streaks (`RAIN_MAX` × `rainDensity`). Wetness (`EnvState.wetness`) soaks in about 10 s and dries over about 60 s, darkening and glossing materials registered with `registerWet`. Blowing leaves (one `InstancedMesh`) appear when windy. Trees and grass sway through `applyWindSway` uniforms in `Scenery.js`.
 - **Courts** render their surface with one shader plane per court (zones, lines and clay dirt) — there is no line geometry. Hard courts that share a surround set `sharedPadLeft`/`sharedPadRight` in `map.json` to drop the inner edging. About 9 draw calls per court.
 - **Buildings** are merged by material into about 10 draw calls each. The pro shop roof layer stops drawing (but keeps casting its shadow) while the camera follows the player inside (`Building.setCutaway`, driven from `onBeforeRender`, so there is no game-loop wiring).
-- **Characters** (`CharacterModel.js`): one `SkinnedMesh` per person with a 10-bone rigid skeleton, all sharing one vertex-colored material, with a far LOD mesh (always used on low). `BlobShadows` is one `InstancedMesh` of soft contact shadows for all characters and carts. `CameraTracker` records the last rendered camera position so name tags can fade without extra wiring.
+- **Characters** (`CharacterModel.js`): one `SkinnedMesh` per person with a 19-bone skeleton driven by an `AnimationMixer` (see Characters and clips), all sharing one vertex-colored material, with a far LOD mesh (always used on low). `BlobShadows` is one `InstancedMesh` of soft contact shadows for all characters and carts. `CameraTracker` records the last rendered camera position so name tags can fade without extra wiring.
 
 ### Quality tiers (`graphics/Quality.js`)
 
@@ -147,11 +196,13 @@ A plain shared object that `WeatherSystem` writes once per frame and any module 
 
 | Key | Owner | Contents |
 |-----|-------|----------|
-| `courtcall.save.v1` | `SaveSystem` | Versioned JSON snapshot (`SAVE_VERSION` = 1): time/day/weather, player + cart transforms (brush attached), in-cart flag, camera yaw, missions (active + step, completed, task board, timers), inventory, stats, clay court cleanliness + per-cell hex grids, in-progress groom session, degrade timer, flags (`tutorialSeen`, `groomTutorialSeen`) |
+| `courtcall.save.v1` | `SaveSystem` | Versioned JSON snapshot (`SAVE_VERSION` = 1): time/day/weather, player + cart transforms (brush attached), in-cart flag, camera yaw, missions (active + step, completed, task board, timers), inventory, stats (incl. tips, shifts worked), clay court cleanliness + `courtGrids`, in-progress groom session (time, start cleanliness, tasks done, per-court coverage bit masks), degrade timer, `shift`, flags (`tutorialSeen`, `groomTutorialSeen`). Roughly 110 KB, most of it the three court masks |
 | `courtcall.save.v1.backup` | `SaveSystem` | Unreadable or corrupt saves are moved here (`{ reason, at, raw }`) instead of crashing |
 | `courtcall.settings` | `SettingsStore` | `volume` (0–1), `muted`, `cameraSensitivity` (0.25–2.5) |
 | `courtcall.quality` | `Quality` | `'low' \| 'medium' \| 'high'` (absent = auto-detect) |
 
+- `courtGrids[courtId]` is the v2 paint-mask format `'v2:<cols>x<rows>:<base64>'` from `Court.getMaskData()` (the whole RGBA mask, lossless round trip; `sanitizeSave` accepts up to 256 KB per court). The pre-mask format, an 8×14 hex grid (2 or 6 hex chars per cell), is still accepted and bilinearly upsampled by `Court.setGridHex`, so old saves need no version bump.
+- `shift` is `ShiftSystem.getState()`: `phase`, `wallet`, `lifetimeEarnings`, `lifetimeTips`, `rep`, `rankIndex`, `shiftsWorked` and the `current` shift counters (clock-in hour, tasks, pay, tips, moods, checklist flags, start rank/points, pending groom rating, wage). `sanitizeShift` clamps it; a save without it (pre-shift) derives the phase from the clock. A `report` phase reloads as `ending` so the report card is shown again. Matches are not saved.
 - `captureSaveData(game)` → `saveSystem.save(data)`. `saveSystem.load()` runs `migrateSave` (the `MIGRATIONS` table), then `sanitizeSave` (clamps every field, drops unknown ids), then `applySaveData(game, data)`. Each section is restored in its own try/catch.
 - Autosave happens every 30 s of unpaused play (`AUTOSAVE_INTERVAL` in `main.js`), on mission completion, at the end of a groom, after the intro tutorial, on `visibilitychange` → hidden (which also pauses), and on `pagehide`. The pause menu has a manual Save.
 - `game.resetProgress()` disables saving, clears the slot and reloads. Settings and quality are kept.
@@ -219,30 +270,43 @@ A plain shared object that `WeatherSystem` writes once per frame and any module 
 | `GAME.taskBoardRefreshInterval` | 120 | Seconds between task board refreshes |
 | `GAME.randomEncounterChance` | 0.15 | Per-frame-equivalent encounter chance (checked every 0.5 s) |
 | `GAME.gravity` | -9.82 | Physics gravity |
-| `GAME.groomCellSize` | 2 | Grid cell size for court dirt (world units) |
+| `GAME.groomCellSize` | 2 | Legacy 8×14 grid cell size (unused since the paint mask; old saves are upsampled) |
+| `GAME.groomMaskRes` | 4 | Paint-mask cells per world unit (0.25 m cells) |
+| `GAME.groomBrushDepth` | 0.55 | Brush footprint depth along the direction of travel |
+| `GAME.groomPassClean` | 0.9 | Dirt removed by one full pass at a good speed |
+| `GAME.groomTowLength` | 1.75 | Hitch → brush centre on the tow bar |
+| `GAME.groomTowMaxAngle` | 1.2 | Max tow-bar swing from the cart's axis (radians) |
 | `GAME.groomSpeedLimit` | 5 | Max speed for quality grooming (units/s) |
 | `GAME.groomSpeedPenalty` | 8 | Above this speed, no grooming happens |
 | `GAME.courtDegradeInterval` | 120 | Seconds between court degradation ticks |
-| `GAME.courtDegradeAmount` | 0.05 | Dirt added per degradation tick |
-| `GAME.groomBrushWidth` | 3 | Brush sweep radius (world units) |
+| `GAME.courtDegradeAmount` | 0.01 | Uniform dirt per tick while the shift clock runs (was 0.05). Over a simulated shift a clay court with two matches loses ~0.14: ~0.075 from this tick, ~0.065 from play, concentrated on the baselines |
+| `GAME.courtOvernightDegrade` | 0.12 | Uniform dirt added on Next day |
+| `GAME.matchWearScale` | 6 | Multiplier on match footwork / bounce wear (`Court.wearAt`) |
+| `GAME.groomBrushWidth` | 3 | Brush sweep width (world units; + `brushWidth` rank perk via `cart.getBrushWidth()`) |
 | `GAME.groomScoreThreshold` | 0.85 | Cleanliness needed for "excellent" (also needs ≥70% coverage, ≥80% courtside tasks) |
 | `GAME.proximityOptimalMin` | 0.5 | Min safe brush-center distance to fence/net |
 | `GAME.proximityOptimalMax` | 3.0 | Max optimal brush-center distance (edge ~1.5m from fence) |
 | `GAME.proximityWarnMax` | 4.5 | Warning distance — getting too far |
 | `GAME.proximityDangerMin` | 0.3 | Danger — brush hitting fence/net |
 | `GAME.coolerInteractRange` | 2.5 | Range to interact with courtside objects |
+| `GAME.shiftStartHour` | 7 | Clock-in; each new day starts here (the night is skipped) |
+| `GAME.shiftClosingHour` | 18.5 | Closing duties are radioed in |
+| `GAME.shiftEndHour` | 19 | Clock-out → report card |
+| `GAME.rushDispatchScale` | 2.25 | Radio dispatch runs this much faster in rush windows |
+| `GAME.dispatchCardTimeout` | 25 | Seconds before an unanswered dispatch card counts as Busy |
+| `GAME.dispatchDeclineCooldown` | 30 | Seconds until the next dispatch after Busy |
 
-Outside `Constants.js`: `AUTOSAVE_INTERVAL` = 30 s (`main.js`); `MINIMAP_INTERVAL` ≈ 83 ms / 12 fps and `TOAST_MAX` = 3 (`HUD.js`); per-tier graphics values in `QUALITY_SETTINGS` (`graphics/Quality.js`); lighting keyframes `KEYS`, `SUNRISE`/`SUNSET` and `WEATHER_TARGETS` (`WeatherSystem.js`); name-tag fade distances (`NPC.js`).
+Outside `Constants.js`: wages, rush windows, rep values, `groomBonus` and ranks in `missions.json → shift`; mission pay in `missions.json → taskTypes`; tip odds in `npcs.json` (`archetypes.*.tipChance` / `tipRange`, `tipMoods`); match format in `schedule.json`; `AUTOSAVE_INTERVAL` = 30 s (`main.js`); `MINIMAP_INTERVAL` ≈ 83 ms / 12 fps and `TOAST_MAX` = 3 (`HUD.js`); per-tier graphics values in `QUALITY_SETTINGS` (`graphics/Quality.js`); lighting keyframes `KEYS`, `SUNRISE`/`SUNSET` and `WEATHER_TARGETS` (`WeatherSystem.js`); name-tag fade distances (`NPC.js`).
 
 ## Common Tasks
 
 **Adding a new NPC:** Add an entry to `data/npcs.json` under `npcs[]` with id, name, archetype, shirtColor, preferredAreas, greetings, requests and dialoguePool. The NPC spawns and wanders automatically, with a look derived from its id and archetype. For a hand-authored look (hair, hat, skin, bottom, brows/mouth, racket, scale, ...), add an entry keyed by the id to `NPC_STYLES` in `src/entities/NPC.js`.
 
-**Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`) and a steps array. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`. A `goTo` `target` must be something `Game._detectCurrentArea` returns (a court id, `proShop`, `patio`, `garden`, `equipmentShed`). For the minimap pin it also needs a `<target>_center` or `<target>` waypoint in `map.json`. For maintenance missions, use type `maintenance` and the `groom` step action with a `target` matching a clay court id (e.g., `court3`, `court4`, `court5`). All 3 clay courts are groomed in one session, so a `groom` step targeting any clay court triggers the multi-court grooming system. Saves reference missions by id, so renaming an id drops that mission from existing saves.
+**Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`, or `shift` for a routine referenced by `shift.openingMission` / `closingMission`) and a steps array. A `random` mission needs a `triggerNpc`; `client` names the member who tips. Give the `type` a `taskTypes` entry (`baseReward`) or it pays nothing. Run `npm run validate` afterwards: a mission with a dead step is never offered in game. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`. A `goTo` `target` must be something `Game._detectCurrentArea` returns (a court id, `proShop`, `patio`, `garden`, `equipmentShed`). For the minimap pin it also needs a `<target>_center` or `<target>` waypoint in `map.json`. For maintenance missions, use type `maintenance` and the `groom` step action with a `target` matching a clay court id (e.g., `court3`, `court4`, `court5`). All 3 clay courts are groomed in one session, so a `groom` step targeting any clay court triggers the multi-court grooming system. Saves reference missions by id, so renaming an id drops that mission from existing saves.
 
 **Changing the map layout:** Edit `public/data/map.json`. Court positions, building locations, path routes and waypoints are all defined there, and the world rebuilds from this data on load. Keep new flat pieces on their own layer heights (see "No z-fighting").
 
-**Tuning game feel:** Adjust values in `src/utils/Constants.js`: cart speed (`SIZES.cartMaxSpeed`), player speed (`SIZES.playerSpeed`), camera distance (`SIZES.cameraDistance`), day length (`GAME.dayDurationSeconds`), etc.
+**Tuning game feel:** Adjust values in `src/utils/Constants.js`: cart speed (`SIZES.cartMaxSpeed`), player speed (`SIZES.playerSpeed`; both are now reached exactly, see Physics), camera distance (`SIZES.cameraDistance`), day length (`GAME.dayDurationSeconds`), etc.
 
 **Tuning lighting / time of day:** Edit the `KEYS` keyframes (sun color/intensity, hemisphere sky/ground, sky top/horizon per hour) and `WEATHER_TARGETS` in `WeatherSystem.js`. Use sRGB hex colors. Base grading is in `PostFX` (`grade` defaults, `updateFromEnv`). To preview, use `__game.weather.timeOfDay = 18.5` in dev, or the screenshot tour with `TOD=18.5`.
 
@@ -265,11 +329,19 @@ Saves from a newer version, or with no migration path, are backed up to `courtca
 
 **Adding sounds:** All sounds are procedural in `src/systems/SoundSystem.js` using Web Audio API oscillators and noise buffers. Add new methods following the existing patterns: create an oscillator or gain, schedule ramps and connect to the master gain so volume, mute and pause apply. Wrap them in try/catch like the others.
 
+**Adding a match:** Add an entry to `public/data/schedule.json → matches[]`: `{ "id": "pm-3", "court": ["court4", "court5"], "start": "17:00", "end": "18:45", "players": ["chad_blake", "any"] }`. Use a unique id, a court id or a list of alternatives from `map.json`, a window of at least 45 game minutes inside the shift (7:00–19:00), and exactly two players (npcs.json ids or `"any"` for a pick from `pool`; never an `exclude`d id or the same member twice). `maxConcurrent` caps simultaneous matches. Run `npm run validate`. To try it at once in dev: `__game.matches.debugStart(courtId, [a, b], { teleport: true, warmup: 0 })`.
+
+**Adding an animation clip:** Add an entry to `CLIP_DEFS` in `src/entities/CharacterAnimations.js`: `{ duration, loop?, base?, keys: [{ t, ease?, <bone>: [x, y, z] degrees, hipsPos?, ik? }], events?: { contact: 0.52 } }`. Follow the sign conventions in `CharacterRig.js`, reuse a shared `base` (e.g. `STAND`) and keep the last key's pose equal to the first for loops. It is baked on first use and shared by every character; play it with `character.play('name')` and listen with `onClipEvent('name', 'contact', cb)`. `getContactPointWorld` works for any clip with a `contact` event. There is no external animation data.
+
+**Adding a rank:** Add `{ "id", "title", "points", "perks"?, "unlock" }` to `missions.json → shift.ranks`; points must increase and the first rank stays at 0. Existing perk keys: `cartSpeed` (fraction, e.g. 0.1), `brushWidth` (metres), `capColor` (CSS colour), `tipBonus` (fraction). Perks are cumulative across reached ranks, a later rank overriding the same key. A new perk key needs a hook in `Game._applyPerks` (set a property on the object it affects; don't mutate `SIZES` / `GAME`); `tipBonus` is read in `ShiftSystem`. The report card and promotion toast show `unlock`.
+
 **Tuning court maintenance:** Adjust values in `Constants.js` under the `GAME` object:
-- `groomCellSize`: grid resolution
+- `groomMaskRes`, `groomBrushDepth`, `groomPassClean`: paint-mask resolution and how much a pass cleans
+- `groomTowLength` / `groomTowMaxAngle`: towed-brush feel
+- `courtOvernightDegrade`, `matchWearScale`: overnight and match wear
 - `groomSpeedLimit`: max effective speed
 - `groomSpeedPenalty`: speed cutoff
-- `courtDegradeInterval`: how fast courts get dirty
+- `courtDegradeInterval` / `courtDegradeAmount`: the uniform wear tick
 - `groomBrushWidth`: sweep area
 - `groomScoreThreshold`: rating threshold
 - `proximityOptimalMin`/`Max`: fence/net sweet spot

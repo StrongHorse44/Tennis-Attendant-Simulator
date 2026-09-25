@@ -142,7 +142,7 @@ function buildSteeringGeo() {
 // Rig origin = ground point under the hitch pivot; +Z runs back from the hitch toward the brush.
 const HITCH_LOCAL_Z = 1.42;   // cart-local (unscaled) hitch position behind the cart centre
 const HITCH_LOCAL_Y = 0.42;
-const BRUSH_W = 3.0;          // bristle width (matches GAME.groomBrushWidth)
+const BRUSH_W = 3.0;          // modelled bristle width (GAME.groomBrushWidth); perks scale it (setBrushWidthBonus)
 const FRAME_Z0 = -0.3;        // frame front / rear rails relative to the brush centre
 const FRAME_Z1 = 0.3;
 const RAIL_Y = 0.16;
@@ -334,6 +334,9 @@ export class GolfCart {
     this.mesh = null;
     this.body = null;
     this.occupied = false;
+    // Rank perks (Game._applyPerks): top-speed multiplier and extra brush sweep width (m)
+    this.maxSpeedScale = 1;
+    this.brushWidthBonus = 0;
     this.steerAngle = 0;
     this.currentSpeed = 0;
     this.engineSound = 0;
@@ -557,11 +560,11 @@ export class GolfCart {
     // Drive: track speed internally so ground friction can't eat our velocity
     if (forward < -0.1) {
       // Accelerate forward
-      const targetSpeed = SIZES.cartMaxSpeed * Math.abs(forward);
+      const targetSpeed = SIZES.cartMaxSpeed * this.maxSpeedScale * Math.abs(forward);
       this.currentSpeed = Math.min(this.currentSpeed + SIZES.cartAcceleration * dt, targetSpeed);
     } else if (forward > 0.1) {
       // Reverse
-      const targetSpeed = SIZES.cartMaxSpeed * 0.4 * Math.abs(forward);
+      const targetSpeed = SIZES.cartMaxSpeed * this.maxSpeedScale * 0.4 * Math.abs(forward);
       this.currentSpeed = Math.max(this.currentSpeed - SIZES.cartAcceleration * dt * 0.5, -targetSpeed);
     } else {
       // Coast deceleration
@@ -721,7 +724,7 @@ export class GolfCart {
 
     // Soft contact shadow under the frame (helps on low, where there are no shadow maps)
     if (this._brushBlob >= 0) {
-      this._blobs.set(this._brushBlob, bs.x + bs.hx * -0.1, bs.z + bs.hz * -0.1, BRUSH_W * 1.1, 1.1,
+      this._blobs.set(this._brushBlob, bs.x + bs.hx * -0.1, bs.z + bs.hz * -0.1, this.getBrushWidth() * 1.1, 1.1,
         Math.atan2(dx, dz), bs.groundY + 0.03);
     }
   }
@@ -779,6 +782,19 @@ export class GolfCart {
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
     this._blobs.set(this._blobSlot, this.mesh.position.x, this.mesh.position.z,
       SIZES.cartWidth * s * 1.35, SIZES.cartLength * s * 1.2, yaw, Math.max(this.mesh.position.y + 0.02, 0.065));
+  }
+
+  /** Effective brush sweep width (m): GAME.groomBrushWidth plus the rank perk bonus. */
+  getBrushWidth() {
+    return (GAME.groomBrushWidth || BRUSH_W) + this.brushWidthBonus;
+  }
+
+  /** Rank perk: widen the brush. Scales the bristle board / drag mat to match the swept strip. */
+  setBrushWidthBonus(bonus) {
+    this.brushWidthBonus = Math.max(0, Number(bonus) || 0);
+    const k = this.getBrushWidth() / BRUSH_W;
+    if (this._brushBob) this._brushBob.scale.x = k;
+    if (this.matRig) this.matRig.scale.x = k;
   }
 
   attachBrush() {

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { SIZES } from '../utils/Constants.js';
+import { SIZES, GAME } from '../utils/Constants.js';
 import { NPC } from '../entities/NPC.js';
 import { CameraTracker, hashString } from '../entities/CharacterModel.js';
 import { getClipEventRacketPoint } from '../entities/CharacterAnimations.js';
 import { findSeats, claimSeat } from '../entities/Seats.js';
 import { TennisBall, BALL_RADIUS, GRAVITY as G } from '../entities/TennisBall.js';
 import { RoutePlanner } from './RoutePlanner.js';
+import { parseHour } from './MissionValidation.js';
 import { Quality } from '../graphics/Quality.js';
 
 /**
@@ -60,16 +61,6 @@ const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const rand = (a, b) => a + Math.random() * (b - a);
 
-function parseHour(v) {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string') {
-    const m = v.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
-    if (m) return Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0);
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return NaN;
-}
 
 export class MatchSystem {
   /**
@@ -1207,7 +1198,7 @@ export class MatchSystem {
   _queueWear(m, x, z, r, a) {
     if (!m.frame.wear || m.wearN >= 16) return;
     const i = m.wearN++ * 4;
-    m.wear[i] = x; m.wear[i + 1] = z; m.wear[i + 2] = r; m.wear[i + 3] = a;
+    m.wear[i] = x; m.wear[i + 1] = z; m.wear[i + 2] = r; m.wear[i + 3] = a * (GAME.matchWearScale ?? 1);
   }
 
   _flushWear(m) {

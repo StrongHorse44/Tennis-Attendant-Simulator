@@ -19,7 +19,7 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * World facts a mission can reference, derived from map.json + npcs.json + missions.json.
- * @returns {{ areaIds:Set<string>, clayCourtIds:Set<string>, npcIds:Set<string>, dialogueKeys:Set<string>, itemIds:Set<string> }}
+ * @returns {{ areaIds:Set<string>, clayCourtIds:Set<string>, courtIds:Set<string>, npcIds:Set<string>, dialogueKeys:Set<string>, itemIds:Set<string> }}
  */
 export function buildWorldFacts({ map, npcs, missions, items }) {
   const areaIds = new Set();
@@ -34,11 +34,13 @@ export function buildWorldFacts({ map, npcs, missions, items }) {
     const a = areas[id];
     if (isObj(a) && isObj(a.center) && isObj(a.bounds)) areaIds.add(id);
   }
+  const courtIds = new Set();
+  for (const c of Array.isArray(areas.courts) ? areas.courts : []) if (isObj(c) && c.id && isObj(c.center)) courtIds.add(c.id);
   const npcIds = new Set();
   for (const n of (isObj(npcs) && Array.isArray(npcs.npcs)) ? npcs.npcs : []) if (isObj(n) && n.id) npcIds.add(n.id);
   const dialogueKeys = new Set(isObj(missions) && isObj(missions.dialogues) ? Object.keys(missions.dialogues) : []);
   const itemIds = new Set(isObj(items) ? Object.keys(items) : []);
-  return { areaIds, clayCourtIds, npcIds, dialogueKeys, itemIds };
+  return { areaIds, clayCourtIds, courtIds, npcIds, dialogueKeys, itemIds };
 }
 
 /** Does the map have somewhere to put a pin / marker for this area id? */
@@ -131,4 +133,101 @@ export function validateMission(m, facts = {}, taskTypes = null) {
 /** Only the blocking problems (errors). */
 export function missionErrors(m, facts, taskTypes) {
   return validateMission(m, facts, taskTypes).filter(p => p.level === 'error');
+}
+
+// ───────────────────────────── schedule.json ─────────────────────────────
+
+/** In-game hour from 8.5 / "8:30" / "8" (NaN when unreadable). Shared with MatchSystem. */
+export function parseHour(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const m = v.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+    if (m) return Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0);
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
+
+/**
+ * Problems with public/data/schedule.json (MatchSystem). Checks known court / NPC ids,
+ * start < end within the day, two players per match (or "any"), no player twice, format ranges.
+ * `facts` from buildWorldFacts. Each problem: { level: 'error' | 'warn', msg }.
+ */
+export function validateSchedule(sched, facts = {}) {
+  const out = [];
+  const err = (msg) => out.push({ level: 'error', msg });
+  const warn = (msg) => out.push({ level: 'warn', msg });
+  if (!isObj(sched)) { err('schedule is not an object'); return out; }
+  const { courtIds, npcIds } = facts;
+  const knownNpc = (id) => !npcIds || npcIds.has(id);
+
+  const f = sched.format;
+  if (f !== undefined) {
+    if (!isObj(f)) err('format must be an object');
+    else {
+      if (f.gamesToWin !== undefined && !(Number.isInteger(f.gamesToWin) && f.gamesToWin >= 1 && f.gamesToWin <= 6)) err('format.gamesToWin must be an integer 1..6');
+      if (f.warmupSeconds !== undefined && !(f.warmupSeconds >= 0 && f.warmupSeconds <= 60)) err('format.warmupSeconds must be 0..60');
+    }
+  }
+  if (sched.maxConcurrent !== undefined && !(Number.isInteger(sched.maxConcurrent) && sched.maxConcurrent >= 0 && sched.maxConcurrent <= 5)) err('maxConcurrent must be an integer 0..5');
+  if (sched.lateStartHours !== undefined && !(sched.lateStartHours > 0)) err('lateStartHours must be a number > 0');
+
+  const exclude = new Set();
+  if (sched.exclude !== undefined && !Array.isArray(sched.exclude)) err('exclude must be an array of npc ids');
+  for (const id of Array.isArray(sched.exclude) ? sched.exclude : []) {
+    if (!knownNpc(id)) warn(`exclude: "${id}" is not in npcs.json`);
+    exclude.add(id);
+  }
+  if (sched.pool !== undefined && !Array.isArray(sched.pool)) err('pool must be an array of npc ids');
+  const pool = Array.isArray(sched.pool) ? sched.pool : [];
+  for (const id of pool) {
+    if (!knownNpc(id)) err(`pool: "${id}" is not in npcs.json`);
+    else if (exclude.has(id)) warn(`pool: "${id}" is also excluded (never picked)`);
+  }
+
+  if (!Array.isArray(sched.matches)) { err('needs a "matches" array'); return out; }
+  const ids = new Set();
+  const windows = []; // fixed single-court bookings, for overlap warnings
+  sched.matches.forEach((m, i) => {
+    const at = `match #${i}${isObj(m) && m.id ? ` (${m.id})` : ''}`;
+    if (!isObj(m)) { err(`${at}: not an object`); return; }
+    if (!m.id) warn(`${at}: no "id" (saves track started matches by id)`);
+    else if (ids.has(m.id)) err(`${at}: duplicate id`);
+    else ids.add(m.id);
+
+    const courts = Array.isArray(m.court) ? m.court : [m.court];
+    if (courts.length === 0 || courts.some(c => typeof c !== 'string' || !c)) err(`${at}: "court" must be a court id or a non-empty list of ids`);
+    else for (const c of courts) if (courtIds && !courtIds.has(c)) err(`${at}: court "${c}" is not in map.json courts`);
+
+    const start = parseHour(m.start), end = parseHour(m.end);
+    if (!Number.isFinite(start)) err(`${at}: start "${m.start}" is not a time (8.5 or "8:30")`);
+    if (!Number.isFinite(end)) err(`${at}: end "${m.end}" is not a time (8.5 or "8:30")`);
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      if (!(start < end)) err(`${at}: start must be before end`);
+      if (start < 0 || end > 24) err(`${at}: times must be within 0..24`);
+      else if (start < end && end - start < 0.75) warn(`${at}: window under 45 game minutes (a match may not finish)`);
+      if (courts.length === 1 && typeof courts[0] === 'string') windows.push({ at, court: courts[0], start, end });
+    }
+
+    if (!Array.isArray(m.players)) err(`${at}: "players" must be an array of two npc ids (or "any")`);
+    else {
+      if (m.players.length !== 2) err(`${at}: needs exactly 2 players (use "any" for a pool pick), has ${m.players.length}`);
+      const seen = new Set();
+      for (const id of m.players) {
+        if (id === 'any') continue;
+        if (typeof id !== 'string' || !knownNpc(id)) err(`${at}: player "${id}" is not in npcs.json`);
+        else if (exclude.has(id)) err(`${at}: player "${id}" is excluded from matches`);
+        if (seen.has(id)) err(`${at}: player "${id}" is listed twice`);
+        seen.add(id);
+      }
+    }
+  });
+  for (let a = 0; a < windows.length; a++) {
+    for (let b = a + 1; b < windows.length; b++) {
+      const x = windows[a], y = windows[b];
+      if (x.court === y.court && x.start < y.end && y.start < x.end) warn(`${x.at} and ${y.at} book ${x.court} at overlapping times (the later one waits)`);
+    }
+  }
+  return out;
 }

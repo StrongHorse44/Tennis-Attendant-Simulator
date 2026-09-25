@@ -3,7 +3,7 @@ import { injectTheme, THEME } from './theme.js';
 /**
  * GroomSummary - short end-of-session card: rating, before → after cleanliness,
  * coverage, courtside tasks and a heatmap of the paint masks (brushed clay is bright,
- * missed cells are dim). Auto-hides after a few seconds; tap or the close button dismisses.
+ * missed cells are dim). Auto-hides after a few game seconds (held while paused); tap or the close button dismisses.
  */
 
 const CSS = `
@@ -49,8 +49,15 @@ const RATING = {
 export class GroomSummary {
   constructor() {
     this.el = null;
-    this._timer = null;
+    this._remaining = 0;   // game seconds until auto-hide (ticked by update(), so pause holds it)
     this._hideTimer = null;
+  }
+
+  /** Auto-hide countdown in game time (CourtMaintenanceSystem.update → not while paused). */
+  update(dt) {
+    if (this._remaining <= 0) return;
+    this._remaining -= dt;
+    if (this._remaining <= 0) this.hide();
   }
 
   _ensure() {
@@ -144,17 +151,16 @@ export class GroomSummary {
       el.appendChild(leg);
     }
 
-    clearTimeout(this._timer);
     clearTimeout(this._hideTimer);
     el.style.display = 'block';
     // next frame → transition in
     requestAnimationFrame(() => el.classList.add('cc-gsum--in'));
-    this._timer = setTimeout(() => this.hide(), duration * 1000);
+    this._remaining = duration;
   }
 
   hide() {
+    this._remaining = 0;
     if (!this.el || this.el.style.display === 'none') return;
-    clearTimeout(this._timer);
     this.el.classList.remove('cc-gsum--in');
     this._hideTimer = setTimeout(() => { if (this.el) this.el.style.display = 'none'; }, 260);
   }

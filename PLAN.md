@@ -9,20 +9,27 @@ Game (main.js) ─── orchestrates everything; owns scene, physics, systems, 
  ├── Renderer (Three.js r170, NeutralToneMapping, sRGB) ──→ PostFX (composer per quality tier)
  ├── Quality (graphics tier singleton) ──→ Game._applyQuality → WeatherSystem, PostFX,
  │                                          Textures (anisotropy), World lights, Scenery density
- ├── Physics (cannon-es, NaiveBroadphase)
- ├── InputSystem ──→ Joystick (touch/mouse); Esc/P → Game.togglePause; 1-9 → dialogue choices
- ├── Player ←──→ GolfCart (enter/exit; the attendant sits in the driver's seat)
+ ├── Physics (cannon-es, NaiveBroadphase, frictionless default contact)
+ ├── InputSystem ──→ Joystick (touch/mouse); Esc/P → Game.togglePause; 1-9 → dialogue choices; C → groom camera
+ ├── Player ←──→ GolfCart (enter/exit; the attendant sits in the driver's seat; towed brush)
  │    └── CharacterModel (one SkinnedMesh per person, BlobShadows, CameraTracker)
- ├── NPC[] ──→ CharacterModel; waypoints from map.json
+ │         └── CharacterAnimations (22 baked procedural clips, Animator) + CharacterRig
+ ├── NPC[] ──→ CharacterModel, Seats; waypoints from map.json
+ ├── MatchSystem ──→ NPC[] (playing), TennisBall pool, RoutePlanner, Court.wearAt, SoundSystem
+ │    └── schedule.json
  ├── World ──→ Court, Building, Garden, Scenery (built from map.json; statics merged, props instanced)
  │    └── graphics/Materials, Textures, GeometryUtils (shared materials, canvas textures, geometry caches)
  ├── WeatherSystem ──→ Sky (SkyDome, Stars, Clouds, Horizon), lights, rain, wind, env map
  │    └── writes EnvState every frame; drives Materials wetness + night glow
  ├── SoundSystem (procedural Web Audio; volume / mute / pause)
  ├── DialogueSystem ──→ DialogueBox (typewriter overlay)
- ├── MissionSystem ──→ DialogueSystem, InventorySystem, NPC[]
+ ├── MissionSystem ──→ DialogueSystem, InventorySystem, NPC[], MissionValidation (world facts)
+ │    └── MissionMarkers (floating objective markers)
+ ├── ShiftSystem ──→ WeatherSystem (clockFrozen, startNewDay), MissionSystem; hooks → HUD, ShiftReport,
+ │                   Game._applyPerks (cart, player cap)
  ├── InventorySystem (3-slot item store)
- ├── CourtMaintenanceSystem ──→ Court (dirt DataTexture), GolfCart, DialogueSystem, SoundSystem
+ ├── CourtMaintenanceSystem ──→ Court (paint-mask DataTexture), GolfCart (brushState), GroomFX, GroomSummary,
+ │                             DialogueSystem, SoundSystem
  ├── SaveSystem + SettingsStore (localStorage) ←── captureSaveData / applySaveData
  ├── HUD ──→ WeatherSystem, MissionSystem, InventorySystem
  └── PauseMenu (volume/mute, graphics quality, camera sensitivity, save, reset)
@@ -34,7 +41,8 @@ Game (main.js) ─── orchestrates everything; owns scene, physics, systems, 
 ```
 map.json ──→ World (builds environment) + NPC waypoints + area bounds (normalised by Game._normalizeData)
 npcs.json ──→ NPC[] (spawns characters with dialogue pools)
-missions.json ──→ MissionSystem (task templates + dialogue scripts)
+missions.json ──→ MissionSystem (task templates + dialogue scripts), ShiftSystem (shift: wage, rush, ranks)
+schedule.json ──→ MatchSystem (court bookings) ; all four files ──→ scripts/validate-data.mjs (CI)
 Constants.js ──→ everything (colors, sizes, tuning values)
 graphics/Quality.js ──→ every visual module (read Quality.settings; subscribe with Quality.onChange)
 WeatherSystem ──→ EnvState (time, night / lamp / golden factors, wetness, wind, sun) ──→ World, Scenery,
@@ -44,47 +52,59 @@ localStorage ←──→ SaveSystem (courtcall.save.v1), SettingsStore (courtca
 
 ### Module Responsibilities
 
-Line counts are from `wc -l` on the current tree (17,118 lines of JS in `src/`).
+Line counts are from `wc -l` on the current tree (23,548 lines of JS in `src/`).
 
 | Module | Lines | Role |
 |--------|------:|------|
-| `main.js` | 1377 | Game loop, camera, interaction detection, system wiring, pause/resume, save/load wiring, `setQuality`, shader pre-compile |
+| `main.js` | 1621 | Game loop, camera (+ groom camera), interaction detection, system wiring, shift + perk wiring, pause/resume, save/load wiring, `setQuality`, shader pre-compile |
 | **world/** | | |
 | `World.js` | 1527 | Ground, paths, courts, junction props, buildings, garden, shed, patio, parking, perimeter fence, trees, lamps, grass, night lights |
-| `Court.js` | 1020 | Shader-painted court surface (zones, lines, clay dirt), net, fence, windscreen, light poles, furniture, physics |
+| `Court.js` | 1314 | Shader-painted court surface (zones, lines, clay paint mask), `groomStroke` / `wearAt` / mask save, net, fence, windscreen, light poles, furniture, physics |
 | `Building.js` | 1394 | Pro shop (interior, roof cutaway) and clubhouse, merged by material; wall physics |
 | `Garden.js` | 410 | Paver walks, hedges, flower beds, animated fountain |
 | `Scenery.js` | 650 | Instanced trees, benches, lamps, flowers, grass tufts, blob shadows; wind-sway shader |
 | **entities/** | | |
-| `CharacterModel.js` | 707 | Stylized skinned characters (1 draw call each), far LOD, seated pose, blob shadows, camera tracker |
-| `Player.js` | 203 | Attendant: physics, walk animation, cart enter/exit (seated in the cart) |
-| `GolfCart.js` | 657 | Cart mesh, velocity-based driving, wheel/steer/body-roll animation, lights, brush + clay dust |
-| `NPC.js` | 491 | Per-NPC looks, AI state machine, name tags, request marker, reactions |
+| `CharacterModel.js` | 866 | Stylized skinned characters (1 draw call each), far LOD, clip playback API, `restyle`, blob shadows, camera tracker |
+| `CharacterAnimations.js` | 965 | 22 procedural clips as key poses, baked to shared `AnimationClip`s; `Animator` (locomotion, base, one-shots, events); contact probe |
+| `CharacterRig.js` | 72 | Shared bone layout and rotation conventions |
+| `Player.js` | 247 | Attendant: physics, locomotion clips, cart enter/exit (seated), `setCapColor` |
+| `GolfCart.js` | 844 | Cart mesh, velocity-based driving, wheel/steer/body-roll animation, lights, towed brush + drag mat, clay dust, perk hooks |
+| `NPC.js` | 946 | Per-NPC looks, AI state machine (wander, sit, talk, play), name tags, request marker, reactions |
+| `Seats.js` | 113 | Bench discovery from the built world, seat claiming |
+| `TennisBall.js` | 128 | Pooled analytic ball + blob shadow |
 | **systems/** | | |
-| `InputSystem.js` | 283 | Keyboard, touch joystick, camera drag, pause keys, choice keys, enable/disable |
-| `WeatherSystem.js` | 634 | Day/night keyframes, weather states, sun/hemisphere lights, shadows, sky, env map, rain, wind; writes EnvState |
+| `InputSystem.js` | 295 | Keyboard, touch joystick, camera drag, pause keys, choice keys, `onKeyPress`, enable/disable |
+| `WeatherSystem.js` | 649 | Day/night keyframes, weather states, lights, shadows, sky, env map, rain, wind; clock freeze + `startNewDay`; writes EnvState |
 | `DialogueSystem.js` | 172 | Dialogue queue, branching choices, keyboard choose/advance |
-| `MissionSystem.js` | 462 | Mission lifecycle, task board, radio dispatch, random encounters, `goTo` arrival, save state |
+| `MissionSystem.js` | 673 | Mission lifecycle, task board, radio dispatch card, random encounters, shift routines, per-day repeats, step targets, save state |
+| `MissionValidation.js` | 233 | Pure completability checks for missions and `schedule.json` (runtime + `npm run validate`) |
+| `MissionMarkers.js` | 103 | Pooled floating objective markers |
+| `ShiftSystem.js` | 491 | Shift phases, wallet, wages, tips, rep, rank ladder + perks, report data, save state |
+| `MatchSystem.js` | 1255 | Scheduled member matches: booking, walk-in/off, rallies, scoring, rain, wear, sounds |
+| `RoutePlanner.js` | 162 | A* visibility-graph routes around static physics boxes |
 | `InventorySystem.js` | 84 | 3-slot item management, save state |
-| `CourtMaintenanceSystem.js` | 627 | Clay grooming session, proximity feedback, courtside tasks, scoring, save/resume |
-| `SoundSystem.js` | 554 | Procedural audio via Web Audio API; master volume, mute, pause |
-| `SaveSystem.js` | 499 | Versioned localStorage save with migrations + sanitizing; SettingsStore |
+| `CourtMaintenanceSystem.js` | 703 | Clay grooming session, paint strokes, proximity feedback, courtside tasks, scoring, groom camera, wear ticks, save/resume |
+| `GroomFX.js` | 250 | Per-court % labels and sparkle bursts |
+| `SoundSystem.js` | 723 | Procedural audio via Web Audio API; master volume, mute, pause |
+| `SaveSystem.js` | 552 | Versioned localStorage save with migrations + sanitizing; SettingsStore |
 | **graphics/** | | |
 | `Quality.js` | 163 | low / medium / high tier settings, auto-detect, persistence, change listeners |
 | `EnvState.js` | 43 | Shared per-frame environment state (written by WeatherSystem, read by everyone) |
 | `Materials.js` | 213 | Cached `MeshStandardMaterial` factory, wetness + night-glow registries, shared shadow-depth materials |
 | `Textures.js` | 482 | Seeded noise + cached procedural canvas textures (grass, clay, asphalt, wood, ...) |
 | `GeometryUtils.js` | 302 | Geometry caches (incl. rounded boxes), `mergeStaticMeshes`, instancing helpers, `mergeParts` |
-| `Sky.js` | 466 | Sky dome, stars, clouds, horizon hills + backdrop treeline + outer ground |
+| `Sky.js` | 474 | Sky dome, stars, clouds, horizon hills + backdrop treeline + outer ground |
 | `PostFX.js` | 225 | EffectComposer chain per tier: MSAA, grade/vignette, GTAO + bloom (high) |
 | **ui/** | | |
-| `HUD.js` | 1671 | Minimap, task panel, clock, inventory, action button, toasts, radio indicator, grooming overlay |
+| `HUD.js` | 1944 | Minimap, task panel, clock, wallet, dispatch card, inventory, action button, toasts, floaters/confetti, grooming overlay |
 | `DialogueBox.js` | 454 | Bottom-centre dialogue overlay with typewriter and choice buttons |
-| `PauseMenu.js` | 666 | Pause button + overlay: Resume, Settings, Save, Reset progress (confirm) |
+| `PauseMenu.js` | 707 | Pause button + overlay: Resume, Settings, Save, Reset progress (confirm) |
+| `ShiftReport.js` | 236 | End-of-shift report card + Next day |
+| `GroomSummary.js` | 167 | End-of-groom rating card with mask heatmap |
 | `Joystick.js` | 225 | Virtual joystick for touch/mouse |
 | `theme.js` | 126 | Shared UI design tokens (CSS custom properties) and base classes |
 | **utils/** | | |
-| `Constants.js` | 254 | Colors, sizes, game tuning values, area enums |
+| `Constants.js` | 268 | Colors, sizes, game tuning values, area enums |
 | `AssetLoader.js` | 77 | JSON loader with cache and per-file error reporting (`AssetLoadError`) |
 
 ---
@@ -151,15 +171,20 @@ so switching to low mid-session has no AA until the next reload.
 
 ### Measured cost
 
-Numbers are from `renderer.info` for the screenshot tour at 1280×720 and 9:00 AM sunny. They
-include the shadow pass and post-processing.
+Numbers are from `renderer.info` for the screenshot tour at 1280×720 (sunny). They include the
+shadow pass and post-processing. The medium column was re-measured after roadmap #1–#5 (fresh
+game at 7:00 AM, clock-in); low and high are from the graphics-overhaul pass.
 
 | View | low | medium | high |
 |------|----:|-------:|-----:|
-| 01 spawn follow cam | 188 | 256 | 441 |
-| 02 overview (budget < 400 on medium) | 191 | 270 | 464 |
-| 03 clay courts | 97 | 154 | 271 |
-| 05 pro shop / patio | 137 | 213 | 364 |
+| 01 spawn follow cam | 188 | 263 | 441 |
+| 02 overview (budget < 400 on medium) | 191 | 268 | 464 |
+| 03 clay courts | 97 | 160 | 271 |
+| 05 pro shop / patio | 137 | 219 | 364 |
+
+With three matches in progress (six players, three balls) the medium overview measured 264 and a
+clay-court close-up 175: each extra character is one skinned draw call plus a shadow call, the ball
+one call, and the floating mission markers one call each.
 
 The pre-overhaul baseline for the overview was about 1160 draw calls. About a third of those were the clay dirt-cell meshes.
 High costs more because GTAO renders the scene a second time for its normal/depth pass. The
@@ -181,19 +206,28 @@ under-400 budget applies to medium, the mobile default.
 
 | Issue | Severity | Location | Notes |
 |-------|----------|----------|-------|
-| Random-encounter first dialogue plays twice | Medium | `MissionSystem.handleInteraction` | Accepting via `acceptRandomEncounter` runs step 0's dialogue but never advances the step, so the next talk replays it |
-| Every NPC in a mission gets a "!" at once | Medium | `MissionSystem._setupMissionNPCs` | Talking to the wrong one clears its marker and gives a generic greeting |
-| Minimap pins only `step.target` with a matching waypoint | Medium | `HUD.updateMiniMap` | `pickup`/`deliver` steps (which use `location`) and the `patio` target (no `patio`/`patio_center` waypoint) show no pin; talk-to-NPC steps do highlight the NPC |
-| Radio dispatch fills active slots without consent | Low | `MissionSystem._dispatchRadio` | Missions are pushed straight into the 3 active slots |
-| NPC `playing` state is never entered | Low | `NPC.js` | `_updatePlaying` and the "playing" arm pose are unreachable |
-| NPCs walk in straight lines through hedges and courts | Low | `NPC._updateWandering` | `_getPreferredWaypoint` resolves `court3` to the first matching key (`court3_bench`) |
-| Mission completion has no feedback | Low | `MissionSystem.completeMission` / `main.js` | No sound, toast or celebration; only stats and an autosave |
+| Save is about 110 KB and rewritten every 30 s | Medium | `SaveSystem` / `Court.getMaskData` | Three full RGBA paint masks as base64 (~35 KB each). Fine for the ~5 MB localStorage quota, but autosave, `pagehide` and `visibilitychange` each serialize it. Could store only R (dirt) plus a coarse direction channel, RLE, or skip unchanged masks |
+| `main.js` keeps growing | Medium | `src/main.js` (~1,620 lines) | Shift wiring, perk hooks, target points, groom camera and dispatch handling all landed in `Game`. Extract `CameraController`, `ShiftController` and the interaction registry (#27) |
+| NPCs wander in straight lines through hedges and courts | Low | `NPC._updateWandering` | Only scripted match trips use `RoutePlanner`; `_getPreferredWaypoint` still resolves `court3` to the first matching key (`court3_bench`) |
+| Matches are not saved | Low | `MatchSystem` / `SaveSystem` | Reloading mid-match drops it; the schedule restarts it only if still inside `lateStartHours`, from 0–0 |
+| Uniform court wear still about half of the daily total | Low | `CourtMaintenanceSystem` / `GAME` | Measured over a simulated shift: a clay court with two matches loses ~0.14 cleanliness, ~0.075 from the 0.01 tick and ~0.065 from play (`matchWearScale` 6, concentrated on the baselines, ~2% of cells saturate per match). Lower the tick further once matches cover more of the day |
+| Rank perks only change numbers and the cap | Low | `Game._applyPerks` | No visible cart upgrade; proximity feedback still assumes a 3 m brush when the perk widens it to 3.5 m |
+| Night rendering is mostly unseen | Design | `WeatherSystem`, `World._buildLights` | The shift ends at 19:00 and the next day starts at 7:00, so night lights, stars and headlights only show around dusk (or in old saves) |
 | Physics uses `NaiveBroadphase` | Low | `main.js` init | O(n²) pair tests across all static fence, net, wall and trunk bodies |
-| Reward data is never read | Design | `npcs.json` / `missions.json` | Nothing uses `tipChance`/`tipRange`, `baseReward`/`estimatedTime`, `npc.mood`, `requests` or `dialoguePool`; `stats.tips` is a placeholder |
-| Weather flips too often | Design | `WeatherSystem.update` | Re-rolled every 60 s with a 30% chance of change |
-| The night has no content | Design | `WeatherSystem` | The clock wraps at 24h (a day counter is kept), leaving about 14 real minutes of dark with nothing to do |
+| Weather flips too often | Design | `WeatherSystem.update` | Re-rolled every 60 s with a 30% chance of change (a new day re-rolls a mostly sunny morning) |
+| Some reward data is still unused | Design | `npcs.json` / `missions.json` | `estimatedTime`, `requests` and most of `dialoguePool` are not read yet (tips, `baseReward` and mood now are) |
 
-### Resolved in this pass
+### Resolved in the roadmap #1–#5 pass
+
+- **Player moved at a quarter of its speed.** cannon-es caps contact friction per step as an impulse of μ·m·g (not μ·m·g·dt), which nearly stopped velocity-driven bodies every step. Measured by stepping `Game._update` headlessly: the player walked 2.15 m/s at 60 fps and 0.78 m/s at 20 fps against `SIZES.playerSpeed` 8; the cart reached 6.34 / 5.68 of 7. The default contact is now frictionless, per-body friction materials are gone, the player zeroes its velocity without input and its damping dropped from 0.95 to 0.01. Now: player 8.0 / 7.95 m/s, cart 6.96 / 6.92 (its own 0.3 damping), with the Court Attendant perk 8.35 of 8.4. NPCs (position-driven, velocity zeroed each update) are unaffected.
+- Random-encounter first dialogue played twice; every mission NPC got a "!" at once; `pickup`/`deliver`/`patio` steps had no minimap pin; radio dispatch filled slots without consent (#1).
+- NPC `playing` state was unreachable (#5); mission completion had no feedback (#9); tips, `baseReward` and moods were never read and the night had nothing to do (#2: the night is skipped).
+- Rank perks overwrote the shared `SIZES.cartMaxSpeed` / `GAME.groomBrushWidth`; they are now `cart.maxSpeedScale`, `cart.setBrushWidthBonus()` (paint stroke width and brush mesh) and `player.setCapColor()`, re-applied on every load.
+- The groom summary card auto-hid on a wall-clock timer while paused; it now counts game time. The unused one-shot `SoundSystem.playBrushScrape` was removed (the scrape is a loop via `setBrushScrape`).
+- The court-quality number on the report card serialized every paint mask to base64 to average three numbers; it now reads `getCleanliness()` directly.
+- The uniform wear tick also ran while the shift clock was frozen (before clock-in, at 19:00); it now pauses with the clock.
+
+### Resolved in the earlier pass
 
 - `goTo` mission steps never completed, which soft-locked 6 of 11 missions. They now complete when the player enters the target area: `MissionSystem.handleArrival` is called from `Game._updateInteractions`, and `_detectCurrentArea` knows court ids, `proShop`, `patio`, `garden` and `equipmentShed`.
 - A missing `taskBoard` in the map data crashed the game. It is now guarded, and all map data is normalised on load.
@@ -216,15 +250,15 @@ priority order: the top 5 first, then cheap wins that can go in at any point, th
 else. Effort is S/M/L and impact is 1–5. The **Status** column notes only what the current code
 already does (verified).
 
-### Top 5
+### Top 5 (all five landed; see Status)
 
 | # | Idea | Area | Effort | Impact | Why / scope | Status |
 |---|------|------|:-----:|:-----:|-------------|--------|
-| 1 | **Make every mission completable and findable** | core loop | S | 5 | Fix the remaining mission bugs: advance after encounter dialogue; put the "!" only on the current step's NPC; add a floating world marker and a minimap pin for every step type (`pickup`/`deliver` `location`, `patio`); make radio dispatch not fill dead slots. Land it with the data/CI validator (#26) so it can't regress. | **Partly done**: `goTo` completes on arrival, so the maintenance, reservation and conflict missions no longer stall at `goTo`, and talk-to-NPC steps are highlighted on the minimap. The other items are still open (see Known Issues). |
-| 2 | **Shift loop: clock-in to clock-out with pay, tips and staff rank** | core loop | M | 5 | A 7AM–7PM shift (about 15 min) with an opening checklist, rush windows, closing duties and an end-of-shift report card (tasks, tips, member happiness, court quality), then the next day. Pay and tips feed a rank ladder from Rookie Attendant to Head of Grounds that unlocks cart upgrades, equipment and cosmetics. Reuses `tipChance`/`tipRange`, `baseReward` and `npc.mood`. | Not started. A day counter (`weather.day`), `stats.tips` (placeholder) and saved stats already exist. |
-| 3 | **Make grooming satisfying: painted stripes, towed brush, clay dust** | game feel | M | 5 | A higher-resolution paint mask (for example 128×256 per court) painted by the brush footprint, with directional stripes along the driven path, also used for coverage scoring. A hinged tow bar that trails and swings on turns. Scrape pitch tied to speed, a sparkle and chime at 100%, floating per-court % labels. | **Partly done**: the 336 dirt meshes are gone, dirt is an 8×14 `DataTexture` sampled by the court shader with per-cell brush-direction stripes, and clay dust puffs appear behind the brush. The brush is still a rigid child of the cart. |
-| 4 | **Rigged, animated CC0 characters** | graphics | L | 5 | CC0 rigged packs (Quaternius, Kenney) with a shared AnimationMixer clip set: idle, walk, talk, sit, drive, forehand, serve. Per-NPC tint and accessories from `npcs.json`. Keep primitive characters on the low tier. Needed for #5. | **Partly done**: stylized skinned primitive characters with faces, hair, hats, per-NPC looks, walk/idle/talk motion and a far LOD. The attendant is seated in the cart. Still missing: real clips (swings, serve, sit) and CC0 models. |
-| 5 | **NPCs actually play tennis on a court schedule** | world liveliness | L | 5 | A reservation schedule in data that pairs members on courts. Rallies with one pooled ball per court (arc, blob shadow, distance-attenuated "pock"), plus score chatter. Footwork dirties the clay mask where players moved, replacing the uniform `degradeSurface()`. This closes the loop: play, wear, groom, happy members, tips. | Not started (`playing` state unreachable). |
+| 1 | **Make every mission completable and findable** | core loop | S | 5 | Fix the remaining mission bugs: advance after encounter dialogue; put the "!" only on the current step's NPC; add a floating world marker and a minimap pin for every step type (`pickup`/`deliver` `location`, `patio`); make radio dispatch not fill dead slots. Land it with the data/CI validator (#26) so it can't regress. | **Done**. Encounter dialogue advances after the first talk; the "!" is only on the current step's NPC (`getStepNpcId`); every place-based step (`goTo`, `pickup`/`deliver` `location`, `groom`, `patio`) has a floating gold marker (`MissionMarkers`) and a minimap pin from court and area centres; radio dispatch is an On it / Busy card and never fills slots on its own; `MissionValidation.js` filters dead missions at runtime and `npm run validate` (in `deploy.yml`) fails CI on bad data. Mission completion now has a jingle, confetti and a pay floater. |
+| 2 | **Shift loop: clock-in to clock-out with pay, tips and staff rank** | core loop | M | 5 | A 7AM–7PM shift (about 15 min) with an opening checklist, rush windows, closing duties and an end-of-shift report card (tasks, tips, member happiness, court quality), then the next day. Pay and tips feed a rank ladder from Rookie Attendant to Head of Grounds that unlocks cart upgrades, equipment and cosmetics. Reuses `tipChance`/`tipRange`, `baseReward` and `npc.mood`. | **Done**. `ShiftSystem`: 7:00 clock-in card (clock frozen until then), opening checklist and closing duties as `source: "shift"` routines, two rush windows (faster dispatch), clock-out at 19:00 once nothing modal is running, `ShiftReport` card, Next day at 7:00 (night skipped). Wallet with wages, `taskTypes` pay, groom bonus and archetype/mood tips; five ranks from rep + earnings with perks (cart speed, brush width, gold cap, tip bonus) applied through explicit hooks and re-applied on load. Saved in `shift`. |
+| 3 | **Make grooming satisfying: painted stripes, towed brush, clay dust** | game feel | M | 5 | A higher-resolution paint mask (for example 128×256 per court) painted by the brush footprint, with directional stripes along the driven path, also used for coverage scoring. A hinged tow bar that trails and swings on turns. Scrape pitch tied to speed, a sparkle and chime at 100%, floating per-court % labels. | **Done**. Per-court RGBA paint mask at 4 cells/m (64×112 over the slab) painted by the brush footprint along the driven path, with bristle lines and lane shading, used for scoring and saved losslessly (`v2:` base64). The brush is a towed trailer on a swinging bar with a trailing drag mat. Speed-tied scrape loop, sparkle + chime at excellent / 100%, floating per-court % labels, end-of-session heatmap card, overhead groom camera (C). |
+| 4 | **Rigged, animated CC0 characters** | graphics | L | 5 | CC0 rigged packs (Quaternius, Kenney) with a shared AnimationMixer clip set: idle, walk, talk, sit, drive, forehand, serve. Per-NPC tint and accessories from `npcs.json`. Keep primitive characters on the low tier. Needed for #5. | **Done with a different approach**: the network in the build sandbox blocks the CC0 asset sites, so there are no Quaternius/Kenney models. Instead the stylized skinned characters got a 19-bone rig and 22 hand-keyed procedural clips (idle variants, walk, run, talk, greet, wave, reactions, shrug, sit, drive, ready, split step, shuffles, forehand, backhand, serve, ball pickup) baked into shared `AnimationClip`s with an `Animator` (locomotion blend, base clips, one-shots, events, contact probe). Swapping in real rigged models later remains open under #22. |
+| 5 | **NPCs actually play tennis on a court schedule** | world liveliness | L | 5 | A reservation schedule in data that pairs members on courts. Rallies with one pooled ball per court (arc, blob shadow, distance-attenuated "pock"), plus score chatter. Footwork dirties the clay mask where players moved, replacing the uniform `degradeSurface()`. This closes the loop: play, wear, groom, happy members, tips. | **Done**. `schedule.json` books members on courts (alternatives, `"any"` pool picks, late start, substitutes). `MatchSystem` walks them on with `RoutePlanner`, warms up, plays no-ad games with serves, rallies, errors and winners on an analytic ball whose contacts line up with the swing clips, handshakes, rain shelter on benches and walk-off; talking pauses the point. Footwork and bounces wear the clay mask (`Court.wearAt`), the uniform tick dropped from 0.05 to 0.01 and an overnight layer keeps a morning groom in the loop. |
 
 **Why this order**:
 1. The core errand loop has to work before graphics or content pay off.
@@ -237,8 +271,8 @@ already does (verified).
 
 | # | Idea | Area | Effort | Impact | Why / scope | Status |
 |---|------|------|:-----:|:-----:|-------------|--------|
-| 9 | **Reward and action feedback juice** | game feel | S | 4 | Completion jingle and toast, a tip counter that ticks up, pooled confetti, the carried item visible in hand or in the cart bed, squash-and-stretch reactions | **Partly done**: toasts now stack (max 3) instead of overwriting. Mission completion is still silent. |
-| 12 | **Groom camera and pattern guide** | UX | S | 3 | High-angle camera toggle while grooming, a ghost line for the recommended lap, an end-of-session heatmap from the paint mask | Not started |
+| 9 | **Reward and action feedback juice** | game feel | S | 4 | Completion jingle and toast, a tip counter that ticks up, pooled confetti, the carried item visible in hand or in the cart bed, squash-and-stretch reactions | **Mostly done**: mission-complete jingle and toast, confetti (`hud.celebrate`), "+$X" money floaters and a coin sound for tips, rank-up fanfare, stacked toasts. No carried item in hand / cart bed and no squash-and-stretch. |
+| 12 | **Groom camera and pattern guide** | UX | S | 3 | High-angle camera toggle while grooming, a ghost line for the recommended lap, an end-of-session heatmap from the paint mask | **Mostly done**: overhead groom camera (C / panel button) and the end-of-session heatmap card. No ghost line for the recommended lap yet. |
 | 29 | **Runtime performance cleanup** | tech | S | 3 | `SAPBroadphase` with sleeping bodies; DOM only touched on change; minimap about 10 Hz; pause on `visibilitychange` | **Mostly done**: clock DOM on change, minimap about 12 Hz with a static layer, auto-pause and save when the tab is hidden. `NaiveBroadphase` remains. |
 
 ### Everything else (critique order)
@@ -250,20 +284,20 @@ already does (verified).
 | 8 | **Cart feel: visible driver, body roll, horn, lights, tracks** | game feel | M | 4 | Horn that startles NPCs, tire tracks on clay and wet grass, reverse beeper, brake squeak, FOV kick at top speed | **Partly done**: visible seated driver, visual body roll/pitch/bump, wheel steer, headlights and taillights with a light pool at dusk, brush dust on clay. No horn, tracks, beeper, squeak or FOV kick. |
 | 10 | **Adaptive procedural music and spatial ambience** | audio | M | 4 | Web Audio sequencer (day lounge loop, evening layer, night crickets, event stings). PannerNode loops for the fountain, patio murmur, court "pocks" and rain on roofs. Separate music and SFX volumes. | Not started (a master volume and mute exist; ambience is still the bird chirp) |
 | 11 | **Contextual first-shift onboarding with Hank** | UX | M | 4 | Replace the 6-message radio intro with a scripted "First Shift" chain in `missions.json` that teaches one action at a time. Show proximity-based key and button hints. | Not started (the intro now plays only once, tracked by `flags.tutorialSeen`) |
-| 13 | **Reservation desk puzzle** | content | M | 4 | A booking-sheet puzzle at the pro shop desk (court type, doubles and lessons, grooming windows) that also produces the match schedule for #5 | Not started |
+| 13 | **Reservation desk puzzle** | content | M | 4 | A booking-sheet puzzle at the pro shop desk (court type, doubles and lessons, grooming windows) that also produces the match schedule for #5 | Not started (the match schedule is hand-authored in `public/data/schedule.json`, which this puzzle could produce) |
 | 14 | **More court-care jobs** | content | L | 4 | Line sweeping on foot, watering dry clay, rolling, squeegeeing hard courts after rain, a net-height gauge, a ball pickup tube, leaf-blowing paths on windy days. Reuse the paint mask. | Not started (rain still just blocks grooming) |
 | 15 | **Club events calendar** | content | L | 4 | Data-driven `events.json`: tournament weekend, dusk member-guest mixer with string lights, kids' clinic, VIP valet, rain delays, a loose dog, a pickleball controversy | Not started |
 | 16 | **Character storylines, a manager and coworkers** | content | M | 4 | 3–5 beat arcs per member, a Club Manager for briefings and reviews, a pro shop coworker, coach and junior archetypes | Not started |
-| 17 | **Daily routines, path-following and background extras** | world liveliness | L | 4 | An A* path graph from `map.json` paths, member schedules (arrive, check in, play, lunch, leave), instanced non-interactive extras | Not started |
+| 17 | **Daily routines, path-following and background extras** | world liveliness | L | 4 | An A* path graph from `map.json` paths, member schedules (arrive, check in, play, lunch, leave), instanced non-interactive extras | **Partly done**: `RoutePlanner` gives match walk-ins, walk-offs and rain shelter fence-aware A* routes, and NPCs sit on benches (`Seats.js`). Ordinary wandering still walks straight lines between waypoints; no daily member schedules or extras. |
 | 18 | **Weather with consequences and forecasts** | content | M | 3 | Longer fronts with a morning radio forecast. Rain closes courts and leaves puddles, wind blows leaves onto courts, heat dries clay and empties coolers. | Not started (wetness is visual only) |
-| 19 | **Radio dispatch with agency** | UX | S | 3 | "On it" and "Busy" replies, a fast-answer tip bonus, walkie-talkie squelch and voice bleeps | Not started |
+| 19 | **Radio dispatch with agency** | UX | S | 3 | "On it" and "Busy" replies, a fast-answer tip bonus, walkie-talkie squelch and voice bleeps | **Partly done**: dispatch card with On it / Busy (timeout = Busy, no penalty, cooldown) and a radio chirp. No fast-answer tip bonus or voice bleeps. |
 | 20 | **Ambient micro-life** | world liveliness | S | 3 | Bird flock that lifts off near the cart, butterflies, dawn sprinklers, a flapping club flag, swaying umbrellas, a ball machine on an empty court | **Partly done**: wind sway on trees and grass, and blowing leaves in windy weather |
 | 21 | **Pro shop you can see and use** | graphics | M | 3 | A corkboard with pinned task cards instead of a choice list, a register for pickups, a trophy case for ranks and awards | **Partly done**: the interior now shows the task board, counter and racket wall with a roof cutaway, but the board still opens a dialogue choice list |
 | 22 | **CC0 prop and vehicle kits through a GLTF pipeline** | graphics | M | 4 | GLTFLoader + meshopt, a `public/data/assets.json` manifest, instancing for repeated props (Kenney Car/Furniture kits, Quaternius nature, a cart model). Primitives stay as the low-tier fallback. | Not started (instancing/merge helpers are ready in `GeometryUtils`) |
 | 23 | **The club visibly improves with your reputation** | graphics | M | 3 | Groomed stripes persist until played on; rank unlocks banners, flower beds, patio string lights, fresh shed paint | Not started (court dirt grids are already saved per cell) |
 | 24 | **Photo mode and postcards** | graphics | S | 3 | Free camera, time-of-day slider, color grades, a "Greetings from Greenbriar" postcard frame with download or share | Not started (`PostFX.setGrade` and `weather.timeOfDay` are the hooks) |
 | 25 | **High-tier-only post-processing** | graphics | M | 2 | AO, bloom, outline pass, per-time-of-day grading, tilt-shift in photo mode, all gated by `setQuality` | **Mostly done**: GTAO + bloom on high, grade/vignette on medium and high driven by `EnvState` each frame. No outline pass or tilt-shift. |
-| 26 | **Automated tests and a CI gate for data and missions** | tech | S | 4 | Vitest for MissionSystem, Inventory and grooming scoring. A JSON validator (every step action has a handler; every `npcId`, `dialogueKey`, `target` and `location` resolves). A Playwright smoke test: zero console errors, every mission completes, draw calls < 400 on the overview. Run it before deploy. | Not started (`deploy.yml` still deploys without checks) |
+| 26 | **Automated tests and a CI gate for data and missions** | tech | S | 4 | Vitest for MissionSystem, Inventory and grooming scoring. A JSON validator (every step action has a handler; every `npcId`, `dialogueKey`, `target` and `location` resolves). A Playwright smoke test: zero console errors, every mission completes, draw calls < 400 on the overview. Run it before deploy. | **Partly done**: `npm run validate` (missions, shift, ranks, `schedule.json`) runs in `deploy.yml` before the build. The Playwright suites (gameplay, integration smoke, per-mission completion, matches, grooming, perf tour) exist only in the development scratchpad; no Vitest and no Playwright in CI yet. |
 | 27 | **Interaction registry refactor** | tech | M | 3 | Replace the `_updateInteractions` if-chain (later checks silently override earlier ones) with registered `{pos, range, priority, label, canUse, use}` interactables | Not started (the per-frame allocations there are fixed; the action is now a `kind` + target with no per-frame closures) |
 | 28 | **Installable PWA with offline play** | tech | S | 3 | Web manifest + service worker with the `/Tennis-Attendant-Simulator/` base, a landscape hint, a fullscreen button | Not started (only `theme-color` and an SVG favicon so far) |
 | 30 | **Colorblind-safe archetype cues** | UX | S | 2 | Shape or icon cues (crown, heart, question mark) instead of red/green, a text-size option, a reduce-motion option | Not started (archetype is still a red/green/blue dot on the name tag and in the dialogue speaker color; faces differ by archetype) |
@@ -284,8 +318,10 @@ already does (verified).
 
 | Refactor | Benefit | Effort | Status |
 |----------|---------|--------|--------|
-| Interaction registry / `InteractionManager` out of `main.js` | `main.js` is 1377 lines; removes silent overrides (roadmap #27) | Medium | Open |
-| Extract `CameraController` from `main.js` | Clean separation, easier camera modes (groom cam #12, photo mode #24) | Low | Open |
+| Interaction registry / `InteractionManager` out of `main.js` | `main.js` is ~1,620 lines; removes silent overrides (roadmap #27) | Medium | Open |
+| Extract `CameraController` from `main.js` | Clean separation, easier camera modes (the groom camera is now a hook in `_updateCamera`; photo mode #24 next) | Low | Open |
+| Extract shift / perk wiring (`_wireShift`, `_applyPerks`, `startNextDay`) from `main.js` | Keeps `Game` an orchestrator | Low | Open |
+| Compact save format for paint masks | ~110 KB save today | Low | Open |
 | Centralize area resolution | Areas are resolved three ways: bounds checks in `main.js` (`_detectCurrentArea`/`_inArea`), `<id>_center` waypoint lookup in the minimap, and substring waypoint matching in `NPC.js` | Low | Open |
 | Move module constants to `Constants.js` | `MINIMAP_INTERVAL`, `TOAST_MAX` (HUD), `AUTOSAVE_INTERVAL` (main), name-tag fade distances (NPC) | Low | Open |
 | `SAPBroadphase` + sleeping static bodies | Cheaper physics with many fence, wall and trunk bodies | Low | Open |
