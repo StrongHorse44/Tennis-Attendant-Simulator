@@ -620,7 +620,14 @@ export class TennisHUD {
     const n = SURFACE_NOTES[this._surf] || SURFACE_NOTES.hard;
     this.mq.surfnote.innerHTML = `<b>${n[0]}</b> ${n[1]}`;
     const ch = this._choices && this._choices.find(c => c.surface === this._surf);
-    this.mq.courtline.textContent = `${ch ? ch.label : 'Court 1'} · ${n[0].toLowerCase()} · into the sunset, then under the lights`;
+    this.mq.courtline.textContent = `${ch ? ch.label : 'Court 1'} · ${n[0].toLowerCase()} · sunset, then floodlights`;
+  }
+
+  /** The session changed the court / wind itself (not through the menu buttons). */
+  setConditions(surface, wind) {
+    if (surface) this._surf = surface;
+    if (wind) this._wind = wind;
+    this._syncSeg();
   }
 
   showMenu({ opts, last, profile, court, wind } = {}) {

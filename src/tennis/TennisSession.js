@@ -473,6 +473,7 @@ export class TennisSession {
   _setSurfaceKey(key) {
     this.surface = SURFACES[key] ? key : 'hard';
     if (this.ball) this.ball.surface = SURFACES[this.surface];
+    if (this.hud) this.hud.setConditions(this.surface, null);
   }
 
   /**
@@ -483,6 +484,7 @@ export class TennisSession {
   setWind(key) {
     if (!WINDS[key]) key = 'calm';
     this.windKey = key;
+    if (this.hud) this.hud.setConditions(null, key);
     const wd = WINDS[key];
     this._windDir = Math.random() * Math.PI * 2;
     this._windPhase = Math.random() * 10;
@@ -2159,7 +2161,7 @@ export class TennisSession {
     const fsp = s.firsts ? `${Math.round(100 * s.firstIn / s.firsts)}%` : '–';
     this.hud.showResults({
       kind: 'match', won, title: won ? 'Victory!' : 'Rafa takes it',
-      sub: `${FORMATS[this.format].label} · ${this.ai.diff.label}`,
+      sub: `${FORMATS[this.format].label} · ${this.ai.diff.label} · ${SURFACES[this.surface].label}${this.windKey !== 'calm' ? ' · ' + WINDS[this.windKey].label : ''}`,
       score: sc.setLine(0),
       stats: [
         ['Winners', s.winners[0]], ['Unforced errors', s.unforced], ['Aces', s.aces[0]], ['Double faults', s.doubles[0]],
