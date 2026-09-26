@@ -6,7 +6,7 @@ import { Building } from './Building.js';
 import { Clubhouse, FitnessCenter, PoolHouse } from './ClubBuildings.js';
 import { CameraTracker } from '../entities/CharacterModel.js';
 import { Garden } from './Garden.js';
-import { GROUND_GROUPS, setGroundModel, groundAt } from './Ground.js';
+import { GROUND_GROUPS, setGroundModel, setGroundExtents, groundAt } from './Ground.js';
 import { findStadiumCourt, computeStadiumLayout } from './StadiumLayout.js';
 import { Stadium } from './Stadium.js';
 import { Scenery, bakeParts } from './Scenery.js';
@@ -136,6 +136,30 @@ export function worldBoxUV(geo, tile = 2, { vertical = false, swapTop = false } 
 }
 
 function P(geometry, matrix, color) { return { geometry, matrix, color }; }
+
+/**
+ * Fence lines { x0, x1, z0, z1 } from map.json `bounds` ({ minX, maxX, minZ, maxZ }, ± 5 m).
+ * A legacy { width, depth } block, or none, gives the old symmetric club (±mapWidth/2 + 5).
+ */
+function fenceBounds(b) {
+  const ok = (v) => typeof v === 'number' && Number.isFinite(v);
+  if (b && ok(b.minX) && ok(b.maxX) && ok(b.minZ) && ok(b.maxZ) && b.minX < b.maxX && b.minZ < b.maxZ) {
+    return { x0: b.minX - 5, x1: b.maxX + 5, z0: b.minZ - 5, z1: b.maxZ + 5 };
+  }
+  const hw = (b && ok(b.width) && b.width > 0 ? b.width : SIZES.mapWidth) / 2 + 5;
+  const hd = (b && ok(b.depth) && b.depth > 0 ? b.depth : SIZES.mapDepth) / 2 + 5;
+  return { x0: -hw, x1: hw, z0: -hd, z1: hd };
+}
+
+/**
+ * Visual ground plane extents for the fence lines: 55 m of meadow beyond the fence in x and
+ * 45 m in z (the old 240 × 200 plane around the ±65 × ±55 club), on even metres so the
+ * 2 m vertex grid lands on the bowl's cut edges.
+ */
+function planeExtents(f) {
+  const even = (v, dir) => (dir < 0 ? Math.floor(v / 2) : Math.ceil(v / 2)) * 2;
+  return { x0: even(f.x0 - 55, -1), x1: even(f.x1 + 55, 1), z0: even(f.z0 - 45, -1), z1: even(f.z1 + 45, 1) };
+}
 
 /** Shared vertex-coloured prop material (everything small & static merges into one draw). */
 function propMat() {
@@ -268,9 +292,13 @@ export class World {
 
     this.courtJunctionObjects = []; // coolers + trash bins between courts
 
-    // Perimeter geometry (same numbers as the physics walls)
-    this.halfW = SIZES.mapWidth / 2 + 5;
-    this.halfD = SIZES.mapDepth / 2 + 5;
+    // Fence lines (map.json `bounds` ± 5; the same numbers as the perimeter physics walls) and
+    // the visual ground plane around them. The club grew east of the old ±65 m fence: west of
+    // _splitX everything outside the bowl (perimeter runs, tree belts, woodland) is built
+    // exactly as before, and the extension east of it is built on its own.
+    this.bounds = fenceBounds(mapData.bounds);
+    this.groundExtents = planeExtents(this.bounds);
+    this._splitX = Math.min(this.bounds.x1, SIZES.mapWidth / 2 + 5);
     const parking = mapData.areas.parking;
     const entrance = mapData.areas.entrance;
     this.gateX = parking ? parking.center.x : (entrance ? entrance.center.x : 0);
@@ -329,7 +357,9 @@ export class World {
     }
     const rects = [];
     const addRect = (cx, cz, hx, hz, tag) => rects.push({ cx, cz, hx, hz, tag });
+    const layout = this.stadiumLayout;
     for (const c of A.courts || []) {
+      if (layout && c.id === layout.id) continue;   // the bowl's court: its 'stadiumCourt' rect comes with the layout
       const clay = c.type === 'clay';
       addRect(c.center.x, c.center.z, SIZES.courtWidth / 2 + (clay ? (SIZES.clayCourtBuffer || 0) + 1.5 : 2.5), SIZES.courtDepth / 2 + 1.5, 'court');
     }
@@ -362,18 +392,27 @@ export class World {
       const z0 = p.center.z + p.bounds.depth / 2;
       addRect(this.gateX, (z0 + 110) / 2, 4.2, (110 - z0) / 2, 'lot');   // driveway (inside + beyond the gate)
     }
+    // The sunken Centre Court (StadiumLayout.blockers): 'stadiumCourt' (its court rect, same size
+    // as any grass / hard court's), 'stadium' (cut + 1, for everything), 'stadiumClear'
+    // (cut + 8, trees only), 'cameraWell' (trees and lamps), 'building' (masts, scoreboards)
+    if (layout) {
+      for (const b of layout.blockers) rects.push({ cx: b.cx, cz: b.cz, hx: b.hx, hz: b.hz, tag: b.tag, layout: true });
+    }
     this._segs = segs;
     this._rects = rects;
   }
 
   /**
    * True when (x, z) keeps at least `margin` clear of paths, courts, buildings, patio,
-   * garden, shed, parking and the driveway. opts.ignore: array of rect tags to skip.
+   * garden, shed, parking, the driveway and the Centre Court bowl. opts.ignore: array of rect
+   * tags to skip. opts.preBowl: the blockers as they were before the bowl (its layout rects
+   * are skipped, except its court rect, which the plain court rect used to be).
    */
   isFree(x, z, margin = 0, opts = {}) {
-    const ignore = opts.ignore;
+    const ignore = opts.ignore, preBowl = !!opts.preBowl;
     for (const r of this._rects) {
       if (ignore && ignore.includes(r.tag)) continue;
+      if (preBowl && r.layout && r.tag !== 'stadiumCourt') continue;
       if (Math.abs(x - r.cx) < r.hx + margin && Math.abs(z - r.cz) < r.hz + margin) return false;
     }
     if (opts.paths !== false) {
@@ -384,20 +423,34 @@ export class World {
     return true;
   }
 
-  _insideFence(x, z, margin = 0) {
-    return Math.abs(x) < this.halfW - margin && Math.abs(z) < this.halfD - margin;
+  /** Clear of the bowl's masts and scoreboards (its layout 'building' rects) by `margin`. */
+  _clearOfBowlProps(x, z, margin) {
+    for (const r of this._rects) {
+      if (r.layout && r.tag === 'building' && Math.abs(x - r.cx) < r.hx + margin && Math.abs(z - r.cz) < r.hz + margin) return false;
+    }
+    return true;
   }
 
-  /** Visual ground height (flat inside the club; soft hills outside the fence). */
+  _insideFence(x, z, margin = 0) {
+    const b = this.bounds;
+    return x > b.x0 + margin && x < b.x1 - margin && z > b.z0 + margin && z < b.z1 - margin;
+  }
+
+  /**
+   * Visual ground height (flat inside the club; soft hills outside the fence, fading out
+   * again toward the plane's edge where the horizon's outer ground takes over).
+   */
   groundHeight(x, z) {
-    const dx = Math.max(0, Math.abs(x) - (this.halfW + 3));
-    const dz = Math.max(0, Math.abs(z) - (this.halfD + 3));
+    const b = this.bounds, g = this.groundExtents;
+    const dx = Math.max(0, (b.x0 - 3) - x, x - (b.x1 + 3));
+    const dz = Math.max(0, (b.z0 - 3) - z, z - (b.z1 + 3));
     const d = Math.sqrt(dx * dx + dz * dz);
     if (d <= 0) return 0;
     let k = smoothstep(0, 24, d);
-    const e = Math.max(Math.abs(x) / SIZES.mapWidth, Math.abs(z) / SIZES.mapDepth);
+    // 0 at the origin, 1 on the plane's edge (per side, so the east extension reaches it too)
+    const e = Math.max(x < 0 ? x / Math.min(-1, g.x0) : x / Math.max(1, g.x1), z < 0 ? z / Math.min(-1, g.z0) : z / Math.max(1, g.z1));
     k *= 1 - smoothstep(0.84, 0.985, e);
-    if (z > this.halfD - 5) k *= smoothstep(6, 16, Math.abs(x - this.gateX));
+    if (z > b.z1 - 5) k *= smoothstep(6, 16, Math.abs(x - this.gateX));
     if (k <= 0) return 0;
     const n = fbm2(x * 0.028 + 31.7, z * 0.028 + 11.3, this._hillOpts || (this._hillOpts = { octaves: 3, seed: 77 }));
     return k * (0.5 + 5.2 * n * n);
@@ -406,9 +459,14 @@ export class World {
   // ───────────────────────────── ground ─────────────────────────────
 
   _buildGround() {
-    const W = SIZES.mapWidth * 2, D = SIZES.mapDepth * 2;
-    const geo = new THREE.PlaneGeometry(W, D, 120, 100);
+    // The plane covers groundExtents on a 2 m vertex grid (fence ± 55 / 45 m: 284 × 200 with
+    // the club's eastward extension; the vertices west of it are the old 240 × 200 plane's)
+    const ext = this.groundExtents, fb = this.bounds;
+    const W = ext.x1 - ext.x0, D = ext.z1 - ext.z0;
+    const geo = new THREE.PlaneGeometry(W, D, Math.round(W / 2), Math.round(D / 2));
     geo.rotateX(-Math.PI / 2);
+    geo.translate((ext.x0 + ext.x1) / 2, 0, (ext.z0 + ext.z1) / 2);
+    setGroundExtents(ext);
     const pos = geo.attributes.position, uv = geo.attributes.uv;
     const col = new Float32Array(pos.count * 3);
     const nOpt = { octaves: 3, seed: 5 };
@@ -420,7 +478,7 @@ export class World {
       // broad colour variation breaks up texture tiling; meadow tone outside the fence
       const n = fbm2(x * 0.022 + 100, z * 0.022 + 100, nOpt);
       let k = 0.86 + n * 0.22;
-      const dx = Math.max(0, Math.abs(x) - this.halfW), dz = Math.max(0, Math.abs(z) - this.halfD);
+      const dx = Math.max(0, fb.x0 - x, x - fb.x1), dz = Math.max(0, fb.z0 - z, z - fb.z1);
       const o = smoothstep(0, 10, Math.sqrt(dx * dx + dz * dz));
       const r = k * (1 + (meadow.r - 1) * o), g = k * (1 + (meadow.g - 1) * o), b = k * (1 + (meadow.b - 1) * o);
       col[i * 3] = r; col[i * 3 + 1] = g; col[i * 3 + 2] = b;
@@ -430,15 +488,20 @@ export class World {
 
     // Split into the manicured lawn (mow stripes) and the meadow outside the fence (no stripes).
     // Both share the vertex buffers; only the index differs.
-    // The meadow is chunked by 160 m cell so chunks behind the camera are culled.
+    // The meadow is chunked into quadrants around the origin (160 m cells on the old plane) so
+    // chunks behind the camera are culled; the east extension joins the eastern quadrants.
+    // Triangles inside the Centre Court cut are dropped: the bowl is a hole in the lawn (its
+    // cut edges are on even metres, so the hole follows the grid exactly).
+    const cut = this.stadiumLayout ? this.stadiumLayout.cut : null;
     const src = geo.index.array, inner = [], outer = new Map();
     for (let t = 0; t < src.length; t += 3) {
       let cx = 0, cz = 0;
       for (let k = 0; k < 3; k++) { cx += pos.getX(src[t + k]); cz += pos.getZ(src[t + k]); }
       cx /= 3; cz /= 3;
-      const inside = Math.abs(cx) < this.halfW + 1.5 && Math.abs(cz) < this.halfD + 1.5;
+      if (cut && cx > cut.x0 && cx < cut.x1 && cz > cut.z0 && cz < cut.z1) continue;
+      const inside = cx > fb.x0 - 1.5 && cx < fb.x1 + 1.5 && cz > fb.z0 - 1.5 && cz < fb.z1 + 1.5;
       if (inside) { inner.push(src[t], src[t + 1], src[t + 2]); continue; }
-      const key = `${Math.floor(cx / 160)},${Math.floor(cz / 160)}`;
+      const key = `${cx < 0 ? -1 : 0},${cz < 0 ? -1 : 0}`;
       let arr = outer.get(key);
       if (!arr) { arr = []; outer.set(key, arr); }
       arr.push(src[t], src[t + 1], src[t + 2]);
@@ -629,10 +692,12 @@ export class World {
   /**
    * Replace the slab bodies of side-by-side courts (clay 3-5, courts 1-2) with one
    * body per contiguous run, so walking across a seam never touches two
-   * coplanar boxes (double contacts = double friction).
+   * coplanar boxes (double contacts = double friction). Only courts at the same base height
+   * merge (a sunken court has no slab body at all).
    */
   _mergeCourtSlabs() {
     const eps = 0.05;
+    const baseOf = (c) => c.baseY || 0;
     const list = this.courts.filter(c => c.slabBody && c.slabBounds)
       .sort((a, b) => a.slabBounds.x0 - b.slabBounds.x0);
     const used = new Set();
@@ -644,7 +709,7 @@ export class World {
       for (const c of list) {
         if (used.has(c)) continue;
         const b = c.slabBounds;
-        if (Math.abs(b.x0 - cur.x1) < eps && Math.abs(b.z0 - cur.z0) < eps && Math.abs(b.z1 - cur.z1) < eps) {
+        if (Math.abs(b.x0 - cur.x1) < eps && Math.abs(b.z0 - cur.z0) < eps && Math.abs(b.z1 - cur.z1) < eps && baseOf(c) === baseOf(first)) {
           run.push(c); used.add(c); cur = b;
         }
       }
@@ -654,7 +719,7 @@ export class World {
       for (const c of run) { this.physicsWorld.removeBody(c.slabBody); }
       const body = new CANNON.Body({
         mass: 0,
-        position: new CANNON.Vec3((x0 + x1) / 2, 0.05, (z0 + z1) / 2),
+        position: new CANNON.Vec3((x0 + x1) / 2, baseOf(first) + 0.05, (z0 + z1) / 2),
         shape: new CANNON.Box(new CANNON.Vec3((x1 - x0) / 2, 0.1, (z1 - z0) / 2)),
       });
       this.physicsWorld.addBody(body);
@@ -1274,17 +1339,25 @@ export class World {
   // ───────────────────────────── perimeter ─────────────────────────────
 
   _buildPerimeter() {
-    // Perimeter wall physics (unchanged: 2 m high, 0.3 thick)
+    // Perimeter wall physics (unchanged: 2 m high, 0.3 thick) along the fence lines. The north
+    // and south runs split at _splitX: west of it they are the pre-extension fence exactly,
+    // east of it an extension run reaches the east side.
     const wallH = 2;
-    const halfW = this.halfW;
-    const halfD = this.halfD;
+    const { x0, x1, z0, z1 } = this.bounds;
+    const xs = this._splitX;
+    const ext = x1 > xs + 0.5;
+    const zN = z1;   // the north fence line (gate side)
 
     const walls = [
-      { pos: [0, wallH / 2, -halfD], size: [halfW * 2, wallH, 0.3] },
-      { pos: [0, wallH / 2, halfD], size: [halfW * 2, wallH, 0.3] },
-      { pos: [-halfW, wallH / 2, 0], size: [0.3, wallH, halfD * 2] },
-      { pos: [halfW, wallH / 2, 0], size: [0.3, wallH, halfD * 2] },
+      { pos: [(x0 + xs) / 2, wallH / 2, z0], size: [xs - x0, wallH, 0.3] },
+      { pos: [(x0 + xs) / 2, wallH / 2, z1], size: [xs - x0, wallH, 0.3] },
+      { pos: [x0, wallH / 2, (z0 + z1) / 2], size: [0.3, wallH, z1 - z0] },
+      { pos: [x1, wallH / 2, (z0 + z1) / 2], size: [0.3, wallH, z1 - z0] },
     ];
+    if (ext) {
+      walls.push({ pos: [(xs + x1) / 2, wallH / 2, z0], size: [x1 - xs, wallH, 0.3] });
+      walls.push({ pos: [(xs + x1) / 2, wallH / 2, z1], size: [x1 - xs, wallH, 0.3] });
+    }
     for (const w of walls) {
       const shape = new CANNON.Box(
         new CANNON.Vec3(w.size[0] / 2, w.size[1] / 2, w.size[2] / 2)
@@ -1302,12 +1375,17 @@ export class World {
     const stone = [];
     const panels = [];   // [x0, z0, x1, z1, y0, y1]
     const BASE = 0xd9d0bc, PIER = 0xeae2cf, CAP = 0xf4eee0;
+    // skip: 'first' / 'last' pier of an extension run (the pre-extension run already has one there)
     const sides = [
-      { a: [-halfW, -halfD], b: [halfW, -halfD] },
-      { a: [halfW, -halfD], b: [halfW, halfD] },
-      { a: [halfW, halfD], b: [-halfW, halfD], gate: true },
-      { a: [-halfW, halfD], b: [-halfW, -halfD] },
+      { a: [x0, z0], b: [xs, z0] },
+      { a: [x1, z0], b: [x1, z1] },
+      { a: [xs, z1], b: [x0, z1], gate: true },
+      { a: [x0, z1], b: [x0, z0] },
     ];
+    if (ext) {
+      sides.push({ a: [xs, z0], b: [x1, z0], skip: 'first' });
+      sides.push({ a: [x1, z1], b: [xs, z1], skip: 'last' });
+    }
     const pierAt = (x, z) => {
       stone.push(P(roundedBox(0.62, 2.1, 0.62, 0.05, 1), makeMatrix(x, 1.05, z), PIER));
       stone.push(P(roundedBox(0.8, 0.14, 0.8, 0.04, 1), makeMatrix(x, 2.17, z), CAP));
@@ -1332,7 +1410,7 @@ export class World {
         const n = Math.max(1, Math.round(L / 9.5));
         for (let i = 0; i <= n; i++) {
           const t = t0 + (L * i) / n;
-          pierAt(ax + ux * t, az + uz * t);
+          if (!((s.skip === 'first' && i === 0) || (s.skip === 'last' && i === n))) pierAt(ax + ux * t, az + uz * t);
           if (i < n) {
             const ta = t + 0.33, tb = t0 + (L * (i + 1)) / n - 0.33;
             panels.push([ax + ux * ta, az + uz * ta, ax + ux * tb, az + uz * tb, 0.52, 1.92]);
@@ -1343,13 +1421,13 @@ export class World {
     // Gate pillars
     for (const sx of [-1, 1]) {
       const px = gx + sx * (gateHalf + pillarW / 2);
-      stone.push(P(roundedBox(pillarW, 3.1, pillarW, 0.06), makeMatrix(px, 1.55, halfD), PIER));
-      stone.push(P(roundedBox(pillarW + 0.3, 0.2, pillarW + 0.3, 0.05), makeMatrix(px, 3.2, halfD), CAP));
-      stone.push(P(roundedBox(pillarW + 0.2, 0.3, pillarW + 0.2, 0.05), makeMatrix(px, 0.15, halfD), BASE));
-      this.scenery.addLamp(px, 3.3, halfD, { post: false });
-      this.scenery.addFlowerClump(px, 0, halfD - 1.3, COLORS.flowers[sx < 0 ? 0 : 3], 1.3);
-      this.scenery.addFlowerClump(px + 0.7 * sx, 0, halfD - 1.1, 0xf4efe6, 1.0);
-      this.scenery.addTree('cypress', px + sx * 1.6, 0, halfD + 1.6, { scale: 1.1 });
+      stone.push(P(roundedBox(pillarW, 3.1, pillarW, 0.06), makeMatrix(px, 1.55, zN), PIER));
+      stone.push(P(roundedBox(pillarW + 0.3, 0.2, pillarW + 0.3, 0.05), makeMatrix(px, 3.2, zN), CAP));
+      stone.push(P(roundedBox(pillarW + 0.2, 0.3, pillarW + 0.2, 0.05), makeMatrix(px, 0.15, zN), BASE));
+      this.scenery.addLamp(px, 3.3, zN, { post: false });
+      this.scenery.addFlowerClump(px, 0, zN - 1.3, COLORS.flowers[sx < 0 ? 0 : 3], 1.3);
+      this.scenery.addFlowerClump(px + 0.7 * sx, 0, zN - 1.1, 0xf4efe6, 1.0);
+      this.scenery.addTree('cypress', px + sx * 1.6, 0, zN + 1.6, { scale: 1.1 });
     }
     const stoneGeo = mergeParts(stone);
     worldBoxUV(stoneGeo, 2.2);
@@ -1357,8 +1435,8 @@ export class World {
     this.staticRoot.add(staticMesh(stoneGeo, stoneMat));
 
     // Iron picket panels + gate leaves (one alpha-tested geometry)
-    panels.push([gx - gateHalf, halfD, gx - 0.03, halfD, 0.04, 2.35]);
-    panels.push([gx + 0.03, halfD, gx + gateHalf, halfD, 0.04, 2.35]);
+    panels.push([gx - gateHalf, zN, gx - 0.03, zN, 0.04, 2.35]);
+    panels.push([gx + 0.03, zN, gx + gateHalf, zN, 0.04, 2.35]);
     const pp = [], pu = [], pn = [], pi = [];
     for (const [x0, z0, x1, z1, y0, y1] of panels) {
       const L = Math.hypot(x1 - x0, z1 - z0);
@@ -1383,18 +1461,18 @@ export class World {
     // Gate crossbar, scroll arch and hanging club sign
     const I = COLORS.ironWork;
     const arch = [
-      P(boxGeo(gateHalf * 2 + 0.2, 0.09, 0.09), makeMatrix(gx, 2.5, halfD), I),
-      P(boxGeo(0.07, 2.4, 0.07), makeMatrix(gx - 0.03, 1.2, halfD), I),
-      P(boxGeo(0.07, 2.4, 0.07), makeMatrix(gx + 0.03, 1.2, halfD), I),
+      P(boxGeo(gateHalf * 2 + 0.2, 0.09, 0.09), makeMatrix(gx, 2.5, zN), I),
+      P(boxGeo(0.07, 2.4, 0.07), makeMatrix(gx - 0.03, 1.2, zN), I),
+      P(boxGeo(0.07, 2.4, 0.07), makeMatrix(gx + 0.03, 1.2, zN), I),
     ];
     const archGeo = getGeometry(`world-gateArch|${gateHalf}`, () => {
       const g = new THREE.TorusGeometry(gateHalf, 0.05, 6, 28, Math.PI);
       g.scale(1, 0.34, 1);
       return g;
     });
-    arch.push(P(archGeo, makeMatrix(gx, 2.5, halfD), I));
-    for (const sx of [-1, 1]) arch.push(P(boxGeo(0.05, 0.8, 0.05), makeMatrix(gx + sx * 1.9, 2.95, halfD), I));
-    arch.push(P(roundedBox(5.0, 1.02, 0.1, 0.04), makeMatrix(gx, 3.55, halfD), COLORS.clubGreen));
+    arch.push(P(archGeo, makeMatrix(gx, 2.5, zN), I));
+    for (const sx of [-1, 1]) arch.push(P(boxGeo(0.05, 0.8, 0.05), makeMatrix(gx + sx * 1.9, 2.95, zN), I));
+    arch.push(P(roundedBox(5.0, 1.02, 0.1, 0.04), makeMatrix(gx, 3.55, zN), COLORS.clubGreen));
     this.staticRoot.add(staticMesh(mergeParts(arch), propMat()));
 
     const name = (this.mapData.name || 'Greenbriar Tennis & Social Club').trim();
@@ -1409,7 +1487,7 @@ export class World {
     const signPlane = getGeometry('world-gateSignPlane', () => new THREE.PlaneGeometry(4.8, 0.92));
     for (const face of [-1, 1]) {
       const s = new THREE.Mesh(signPlane, signMat);
-      s.position.set(gx, 3.55, halfD + face * 0.056);
+      s.position.set(gx, 3.55, zN + face * 0.056);
       s.rotation.y = face > 0 ? 0 : Math.PI;
       s.castShadow = false;
       this.staticRoot.add(s);
@@ -1419,6 +1497,8 @@ export class World {
     const hedgeMat = mat(0xffffff, { map: Textures.hedge({ repeat: [1, 1] }), roughness: 0.95, wet: 0.35, name: 'hedge' });
     const hedgeCells = new Map(); // 64 m cell (club quadrant) -> parts (compact, cullable chunks)
     const inset = 1.15, hh = 1.3, hd = 1.1;
+    // the extension's hedge joins the easternmost pre-extension cells (no extra draw calls)
+    const maxKx = Math.floor((xs - inset) / 64);
     const run = (ax, az, bx, bz) => {
       const L = Math.hypot(bx - ax, bz - az);
       const n = Math.max(1, Math.round(L / 9));
@@ -1428,17 +1508,22 @@ export class World {
         const seg = t1 - t0, mx = ax + ux * (t0 + seg / 2), mz = az + uz * (t0 + seg / 2);
         const h = hh + (hash2(i, Math.round(mx), 4) - 0.5) * 0.25;
         const alongX = Math.abs(ux) > 0.5;
-        const ck = `${Math.floor(mx / 64)},${Math.floor(mz / 64)}`;
+        const ck = `${Math.min(Math.floor(mx / 64), maxKx)},${Math.floor(mz / 64)}`;
         if (!hedgeCells.has(ck)) hedgeCells.set(ck, []);
         hedgeCells.get(ck).push(P(roundedBox(alongX ? seg : hd, h, alongX ? hd : seg, 0.42, 1), makeMatrix(mx, h / 2, mz)));
       }
     };
     const e = inset;
-    run(-halfW + e, -halfD + e, halfW - e, -halfD + e);
-    run(halfW - e, -halfD + e, halfW - e, halfD - e);
-    run(halfW - e, halfD - e, gx + gateHalf + pillarW + 2.2, halfD - e);
-    run(gx - gateHalf - pillarW - 2.2, halfD - e, -halfW + e, halfD - e);
-    run(-halfW + e, halfD - e, -halfW + e, -halfD + e);
+    run(x0 + e, z0 + e, xs - e, z0 + e);
+    run(x1 - e, z0 + e, x1 - e, z1 - e);
+    run(xs - e, z1 - e, gx + gateHalf + pillarW + 2.2, z1 - e);
+    run(gx - gateHalf - pillarW - 2.2, z1 - e, x0 + e, z1 - e);
+    run(x0 + e, z1 - e, x0 + e, z0 + e);
+    if (ext) {
+      // the extension runs pick up where the pre-extension corner used to be
+      run(xs - e, z0 + e, x1 - e, z0 + e);
+      run(x1 - e, z1 - e, xs - e, z1 - e);
+    }
     for (const [ck, parts] of hedgeCells) {
       const hedgeGeo = mergeParts(parts);
       worldBoxUV(hedgeGeo, 2.5);
@@ -1455,7 +1540,9 @@ export class World {
     const placed = [];
     const tooClose = (x, z, d) => placed.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < d * d);
     const belts = [];   // trees inside the fence that get trunk collision
-    const hw = this.halfW, hd = this.halfD;
+    const { x0, x1, z0, z1 } = this.bounds;
+    const xs = this._splitX;
+    const layout = this.stadiumLayout;
 
     const speciesAt = (x, z) => {
       const n = valueNoise2(x * 0.06 + 3.1, z * 0.06 + 7.7, 21);
@@ -1463,26 +1550,55 @@ export class World {
       if (n > 0.78) return 'blossom';
       return 'oak';
     };
+    const plantBelt = (sp, x, z, scale) => {
+      this.scenery.addTree(sp, x, 0, z, { scale });
+      belts.push([x, z, scale]);
+    };
 
-    // Inner belts between the perimeter cart path and the hedge
+    // Inner belts between the perimeter cart path and the hedge. The pre-extension belts (west
+    // of _splitX) draw from `rand` exactly as before the club grew east, against the blockers
+    // of that time, so they, the feature trees and the outer woodland after them keep their
+    // places; a drawn tree is planted only where it is still free (not in the bowl's clear zone).
     const regions = [
-      [-hw + 3.2, -44.2, -hd + 3.2, hd - 3.2, 34],
-      [49.8, hw - 3.2, -hd + 3.2, hd - 3.2, 22],
-      [-hw + 3.2, hw - 3.2, -hd + 3.0, -47.2, 12],
-      [-hw + 3.2, hw - 3.2, 37.2, hd - 3.0, 22],
+      [x0 + 3.2, -44.2, z0 + 3.2, z1 - 3.2, 34],
+      [49.8, xs - 3.2, z0 + 3.2, z1 - 3.2, 22],
+      [x0 + 3.2, xs - 3.2, z0 + 3.0, -47.2, 12],
+      [x0 + 3.2, xs - 3.2, 37.2, z1 - 3.0, 22],
     ];
-    for (const [x0, x1, z0, z1, target] of regions) {
+    for (const [rx0, rx1, rz0, rz1, target] of regions) {
       let n = 0;
       for (let tries = 0; tries < target * 30 && n < target; tries++) {
-        const x = x0 + rand() * (x1 - x0), z = z0 + rand() * (z1 - z0);
+        const x = rx0 + rand() * (rx1 - rx0), z = rz0 + rand() * (rz1 - rz0);
         const sp = speciesAt(x, z);
         const r = sp === 'pine' ? 4.2 : 5.4;
-        if (tooClose(x, z, r) || !this.isFree(x, z, 1.8)) continue;
+        if (tooClose(x, z, r) || !this.isFree(x, z, 1.8, { preBowl: true })) continue;
         const scale = 0.85 + rand() * 0.45;
-        this.scenery.addTree(sp, x, 0, z, { scale });
+        if (this.isFree(x, z, 1.8)) plantBelt(sp, x, z, scale);
         placed.push([x, z]);
-        belts.push([x, z, scale]);
         n++;
+      }
+    }
+    // The extension east of _splitX (its own stream): the east belt behind the bowl's clear
+    // zone, and the north / south belts carried on to the east fence
+    if (x1 > xs + 0.5) {
+      const r2 = seededRandom(9128);
+      const eastFrom = Math.max(49.8, xs - 3.2, layout ? layout.cut.x1 + 8 : -Infinity);
+      const ext = [
+        [eastFrom, x1 - 3.2, z0 + 3.2, z1 - 3.2, 18],
+        [xs - 3.2, x1 - 3.2, z0 + 3.0, -47.2, 4],
+        [xs - 3.2, x1 - 3.2, 37.2, z1 - 3.0, 8],
+      ];
+      for (const [rx0, rx1, rz0, rz1, target] of ext) {
+        if (!(rx1 - rx0 > 1 && rz1 - rz0 > 1)) continue;
+        let n = 0;
+        for (let tries = 0; tries < target * 30 && n < target; tries++) {
+          const x = rx0 + r2() * (rx1 - rx0), z = rz0 + r2() * (rz1 - rz0);
+          const sp = speciesAt(x, z);
+          if (tooClose(x, z, sp === 'pine' ? 4.2 : 5.4) || !this.isFree(x, z, 1.8)) continue;
+          plantBelt(sp, x, z, 0.85 + r2() * 0.45);
+          placed.push([x, z]);
+          n++;
+        }
       }
     }
 
@@ -1499,22 +1615,51 @@ export class World {
       placed.push([x, z]);
     }
 
-    // Outside the fence: meadow woodland on the soft hills (low detail, no shadows/physics)
+    // Outside the fence: meadow woodland on the soft hills (low detail, no shadows/physics).
+    // The pre-extension loop draws exactly as before (sampling ±wx × ±wz around the old fence)
+    // and leaves out what now falls inside the grown fence; an east pass on its own stream
+    // fills the plane's extension at the same density.
+    const g = this.groundExtents;
     const outer = [];
     const oOpt = { octaves: 3, seed: 91 };
+    const inFence = (x, z, m) => x > x0 - m && x < x1 + m && z > z0 - m && z < z1 + m;
+    const woodland = (rnd, x, z) => {   // the same two draws whether or not the tree is planted
+      const sp = rnd() < 0.45 ? 'pine' : 'oak';
+      const scale = 0.9 + rnd() * 0.6;
+      if (inFence(x, z, 4)) return;
+      const near = inFence(x, z, 14);
+      this.scenery.addTree(sp, x, this.groundHeight(x, z) - 0.1, z, { scale, lod: !near, shadow: near });
+    };
+    const wx = Math.min(-g.x0, g.x1) - 4, wz = Math.min(-g.z0, g.z1) - 4;
     for (let tries = 0; tries < 9000 && outer.length < 260; tries++) {
-      const x = (rand() * 2 - 1) * (SIZES.mapWidth - 4);
-      const z = (rand() * 2 - 1) * (SIZES.mapDepth - 4);
-      if (Math.abs(x) < hw + 4 && Math.abs(z) < hd + 4) continue;
-      if (z > hd && Math.abs(x - this.gateX) < 10) continue;
+      const x = (rand() * 2 - 1) * wx;
+      const z = (rand() * 2 - 1) * wz;
+      if (x > x0 - 4 && x < xs + 4 && z > z0 - 4 && z < z1 + 4) continue;   // the pre-extension fence + 4
+      if (z > z1 && Math.abs(x - this.gateX) < 10) continue;
       const dens = fbm2(x * 0.03, z * 0.03, oOpt);
       if (dens < 0.42 + rand() * 0.12) continue;
       if (outer.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 16)) continue;
       outer.push([x, z]);
-      const sp = rand() < 0.45 ? 'pine' : 'oak';
-      const y = this.groundHeight(x, z) - 0.1;
-      const near = Math.abs(x) < hw + 14 && Math.abs(z) < hd + 14;
-      this.scenery.addTree(sp, x, y, z, { scale: 0.9 + rand() * 0.6, lod: !near, shadow: near });
+      woodland(rand, x, z);
+    }
+    const ex0 = Math.max(x1 + 4, wx), ex1 = g.x1 - 4;
+    if (ex1 - ex0 > 4) {
+      const r3 = seededRandom(92);
+      // Same tries per m² as the loop above; its cap spread over the area outside the old fence
+      const share = ((ex1 - ex0) * 2 * wz) / (4 * wx * wz);
+      const clubShare = ((xs - x0 + 8) * (z1 - z0 + 8)) / (4 * wx * wz);
+      const cap = outer.length + Math.ceil(260 * share / Math.max(0.2, 1 - clubShare));
+      const tries = Math.round(9000 * share);
+      for (let t = 0; t < tries && outer.length < cap; t++) {
+        const x = ex0 + r3() * (ex1 - ex0);
+        const z = (r3() * 2 - 1) * wz;
+        if (inFence(x, z, 4) || (z > z1 && Math.abs(x - this.gateX) < 10)) continue;
+        const dens = fbm2(x * 0.03, z * 0.03, oOpt);
+        if (dens < 0.42 + r3() * 0.12) continue;
+        if (outer.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 16)) continue;
+        outer.push([x, z]);
+        woodland(r3, x, z);
+      }
     }
 
     // Trunk collision for belt trees: one static body per belt region (many small box shapes)
@@ -1549,7 +1694,9 @@ export class World {
           const off = w / 2 + EDGE_EXTRA / 2 + 0.55;
           const x = a.x + ux * t - uz * off * side, z = a.z + uz * t + ux * off * side;
           if (!this._insideFence(x, z, 3)) continue;
-          if (!this.isFree(x, z, 0.25)) continue;
+          // lamps may line the bowl's ring path (its clear zone), not stand in a camera well,
+          // nor right in front of a scoreboard or against a floodlight mast
+          if (!this.isFree(x, z, 0.25, { ignore: ['stadiumClear'] }) || !this._clearOfBowlProps(x, z, 1.2)) continue;
           if (placed.some(p => (p[0] - x) ** 2 + (p[1] - z) ** 2 < 110)) continue;
           placed.push([x, z]);
           this.scenery.addLamp(x, 0, z);
@@ -1565,9 +1712,11 @@ export class World {
     const rand = seededRandom(5511);
     const MAX = 7000;
     const s = this.scenery;
+    // Tufts and wildflowers may grow in the bowl's clear zone and camera wells (not in the bowl)
+    const lawnIgnore = ['garden', 'stadiumClear', 'cameraWell'];
     const tryTuft = (x, z, scale) => {
       if (s.tufts.length >= MAX) return;
-      if (!this._insideFence(x, z, 2.2) || !this.isFree(x, z, 0.12, { ignore: ['garden'] })) return;
+      if (!this._insideFence(x, z, 2.2) || !this.isFree(x, z, 0.12, { ignore: lawnIgnore })) return;
       if (this._inGarden(x, z)) return;
       s.addTuft(x, 0, z, scale);
     };
@@ -1611,16 +1760,18 @@ export class World {
         }
       }
     }
-    // Wildflower drifts (the open lawn itself stays manicured: no random clumps)
-    const hw = this.halfW, hd = this.halfD;
+    // Wildflower drifts (the open lawn itself stays manicured: no random clumps). They stay in
+    // the pre-extension grounds (west of _splitX): the east extension would add a pair of
+    // flower draw calls per scenery cell for a handful of clumps; its edges carry the belts.
+    const { x0, x1, z0, z1 } = this.bounds, xw = this._splitX;
     const wild = [0xf6f3ea, 0xf2d34c, 0xc9b6e8, 0xf6f3ea];
     let flowers = 0;
     for (let tries = 0; tries < 3000 && flowers < 140; tries++) {
-      const x = (rand() * 2 - 1) * (hw - 2.5), z = (rand() * 2 - 1) * (hd - 2.5);
+      const x = x0 + 2.5 + rand() * (xw - x0 - 5), z = z0 + 2.5 + rand() * (z1 - z0 - 5);
       // drifts near the edges of the grounds
-      const edge = Math.min(hw - Math.abs(x), hd - Math.abs(z));
+      const edge = Math.min(x - x0, x1 - x, z - z0, z1 - z);
       if (edge > 14 && rand() < 0.85) continue;
-      if (!this.isFree(x, z, 0.4) || this._inGarden(x, z)) continue;
+      if (!this.isFree(x, z, 0.4, { ignore: lawnIgnore }) || this._inGarden(x, z)) continue;
       s.addFlowerClump(x, -0.02, z, wild[(rand() * wild.length) | 0], 0.45 + rand() * 0.2);
       flowers++;
     }
@@ -1640,7 +1791,7 @@ export class World {
     if (A.patio) spots.push([A.patio.center.x, 2.6, A.patio.center.z + 1.5, 16]);
     if (A.garden && A.garden.fountain) spots.push([A.garden.fountain.x, 3.0, A.garden.fountain.z, 11]);
     if (A.parking) spots.push([A.parking.center.x, 3.8, A.parking.center.z + 2, 14]);
-    spots.push([this.gateX, 3.4, this.halfD - 2.5, 10]);
+    spots.push([this.gateX, 3.4, this.bounds.z1 - 2.5, 10]);
     this._lightSpots = spots;
     // Slot 0 (when any light is allowed) is a warm "carry" light that follows the
     // player / cart so the follow-cam subject stays readable at night. The light
