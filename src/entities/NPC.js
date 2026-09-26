@@ -8,6 +8,7 @@ import {
   Character, BlobShadows, CameraTracker, hashString, SKIN_TONES, HAIR_COLORS,
 } from './CharacterModel.js';
 import { findSeats, claimSeat, releaseSeat, SIT_SEAT_HEIGHT } from './Seats.js';
+import { planRoute } from '../world/NavRooms.js';
 
 /**
  * Hand-authored looks for the shipped NPCs (keyed by npcs.json id). NPCs not listed here get a
@@ -694,9 +695,21 @@ export class NPC {
       return;
     }
 
-    const dx = this.currentTarget.x - this.body.position.x;
-    const dz = this.currentTarget.z - this.body.position.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    // Route around walls toward the target (planned once per target; each node reached resets
+    // the stuck timer). Steering aims at the next node, arrival is judged on the real target.
+    if (this._routeFor !== this.currentTarget) this._planWanderRoute();
+    const route = this._route;
+    while (route && route.length > 1) {
+      const ex = route[0].x - this.body.position.x, ez = route[0].z - this.body.position.z;
+      if (ex * ex + ez * ez > 0.36) break;
+      route.shift();
+      this._wanderTime = 0;
+    }
+    const aim = route && route.length > 1 ? route[0] : this.currentTarget;
+    const dx = aim.x - this.body.position.x;
+    const dz = aim.z - this.body.position.z;
+    const gx = this.currentTarget.x - this.body.position.x, gz = this.currentTarget.z - this.body.position.z;
+    const dist = Math.sqrt(gx * gx + gz * gz);
     const seat = this._seatTarget;
 
     if ((seat && dist < 0.22) || (!seat && dist < 1.5)) {
@@ -716,7 +729,7 @@ export class NPC {
 
     let speed = SIZES.npcSpeed;
     if (seat) speed = Math.min(speed, 0.35 + dist * 1.4); // settle precisely in front of the seat
-    this._walkStep(dx, dz, dist, speed, dt);
+    this._walkStep(dx, dz, Math.max(0.01, Math.sqrt(dx * dx + dz * dz)), speed, dt);
 
     // Face movement direction (smoothly)
     this._turnToward(Math.atan2(dx, dz), dt, 8);
@@ -725,6 +738,17 @@ export class NPC {
     this._moving = 1;
     const cps = (speed / this.modelScale) / WALK_STRIDE;
     this.character.setLocomotion(speed > 0.05 ? 1 : 0, cps, 0);
+  }
+
+  _planWanderRoute() {
+    this._routeFor = this.currentTarget;
+    const t = this.currentTarget;
+    try {
+      // Through building doors / around the club buildings (world/NavRooms.js); straight otherwise
+      this._route = planRoute(this.body.position.x, this.body.position.z, t.x, t.z, this._route || []);
+    } catch (e) {
+      this._route = null;
+    }
   }
 
   _cancelSeatTarget() {

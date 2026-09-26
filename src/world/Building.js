@@ -5,6 +5,7 @@ import { getMaterial, basicMat, registerNightGlow, registerWet } from '../graphi
 import { Textures, createCanvasTexture, seededRandom } from '../graphics/Textures.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { InteriorArt } from './InteriorArt.js';
+import { registerNav } from './NavRooms.js';
 import {
   getGeometry, boxGeo, cylinderGeo, sphereGeo, icoGeo, mergeParts, makeMatrix,
 } from '../graphics/GeometryUtils.js';
@@ -1432,6 +1433,10 @@ export class Building {
 
     this._contactShadow(X0, X1, Z0, Z1, { front: 0.05, back: 0.05, left: 0.05, right: 0.05 });
     this.rooms.push({ x0: x0 + ht, x1: x1 - ht, z0: zb + ht, z1: zf - ht + 0.1 });
+    registerNav({
+      rooms: [{ x0: x0 + ht + 0.1, x1: x1 - ht - 0.1, z0: zb + ht + 0.1, z1: zf - ht }],
+      doors: [{ a: { x: cx, z: zf - ht - 0.8 }, b: { x: cx, z: zf + ht + 1.0 } }],
+    });
     this.footprints.push({ x0: X0 - 0.6, x1: X1 + 0.6, z0: Z0 - 0.6, z1: Z1 + 0.6 });
     this.roofTop = eaveY + rise + 0.5;
 

@@ -10,6 +10,7 @@ import {
   signPlane, regionUV, ATLAS, SurfaceBuilder, segMatrix, glassPane, awningGeo, contactFrameGeo,
 } from './Building.js';
 import { artUV, artAspect } from './InteriorArt.js';
+import { registerNav } from './NavRooms.js';
 
 /**
  * ClubBuildings — the enterable buildings besides the pro shop:
@@ -559,19 +560,19 @@ export class Clubhouse extends ClubBuilding {
     // ── Lounge (west third) ──
     {
       const lx0 = ii0, lx1 = pA - PT / 2;
-      const fz = cz + 1.6;
+      const fz = cz + 1.9;
       this._fireplace(I, M(lx0, F, fz, HALF_PI), lv);
       this._solid(lx0 + 0.3, fz, 0.7, 2.0, 1.2);
-      this._rug(I, M(lx0 + 2.9, F, fz), 3.2, 2.6, FABRIC.rust, 0xe8d9b4);
-      this._sofa(I, M(lx0 + 4.3, F, fz, -HALF_PI), 2.1, FABRIC.green);
-      this._solid(lx0 + 4.3, fz, 2.1, 0.85, 0.8, -HALF_PI);
+      this._rug(I, M(lx0 + 2.6, F, fz), 3.0, 2.6, FABRIC.rust, 0xe8d9b4);
+      this._sofa(I, M(lx0 + 3.9, F, fz, -HALF_PI), 2.1, FABRIC.green);
+      this._solid(lx0 + 3.9, fz, 2.1, 0.85, 0.8, -HALF_PI);
       for (const s of [-1, 1]) {
-        this._sofa(I, M(lx0 + 2.4, F, fz + s * 1.35, s > 0 ? Math.PI : 0), 0.95, FABRIC.cream, { cushions: 1 });
-        this._solid(lx0 + 2.4, fz + s * 1.35, 0.9, 0.85, 0.8);
+        this._sofa(I, M(lx0 + 2.3, F, fz + s * 1.3, s > 0 ? Math.PI : 0), 0.95, FABRIC.cream, { cushions: 1 });
+        this._solid(lx0 + 2.3, fz + s * 1.3, 0.9, 0.85, 0.8);
       }
-      this._table(I, M(lx0 + 2.9, F, fz), 1.1, 0.6, 0.42, WOOD.walnut);
-      I.trim.push(P(bevelBox(0.3, 0.05, 0.22, 0.01), M(lx0 + 2.8, F + 0.445, fz - 0.1, 0.3), 0x7a2e2e)); // book
-      I.metal.push(P(cylinderGeo(0.12, 0.08, 0.04, 12), M(lx0 + 3.1, F + 0.44, fz + 0.12), C.brass));
+      this._table(I, M(lx0 + 2.6, F, fz), 0.6, 1.1, 0.42, WOOD.walnut);
+      I.trim.push(P(bevelBox(0.3, 0.05, 0.22, 0.01), M(lx0 + 2.5, F + 0.445, fz - 0.1, 0.3), 0x7a2e2e)); // book
+      I.metal.push(P(cylinderGeo(0.12, 0.08, 0.04, 12), M(lx0 + 2.7, F + 0.44, fz + 0.2), C.brass));
       this._floorLamp(I, M(lx0 + 0.45, F, jz1 - 0.4));
       this._trophyCase(I, M(lx1, F, cz - 2.0, -HALF_PI), 2.6);
       this._solid(lx1 - 0.23, cz - 2.0, 0.46, 2.6, 2.1);
@@ -657,7 +658,7 @@ export class Clubhouse extends ClubBuilding {
       for (let i = 0; i < 3; i++) I.metal.push(P(cylinderGeo(0.018, 0.018, 0.34, 6), M(barX - 0.4 + i * 0.2, F + 1.24, barZ - 0.12), C.brass));
       this._artSign(I.deco, M(barX, 2.29, jz0 + 0.02), 'cafe', 1.2);
       // café tables
-      for (const [tx, tz] of [[kx0 + 1.2, cz + 1.3], [kx1 - 1.3, cz + 0.2]]) {
+      for (const [tx, tz] of [[kx0 + 1.3, cz + 2.95], [kx1 - 1.3, cz + 0.2]]) {
         this._roundTable(I, M(tx, F, tz), 0.42, 0.74, 0xf2ece0);
         I.trim.push(P(cylinderGeo(0.05, 0.04, 0.12, 8), M(tx, F + 0.82, tz), 0xe8f0f2));
         I.trim.push(P(icoGeo(0.06, 0), M(tx, F + 0.92, tz), C.flowers[0]));
@@ -752,6 +753,20 @@ export class Clubhouse extends ClubBuilding {
       }
       this._ceiling(L, wx0, X0 - HT, wz0, wz1, wlv.ceilY);
       this.rooms.push({ x0: wx0, x1: X0 - HT, z0: wz0, z1: wz1 });
+      const corrMid = (cx0 + cx1) / 2, wMid = (womenDoor.a + womenDoor.b) / 2, mMid = (menDoor.a + menDoor.b) / 2;
+      this._wingNav = {
+        rooms: [
+          { x0: cx0, x1: cx1 - LI, z0: wz0 + LI, z1: wz1 - LI },
+          { x0: lx0, x1: lx1, z0: wz0 + LI, z1: midZ - PT / 2 },
+          { x0: lx0, x1: lx1, z0: midZ + PT / 2, z1: wz1 - LI },
+        ],
+        doors: [
+          { a: { x: X0 + 0.75, z: (wingDoor.a + wingDoor.b) / 2 }, b: { x: X0 - HT - 0.75, z: (wingDoor.a + wingDoor.b) / 2 } },
+          { a: { x: corrX + 0.7, z: wMid }, b: { x: corrX - 0.75, z: wMid } },
+          { a: { x: corrX + 0.7, z: mMid }, b: { x: corrX - 0.75, z: mMid } },
+          { a: { x: corrMid, z: wz0 + 0.7 }, b: { x: corrMid, z: WZ0 - HT - 1.0 } },
+        ],
+      };
       this.footprints.push({ x0: WX0 - 0.8, x1: X0, z0: WZ0 - 0.8, z1: WZ1 + 0.8 });
 
       // wing roof (hip, ridge along z)
@@ -807,7 +822,7 @@ export class Clubhouse extends ClubBuilding {
     }
     // chimney above the lounge fireplace
     {
-      const chx = X0 + 0.45, chz = cz + 1.6;
+      const chx = X0 + 0.45, chz = cz + 1.9;
       R.push(P(boxGeo(0.9, 2.6, 0.9), M(chx, 4.3, chz), C.brick));
       R.push(P(boxGeo(1.0, 0.12, 1.0), M(chx, 5.62, chz), 0x8a4630));
       R.push(P(boxGeo(1.06, 0.1, 1.06), M(chx, 5.74, chz), C.stone));
@@ -833,6 +848,27 @@ export class Clubhouse extends ClubBuilding {
     }
     // merge the wing roof planes into the main roof surface (one draw)
     if (this._wingRoof) { sb.p.push(...this._wingRoof.p); sb.n.push(...this._wingRoof.n); sb.uv.push(...this._wingRoof.uv); }
+
+    // ── Walking graph (NavRooms): rooms + a point either side of every doorway ──
+    {
+      const archZ = arch.a + 0.55;
+      const nav = {
+        rooms: [
+          { x0: ii0, x1: pA - PT / 2, z0: jz0, z1: jz1 },
+          { x0: pA + PT / 2, x1: pB - PT / 2, z0: jz0, z1: jz1 },
+          { x0: pB + PT / 2, x1: ii1, z0: jz0, z1: jz1 },
+        ],
+        doors: [
+          { a: { x: lobbyX, z: jz1 - 0.6 }, b: { x: lobbyX, z: Z1 + HT + 1.0 } },
+          { a: { x: cafeDoorX, z: jz1 - 0.6 }, b: { x: cafeDoorX, z: Z1 + HT + 1.0 } },
+          { a: { x: backDoorX, z: jz0 + 0.6 }, b: { x: backDoorX, z: Z0 - HT - 1.0 } },
+          { a: { x: pA - 0.75, z: archZ }, b: { x: pA + 0.75, z: archZ } },
+          { a: { x: pB - 0.75, z: archZ + 0.45 }, b: { x: pB + 0.75, z: archZ + 0.45 } },
+        ],
+      };
+      if (this._wingNav) { nav.rooms.push(...this._wingNav.rooms); nav.doors.push(...this._wingNav.doors); }
+      registerNav(nav);
+    }
 
     // ── Meshes ──
     this._emit(L, { wallMat: Mat.stucco(), wallTile: 3, metalAsTrim: true });
@@ -929,7 +965,7 @@ export class FitnessCenter extends ClubBuilding {
       I.trim.push(P(bevelBox(0.05, 1.9, d - 2.2, 0.01), M(gx0 + 0.025, F + 1.25, cz + 0.4), C.trim));
       I.metal.push(P(boxGeo(0.01, 1.76, d - 2.4), M(gx0 + 0.055, F + 1.25, cz + 0.4), MIRROR));
       for (let i = 0; i < 3; i++) {
-        const tx = gx0 + 1.4 + i * ((gx1 - gx0 - 2.4) / 2);
+        const tx = gx0 + 1.2 + i * 2.4;
         this._treadmill(I, M(tx, F, jf + 1.6, Math.PI));
         this._solid(tx, jf + 1.6, 0.8, 1.8, 1.3);
       }
@@ -1003,6 +1039,19 @@ export class FitnessCenter extends ClubBuilding {
       L.roofTrim.push(P(bevelBox(1.0, 0.5, 1.0, 0.03), M(cx + ox, eaveY + rise + 0.1, cz), C.trim));
       L.roofTrim.push(P(pyramidGeo(), M(cx + ox, eaveY + rise + 0.55, cz, Math.PI / 4, [0.85, 0.4, 0.85]), C.copper));
     }
+
+    registerNav({
+      rooms: [
+        { x0: ii0, x1: pX - PT / 2, z0: jf, z1: jb },
+        { x0: pX + PT / 2, x1: ii1, z0: jf, z1: pZ - PT / 2 },
+        { x0: pX + PT / 2, x1: ii1, z0: pZ + PT / 2, z1: jb },
+      ],
+      doors: [
+        { a: { x: doorX, z: jf + 0.7 }, b: { x: doorX, z: Zf - HT - 2.6 } },
+        { a: { x: pX - 0.75, z: gymArch.a + 0.6 }, b: { x: pX + 0.75, z: gymArch.a + 0.6 } },
+        { a: { x: (studioDoor.a + studioDoor.b) / 2, z: pZ - 0.75 }, b: { x: (studioDoor.a + studioDoor.b) / 2, z: pZ + 0.75 } },
+      ],
+    });
 
     this._emit(L, { wallMat: Mat.stucco(), wallTile: 3, metalAsTrim: true });
     this._emit(I, { interior: true });
@@ -1119,6 +1168,18 @@ export class PoolHouse extends ClubBuilding {
     this._ceiling(L, xi0, xi1, zb, zf, ceilY);
 
     this._buildPoolDeck(L, config.pool);
+    const nav = {
+      rooms: [
+        { x0: ii0, x1: pX - PT / 2, z0: jb, z1: jf },
+        { x0: pX + PT / 2, x1: ii1, z0: jb, z1: jf },
+      ],
+      doors: [
+        { a: { x: doorX, z: jf - 0.7 }, b: { x: doorX, z: Zf + HT + 1.0 } },
+        { a: { x: pX - 0.75, z: (staff.a + staff.b) / 2 }, b: { x: pX + 0.75, z: (staff.a + staff.b) / 2 } },
+      ],
+    };
+    if (this._deckNav) { nav.rooms.push(...this._deckNav.rooms); nav.doors.push(...this._deckNav.doors); }
+    registerNav(nav);
 
     this._emit(L, { wallMat: Mat.siding(), wallTile: 1.6, metalAsTrim: true });
     this._emit(I, { interior: true });
@@ -1186,12 +1247,17 @@ export class PoolHouse extends ClubBuilding {
       L.trim.push(P(bevelBox(0.5, 0.05, 0.28, 0.02), at(lb, 0, 0.52, -0.95, 0, 1, 0.75), 0xffffff));
     };
     const cols = [0x2f6db3, 0xf2c14e, 0x2d5a3d];
+    // east loungers keep clear of the gate lane (pool.gate), west ones of the lifeguard chair
+    const gateMid = pool.gate ? (pool.gate.a + pool.gate.b) / 2 : water.z;
+    const eastZs = [wz0 + 0.9, wz1 - 3.0, wz1 - 0.9].filter(z => Math.abs(z - gateMid) > 1.4);
     for (let i = 0; i < 3; i++) {
       const z = wz0 + 1.6 + i * ((wz1 - wz0 - 3.2) / 2);
       lounger(dx0 + 1.6, z, HALF_PI, cols[i]);
-      lounger(dx1 - 1.6, z + 0.8, -HALF_PI, cols[(i + 1) % 3]);
       this._solid(dx0 + 1.6, z, 1.9, 0.7, 0.5);
-      this._solid(dx1 - 1.6, z + 0.8, 1.9, 0.7, 0.5);
+      if (eastZs[i] !== undefined) {
+        lounger(dx1 - 1.6, eastZs[i], -HALF_PI, cols[(i + 1) % 3]);
+        this._solid(dx1 - 1.6, eastZs[i], 1.9, 0.7, 0.5);
+      }
       if (i < 2) {
         const tz = z + (wz1 - wz0 - 3.2) / 4;
         L.trim.push(P(cylinderGeo(0.22, 0.22, 0.04, 14), M(dx0 + 1.3, DY + 0.46, tz), 0xf4f1ea));
@@ -1199,7 +1265,7 @@ export class PoolHouse extends ClubBuilding {
       }
     }
     // umbrellas (canopy + pole), towel caddy, lifeguard chair
-    for (const [ux, uz, c] of [[dx0 + 1.3, water.z - 1.5, 0x2d5a3d], [dx1 - 1.3, water.z + 2.4, 0x2f6db3]]) {
+    for (const [ux, uz, c] of [[dx0 + 1.3, water.z - 2.2, 0x2d5a3d], [dx1 - 1.3, gateMid - 2.1, 0x2f6db3]]) {
       L.metal.push(P(cylinderGeo(0.03, 0.03, 2.3, 6), M(ux, DY + 1.15, uz), C.chrome));
       L.trim.push(P(coneGeo(1.3, 0.45, 8), M(ux, DY + 2.25, uz), c));
       L.trim.push(P(cylinderGeo(1.3, 1.3, 0.12, 8, true), M(ux, DY + 1.99, uz), 0xf4f1ea));
@@ -1207,7 +1273,7 @@ export class PoolHouse extends ClubBuilding {
       L.trim.push(P(cylinderGeo(0.3, 0.35, 0.12, 12), M(ux, DY + 0.06, uz), 0x9aa1a6));
     }
     {
-      const gx = wx0 - cop - 1.0, gz = water.z + 0.2;
+      const gx = dx0 + 1.2, gz = wz1 + 1.1;
       const gb = M(gx, DY, gz, HALF_PI);
       for (const [sx, sz] of [[-0.35, -0.3], [0.35, -0.3], [-0.35, 0.35], [0.35, 0.35]]) L.trim.push(P(boxGeo(0.07, 1.7, 0.07), at(gb, sx, 0.85, sz), 0xffffff));
       L.trim.push(P(bevelBox(0.8, 0.08, 0.7, 0.02), at(gb, 0, 1.65, 0), 0xf4f1ea));
@@ -1248,8 +1314,8 @@ export class PoolHouse extends ClubBuilding {
           L.metal.push(P(boxGeo(0.08, FH + 0.1, 0.08), put(a, (FH + 0.1) / 2), C.iron));
           L.metal.push(P(sphereGeo(0.06, 8, 6), put(a, FH + 0.14), C.brass));
         }
-        if (axis === 'x') this._physBox(mid, 0.6, fixed, len / 2, 0.6, 0.05);
-        else this._physBox(fixed, 0.6, mid, 0.05, 0.6, len / 2);
+        if (axis === 'x') this._physBox(mid, 0.6, fixed, len / 2, 0.6, 0.18);
+        else this._physBox(fixed, 0.6, mid, 0.18, 0.6, len / 2);
       }
     }
     // gate posts with ring buoys
@@ -1261,6 +1327,26 @@ export class PoolHouse extends ClubBuilding {
       L.trim.push(P(cylinderGeo(0.28, 0.28, 0.09, 16, true), M(dx1 + 0.17, 0.9, gate.a - 0.6, 0, 1, 0, HALF_PI), 0xf04e3e));
     }
     this.deckRect = { x0: dx0, x1: dx1, z0: dz0, z1: dz1 };
+    // Deck walking strips around the pool (non-overlapping), joined at the corners; gate to the east
+    {
+      const px0 = wx0 - cop, px1 = wx1 + cop, pz0 = wz0 - cop, pz1 = wz1 + cop, e = 0.1;
+      const eX = px1 + 0.9, wX = px0 - 0.9;          // lanes between the coping and the loungers
+      this._deckNav = {
+        rooms: [
+          { x0: px1, x1: dx1 - e, z0: pz0, z1: pz1 },       // east
+          { x0: dx0 + e, x1: px0, z0: pz0, z1: pz1 },       // west
+          { x0: dx0 + e, x1: dx1 - e, z0: dz0 + e, z1: pz0 }, // north (pool house side)
+          { x0: dx0 + e, x1: dx1 - e, z0: pz1, z1: dz1 - e }, // south
+        ],
+        doors: [
+          { a: { x: eX, z: pz0 + 0.4 }, b: { x: eX, z: pz0 - 0.4 } },
+          { a: { x: eX, z: pz1 - 0.4 }, b: { x: eX, z: pz1 + 0.4 } },
+          { a: { x: wX, z: pz0 + 0.4 }, b: { x: wX, z: pz0 - 0.4 } },
+          { a: { x: wX, z: pz1 - 0.4 }, b: { x: wX, z: pz1 + 0.4 } },
+        ],
+      };
+      if (gate.side === 'east') this._deckNav.doors.push({ a: { x: eX, z: (gate.a + gate.b) / 2 }, b: { x: dx1 + 1.4, z: (gate.a + gate.b) / 2 } });
+    }
   }
 
   update(dt) {

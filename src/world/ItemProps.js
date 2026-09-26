@@ -264,6 +264,7 @@ const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _e = new THREE.Euler();
 const _qq = new THREE.Quaternion();
+const byDistance = (a, b) => a.distance - b.distance;
 
 export class ItemProps {
   /**
@@ -409,8 +410,39 @@ export class ItemProps {
       return out;
     }
     const pt = this.missions.getAreaPoint(area) || (areas[area] && areas[area].center) || { x: 0, z: 0 };
-    out.x = pt.x + 0.8; out.y = 0.02; out.z = pt.z;
+    out.x = pt.x + 0.8; out.z = pt.z;
+    out.y = this._surfaceAt(out.x, out.z);
     return out;
+  }
+
+  /**
+   * Top of whatever is under (x, z) below head height (floor, pad, table…): one ray, only
+   * for spots without map data (called when a prop spawns, never per frame).
+   */
+  _surfaceAt(x, z) {
+    if (!this._ray) {
+      this._ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 3);
+      this._hits = [];
+    }
+    const ray = this._ray;
+    ray.ray.origin.set(x, 2.4, z);
+    const hits = this._hits;
+    hits.length = 0;
+    let best = 0.02;
+    try {
+      this.scene.traverseVisible((ob) => {
+        if (!ob.isMesh || ob.isSkinnedMesh || ob.isInstancedMesh) return;
+        const m = ob.material;
+        if (!m || Array.isArray(m) || m.transparent || /itemProp|roof|Blob|glow|rain|leaf/i.test(ob.name)) return;
+        ray.intersectObject(ob, false, hits);
+      });
+      hits.sort(byDistance);
+      for (let i = 0; i < hits.length; i++) {
+        if (hits[i].point.y < 1.3) { best = Math.max(0.02, hits[i].point.y); break; }
+      }
+    } catch (e) { /* keep the default */ }
+    hits.length = 0;
+    return best;
   }
 
   /** How many live props already occupy `key` (waiting + delivered). */
