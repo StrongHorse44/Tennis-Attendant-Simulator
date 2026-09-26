@@ -45,6 +45,7 @@ const DRILL_REPS = 10;
 const XP_CAP = 45;             // per stat, per drill / match
 const OPTS_KEY = 'courtcall.tennis';
 const SHOTS = ['flat', 'topspin', 'slice', 'lob'];
+const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
 
 export const DRILLS = {
   fh: { label: 'Forehand drill', short: 'Forehands' },
@@ -459,7 +460,7 @@ export class TennisSession {
     const k = inp.keys;
     c.swing = !!(this._hudSwing || (inp.enabled && (k.Space || k.KeyJ)));
     for (let i = 0; i < 4; i++) {
-      const down = !!k['Digit' + (i + 1)];
+      const down = !!k[DIGITS[i]];
       if (down && !this._prevDigits[i]) this.setShot(i);
       this._prevDigits[i] = down;
     }
