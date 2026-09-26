@@ -67,6 +67,15 @@ const CONTACT_T = [SWING_CONTACT, SWING_CONTACT, 0.7, 0.3, 0.3];
 const N_STROKES = STROKES.length;
 const STROKE_BIAS = [0, 0, 0.35, -0.08, -0.08]; // preference when two strokes could reach the ball
 
+// Rafa's drill intros: [HUD line, short speech bubble]
+const DRILL_INTRO = {
+  fh: ['I feed, you hit the targets. Hold to load, let go on the ring.', 'Hit the targets!'],
+  bh: ['I feed, you hit the targets. Hold to load, let go on the ring.', 'Hit the targets!'],
+  volley: ['At the net. Short, firm punch. A tap is enough.', 'Firm punch!'],
+  serve: ['Serves. Hold SWING to toss, let go in the green.', 'Toss, then hit!'],
+  rally: ['Rally with me. Keep it in, keep it deep. Three tries.', 'Keep it going!'],
+};
+
 export const DRILLS = {
   fh: { label: 'Forehand drill', short: 'Forehands' },
   bh: { label: 'Backhand drill', short: 'Backhands' },
@@ -360,6 +369,7 @@ export class TennisSession {
 
   openMenu(abandon) {
     if (abandon && (this.phase !== 'menu' && this.phase !== 'results')) this._applyPendingXp();
+    this._stopPlay();
     this.phase = 'menu';
     this.mode = null;
     this.ball.hide();
@@ -370,6 +380,24 @@ export class TennisSession {
     this.hud.showMenu({ opts: this.opts, last: this.lastMatch, lastDrill: this.lastDrill, profile: this.game.profile });
     this._placePlayer(0, BASE_V * this.sides[0]);
     this.ai.place(0, BASE_V * this.sides[1]);
+  }
+
+  /** Drop whatever was in flight (menu / leaving mid-point): no live ball, no held stroke or toss. */
+  _stopPlay() {
+    const fl = this.fl, srv = this.srv;
+    this._cancelCharge();
+    fl.active = false; fl.resolved = false; fl.kind = 'none';
+    fl.tContact = fl.tGround = fl.tNet = fl.tFence = INF; fl.contactBy = -1;
+    this.tPointOver = INF; this.tFeed = INF;
+    srv.started = false; srv.charging = false; srv.tossed = false; srv.pending = false;
+    srv.tRelease = srv.tContact = srv.tWhiff = INF;
+    this.ball.hide();
+    if (this.ball.rolling) this.ball.rolling = false;
+    const ch = this.game.player.character;
+    if (ch.anim.oneShot) ch.stop(0.2);
+    ch.setBallVisible(false);
+    this.pl.clip = null; this.pl.swingFree = 0;
+    this.hud.setMeter(-1); this.hud.setServeHint(false); this.hud.setRally(0);
   }
 
   _resetCtl() {
@@ -422,6 +450,7 @@ export class TennisSession {
     this.lastDrill = type;
     this.mode = 'drill';
     this.drill = { type, rep: 0, score: 0, count: 0, best: 0 };
+    this.momentum[0] = this.momentum[1] = 0;
     this.sides[0] = 1; this.sides[1] = -1;
     this.ai.setDifficulty('easy');
     this._newStats();
@@ -432,8 +461,8 @@ export class TennisSession {
     this.hud.setPlayUi(true, 'drill');
     this._drillTargets();
     this._coach('reset', 'drill', { type });
-    this._say(type === 'serve' ? 'Serves. Hold SWING to toss, let go in the green.' : type === 'volley' ? 'At the net. Short, firm punch. A tap is enough.'
-      : type === 'rally' ? 'Rally with me. Keep it in, keep it deep. Three tries.' : 'I feed, you hit the targets. Hold to load, let go on the ring.', 2.6);
+    const intro = DRILL_INTRO[type] || DRILL_INTRO.fh;
+    this._say(intro[0], 2.6, intro[1]);
     this._drillSetup(true);
   }
 
@@ -537,6 +566,7 @@ export class TennisSession {
     p.mesh.updateMatrixWorld(true);
     this.pl.swung = false;
     this.pl.aValid = false;
+    if (this.pl.swingFree === INF) this.pl.swingFree = 0;
   }
 
   _placeAt(who, u, v) {
@@ -1040,7 +1070,7 @@ export class TennisSession {
         if (!cp || !this._strokeOk(ci, tot)) continue;
         const hc = SURF + cp.y * sc;
         const dy = Math.abs(pred.y - hc);
-        if (dy > (tot === 0 ? 0.9 : 0.5)) continue;
+        if (dy > (tot === 0 ? 0.9 : 0.75)) continue; // a high bouncer can still be taken at shoulder height
         if (ci === 2 && pred.y - SURF < OH_MIN_H) continue;
         const ox = (cp.x * cy + cp.z * sy) * sc, oz = (-cp.x * sy + cp.z * cy) * sc;
         const sx = pred.x - ox, sz = pred.z - oz;
@@ -1152,11 +1182,14 @@ export class TennisSession {
         } else {
           fl.bounces = 1;
           this.fx.hideMarker();
-          if (fl.kind === 'serve' && fl.let) this._resolve(-1, 'let');
-          else if (this.mode === 'drill' && fl.hitter === 0) { this._coach('onLanded', { kind: fl.kind, result: 'in', spin: fl.shot, power: fl.power || 0, q: fl.q }); this._drillLanded(u, v); }
+          if (fl.kind === 'serve' && fl.let) {
+            // A let is replayed: that serve does not count (first-serve % / the coach)
+            if (fl.hitter === 0) { this.stats.serves--; if (!this.srv.second) this.stats.firsts--; }
+            this._resolve(-1, 'let');
+          } else if (this.mode === 'drill' && fl.hitter === 0) { this._coach('onLanded', { kind: fl.kind, result: 'in', spin: fl.shot, power: fl.power || 0, q: fl.q }); this._drillLanded(u, v); }
           else if (fl.kind === 'serve' && fl.hitter === 0) { this.stats.serveIn++; if (!this.srv.second) this.stats.firstIn++; this._xp('serve', this.srv.second ? 0.4 : 0.6); }
           else if (fl.hitter === 0) { this._xp('control', 0.5); if (fl.shot === 'topspin' || fl.shot === 'slice') this._xp('spin', 0.3); }
-          if (fl.hitter === 0 && this.mode === 'match') this._coach('onLanded', { kind: fl.kind, result: 'in', spin: fl.kind === 'serve' ? this.srv.spin : fl.shot, power: fl.kind === 'serve' ? this.srv.power : fl.power || 0, q: fl.kind === 'serve' ? this.srv.q : fl.q, second: this.srv.second });
+          if (fl.hitter === 0 && this.mode === 'match' && !(fl.kind === 'serve' && fl.let)) this._coach('onLanded', { kind: fl.kind, result: 'in', spin: fl.kind === 'serve' ? this.srv.spin : fl.shot, power: fl.kind === 'serve' ? this.srv.power : fl.power || 0, q: fl.kind === 'serve' ? this.srv.q : fl.q, second: this.srv.second });
         }
       } else if (fl.bounces >= 1) {
         // Second bounce: the receiver never got it back
@@ -1242,8 +1275,8 @@ export class TennisSession {
     let xs = ax * 3.7, depth;
     if (smash) depth = 8.6 - ay * (ay < 0 ? 2.4 : 3.2);
     else if (shot === 'drop') { depth = 3.1 - ay * (ay < 0 ? 1.4 : 0.9); xs = ax * 3.4; }
+    else if (shot === 'lob') depth = volley ? 10 : Math.max(10.2, 10.6 - ay * 0.8);
     else if (volley) depth = 6.2 - ay * 2.2;
-    else if (shot === 'lob') depth = Math.max(10.2, 10.6 - ay * 0.8);
     else {
       depth = 9.4 - ay * (ay < 0 ? 1.9 : 3.6);
       // Short and wide at the same time: a sharp angle
@@ -1256,7 +1289,7 @@ export class TennisSession {
 
   /** The aim guide on Rafa's side while you load up a stroke. */
   _showAim() {
-    const a = this._aimTarget(this._aim, SHOTS[this.ctl.shot] || 'topspin', false, this.chg.stroke === 2);
+    const a = this._aimTarget(this._aim, SHOTS[this.ctl.shot] || 'topspin', this.chg.stroke >= 3, this.chg.stroke === 2);
     const f = this.frame;
     this.fx.showAim(f.wx(a.u, a.v), SURF, f.wz(a.u, a.v));
   }
@@ -1502,6 +1535,8 @@ export class TennisSession {
     if (!srv.tossed) { this._abortServe(); return; }
     const tc = t + SERVE_SWING;
     srv.tContact = tc;
+    const sel = SHOTS[this.ctl.shot] || 'topspin';
+    srv.spin = sel === 'flat' ? 'serve' : sel === 'slice' || sel === 'drop' ? 'slicesrv' : 'kick';
     srv.power = clamp((t - srv.tPress) / srv.hold, 0, 1);  // the longer the load, the more power
     srv.e = tc - srv.tSweet;                               // − early (ball still up), + late (dropping)
     const an = ch.anim, e = an._entries && an._entries.get('serve');
@@ -1577,10 +1612,9 @@ export class TennisSession {
     const side = this.sides[0], r = -side;
     const sgnScreen = srv.deuce ? -1 : 1;        // the box is to your left from the deuce side
     const second = srv.second;
-    const sel = SHOTS[c.shot] || 'topspin';
-    // Flat = the big first serve, Topspin / Lob = kick (safe, jumps up), Slice / Drop = slice (skids away)
-    const spin = sel === 'flat' ? 'serve' : sel === 'slice' || sel === 'drop' ? 'slicesrv' : 'kick';
-    srv.spin = spin;
+    // Flat = the big first serve, Topspin / Lob = kick (safe, jumps up), Slice / Drop = slice (skids
+    // away): chosen at the release (_serveRelease)
+    const spin = srv.spin;
     let uScreen = sgnScreen * 2.3 + clamp(c.moveX, -1, 1) * 1.75 + (spin === 'slicesrv' ? sgnScreen * 0.45 : 0);
     let depth = 5.6 - clamp(c.moveY, -1, 1) * 0.8;
     let pace = (12 + 9 * p * (0.5 + 0.5 * sv)) * (spin === 'kick' ? 0.8 : spin === 'slicesrv' ? 0.88 : 1) * (second ? 0.92 : 1);
@@ -1615,6 +1649,7 @@ export class TennisSession {
     const fl = this.fl;
     fl.resolved = true;
     this._cancelContact();
+    this._cancelCharge();
     this.ai.standDown();
     this.pl.aValid = false;
     this.fx.hideMarker();
@@ -1639,6 +1674,11 @@ export class TennisSession {
   _errorKind() {
     const fl = this.fl, f = this.frame;
     const u = f.lu(fl.landX, fl.landZ);
+    if (fl.kind === 'serve') {
+      // Out of the service box: past the service line = long, either side line (incl. the centre line) = wide
+      const vv = f.lv(fl.landX, fl.landZ) * this.sides[1 - fl.hitter];
+      return vv > SERVICE_L + LINE_TOL ? 'long' : 'wide';
+    }
     return Math.abs(u) > SINGLES_W + LINE_TOL ? 'wide' : 'long';
   }
 

@@ -180,6 +180,10 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   .cct-stats { grid-template-columns: 1fr 1fr; }
   .cct-swing { width: 96px; height: 96px; }
   .cct-shot { min-width: 48px; }
+  /* Narrow phones: the shot row clears the joystick; the serve hint and Rafa's line stack above it */
+  .cct-shots { bottom: calc(var(--cc-safe-bottom) + 164px); }
+  .cct-hint { bottom: calc(var(--cc-safe-bottom) + 216px); }
+  .cct-coach { bottom: calc(var(--cc-safe-bottom) + 262px); }
 }
 @media (max-height: 520px) {
   .cct-shots { bottom: calc(var(--cc-safe-bottom) + 24px); right: calc(var(--cc-safe-right) + 160px); flex-direction: column; }
