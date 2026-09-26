@@ -143,7 +143,7 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 
 ### Shift loop (`systems/ShiftSystem.js`, `ui/ShiftReport.js`)
 
-- **Phases**: `preShift` (clock frozen at `GAME.shiftStartHour` 7:00, clock-in radio card, no dispatch) → `onShift` (clock runs; the opening checklist, `missions.json → shift.openingMission`, starts; rush windows from `shift.rushWindows` speed up dispatch; at `shiftClosingHour` 18:30 the closing duties are radioed in) → `ending` (clock frozen at `shiftEndHour` 19:00, waits for a quiet moment: no dialogue, not grooming) → `report` (game paused with reason `'report'`, report card) → **Next day** (`Game.startNextDay`: 7:00 the next morning, `missions.newDay()`, overnight court wear, clock-in card). The night is skipped. A shift is about 15 real minutes.
+- **Phases**: `preShift` (clock frozen at `GAME.shiftStartHour` 7:00, clock-in radio card, no dispatch) → `onShift` (clock runs; the opening checklist, `missions.json → shift.openingMission`, starts; rush windows from `shift.rushWindows` speed up dispatch; at `shiftClosingHour` 18:30 the closing duties are radioed in) → `ending` (clock frozen at `shiftEndHour` 19:00, waits for a quiet moment: no dialogue, not grooming) → `report` (game paused with reason `'report'`, report card) → **Next day** (`Game.startNextDay`: 7:00 the next morning, `missions.newDay()`, overnight court wear, clock-in card). The night is skipped. A shift is about 19 real minutes.
 - **Money**: wages (`shift.hourlyWage` × hours worked), mission pay (`taskTypes[type].baseReward`, plus `groomBonus[rating]` on a maintenance mission after a groom) and tips. A tip rolls the client's archetype `tipChance` / `tipRange` (npcs.json), scaled by mood (`tipMoods`) and the Head of Grounds `tipBonus`. `onEarn` drives the HUD wallet and "+$X" floaters.
 - **Rank**: points = lifetime earnings + rep × `shift.repPoints`; rep comes from tasks, satisfied members, grooms and checklists (`shift.rep`). `shift.ranks` (points strictly increasing, first at 0) are Rookie Attendant → Court Attendant → Senior Attendant → Grounds Lead → Head of Grounds. Perks are cumulative (later ranks override a key): `cartSpeed` (fraction), `brushWidth` (m), `capColor`, `tipBonus`.
 - **Perk hooks**: `ShiftSystem.onPerks(perks)` → `Game._applyPerks`, which sets `cart.maxSpeedScale`, `cart.setBrushWidthBonus()` (paint width *and* the brush mesh) and `player.setCapColor()` (`Character.restyle({ hatColor, hatBrim })`, a cached geometry swap). `SIZES` / `GAME` are never mutated. `onPerks` also fires from `setState()`, so perks re-apply on every load.
@@ -271,7 +271,7 @@ A plain shared object that `WeatherSystem` writes once per frame and any module 
 | `SIZES.cameraLerpSpeed` | 3 | Camera position smoothing |
 | `SIZES.cameraLookAhead` | 2 | Look-at point ahead of the target |
 | `SIZES.courtSurfaceY` | 0.15 | Top of every court pad; props on courts sit here |
-| `GAME.dayDurationSeconds` | 1800 | Real seconds per in-game day (30 min) |
+| `GAME.dayDurationSeconds` | 2250 | Real seconds per in-game day (37.5 min; a 7 AM–7 PM shift ≈ 19 min) |
 | `GAME.startHour` | 9 | Starting hour for a new game |
 | `GAME.weatherCheckInterval` | 60 | Seconds between weather re-rolls |
 | `GAME.weatherChangeProbability` | 0.3 | Chance the weather changes on a re-roll |

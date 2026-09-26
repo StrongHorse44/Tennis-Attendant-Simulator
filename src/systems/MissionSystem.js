@@ -20,6 +20,8 @@ const RANDOM_ENCOUNTER_CHECK_INTERVAL = 0.5;
 /** Retry delay (s) for a radio dispatch that found every task slot full. */
 const RADIO_RETRY_WHEN_FULL = 20;
 
+const escapeRe = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * MissionSystem — task board, radio dispatch (with On it / Busy), random encounters,
  * per-day repeatable missions and shift routines (opening checklist / closing duties).
@@ -138,6 +140,41 @@ export class MissionSystem {
       return prev && prev.npcId ? prev.npcId : null;
     }
     return null;
+  }
+
+  /**
+   * Every NPC an active mission still involves: npcIds on the current and remaining
+   * steps, the client and trigger NPC, and anyone the description or remaining prompts
+   * name (e.g. "it needs Jess"). Fills `out` (a Set) so the minimap can colour them
+   * while the player goes back and forth. Name matching is cached per mission+step.
+   */
+  collectInvolvedNpcIds(out) {
+    if (!this._involvedCache) this._involvedCache = new Map();
+    for (let m = 0; m < this.activeMissions.length; m++) {
+      const mission = this.activeMissions[m];
+      const key = `${mission.id}|${mission.currentStep}`;
+      let ids = this._involvedCache.get(key);
+      if (!ids) {
+        ids = new Set();
+        if (mission.client) ids.add(mission.client);
+        if (mission.triggerNpc) ids.add(mission.triggerNpc);
+        const steps = mission.steps || [];
+        let text = mission.description || '';
+        for (let i = Math.max(0, mission.currentStep || 0); i < steps.length; i++) {
+          if (steps[i].npcId) ids.add(steps[i].npcId);
+          if (steps[i].prompt) text += ' ' + steps[i].prompt;
+        }
+        for (const npc of this.npcsMap.values()) {
+          if (!npc.name) continue;
+          const first = npc.name.replace(/^(Mrs?\.|Ms\.|Dr\.|Coach)\s+/, '').split(' ')[0];
+          const re = new RegExp(`\\b(${escapeRe(npc.name)}|${escapeRe(first)})\\b`);
+          if (re.test(text)) ids.add(npc.id);
+        }
+        this._involvedCache.set(key, ids);
+      }
+      for (const id of ids) out.add(id);
+    }
+    return out;
   }
 
   // ───────────────────────────── bookkeeping ─────────────────────────────

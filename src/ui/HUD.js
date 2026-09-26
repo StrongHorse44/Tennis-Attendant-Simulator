@@ -90,6 +90,10 @@ const MISSION_TYPE = {
 };
 
 const MINIMAP_CSS_SIZE = 136;
+const HANK_ID = 'hank_morris';
+const MINIMAP_INVOLVED = '#4fc3f7'; // members involved in an active mission
+const MINIMAP_STAFF = '#9be7c4';    // club staff
+const MINIMAP_HANK = '#ff8a3d';     // Hank, the grounds manager
 const MINIMAP_INTERVAL = 1000 / 12;   // ~12 fps redraw
 const GROOM_INTERVAL = 1000 / 10;     // ~10 fps DOM updates
 const GROOM_PANEL_KEY = 'courtcall.groomPanel'; // sessionStorage: 'compact' | 'full'
@@ -1561,31 +1565,75 @@ export class HUD {
       if (pt) this._drawObjective(ctx, mx(pt.x), my(pt.z), pulse);
     }
 
-    // NPCs
+    // NPCs. Gold (pulsing) = talk to them for the current step; sky blue = involved
+    // in an active mission (go back and forth between them); mint = staff; orange
+    // badge = Hank, drawn last and pinned to the map edge so he's always findable.
+    const involved = this._npcInvolvedSet || (this._npcInvolvedSet = new Set());
+    involved.clear();
+    if (this.missions.collectInvolvedNpcIds) this.missions.collectInvolvedNpcIds(involved);
+    let hank = null;
     if (npcs) {
       for (let i = 0; i < npcs.length; i++) {
         const npc = npcs[i];
         if (!npc || !npc.mesh) continue;
+        if (npc.id === HANK_ID) { hank = npc; continue; }
         const pos = npc.mesh.position;
         const nx = mx(pos.x);
         const ny = my(pos.z);
         const targeted = npcTargets && npcTargets.has(npc.id);
+        const isInvolved = !targeted && involved.has(npc.id);
+        let r = 2.2;
         if (npc.hasRequest || targeted) {
           ctx.fillStyle = `rgba(217, 164, 65, ${0.25 + pulse * 0.3})`;
           ctx.beginPath();
           ctx.arc(nx, ny, 5.5 + pulse * 1.5, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#f2c14e';
+          r = 3;
+        } else if (isInvolved) {
+          ctx.fillStyle = `rgba(79, 195, 247, ${0.22 + pulse * 0.2})`;
+          ctx.beginPath();
+          ctx.arc(nx, ny, 5 + pulse, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = MINIMAP_INVOLVED;
+          r = 3;
+        } else if (npc.archetype === 'staff') {
+          ctx.fillStyle = MINIMAP_STAFF;
+          r = 2.6;
         } else {
           ctx.fillStyle = '#f4e8c1';
         }
         ctx.strokeStyle = '#173a26';
         ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.arc(nx, ny, npc.hasRequest || targeted ? 3 : 2.2, 0, Math.PI * 2);
+        ctx.arc(nx, ny, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
+    }
+    if (hank) {
+      const edge = 7;
+      const hx = Math.min(size - edge, Math.max(edge, mx(hank.mesh.position.x)));
+      const hy = Math.min(size - edge, Math.max(edge, my(hank.mesh.position.z)));
+      const hTarget = (npcTargets && npcTargets.has(hank.id)) || hank.hasRequest || involved.has(hank.id);
+      if (hTarget) {
+        ctx.fillStyle = `rgba(255, 138, 61, ${0.25 + pulse * 0.3})`;
+        ctx.beginPath();
+        ctx.arc(hx, hy, 8 + pulse * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = MINIMAP_HANK;
+      ctx.strokeStyle = '#173a26';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#173a26';
+      ctx.font = 'bold 7px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('H', hx, hy + 0.5);
     }
     if (npcTargets) npcTargets.clear();
 
