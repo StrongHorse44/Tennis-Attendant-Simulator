@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
-import { mat, getMaterial, registerWet, registerNightGlow } from '../graphics/Materials.js';
+import { getMaterial, registerWet, registerNightGlow } from '../graphics/Materials.js';
 import { Textures, createCanvasTexture, seededRandom } from '../graphics/Textures.js';
 import { roundedBox, boxGeo, cylinderGeo, sphereGeo, getGeometry, mergeParts, makeMatrix } from '../graphics/GeometryUtils.js';
 import { EnvState } from '../graphics/EnvState.js';
+import { withOcclusionFade } from '../graphics/OcclusionFade.js';
 
 /**
  * Court - tennis court: one shader-painted surface (zones, lines, clay dirt), net, chain-link
@@ -259,11 +260,20 @@ function signAtlas() {
 
 // ───────────────────────────── Shared materials ─────────────────────────────
 
+// Every court material except the net and the surface is patched once, here, with
+// withOcclusionFade (graphics/OcclusionFade.js): after-hours tennis dithers the poles, fence,
+// windscreen and signs between its camera and the play by writing shared uniforms only. With the
+// fade off (the normal game) the patched programs render exactly as before. Named materials,
+// so the patch never reaches a parameter-cached mat() another module might share.
 function sharedMaterials() {
   return {
-    matte: mat(0xffffff, { vertexColors: true, roughness: 0.78 }),
-    metal: mat(0xffffff, { vertexColors: true, roughness: 0.45, metalness: 0.35 }),
-    chainLink: getMaterial('courtChainLink', () => new THREE.MeshStandardMaterial({
+    matte: getMaterial('courtMatte', () => withOcclusionFade(new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0,
+    }))),
+    metal: getMaterial('courtMetal', () => withOcclusionFade(new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.45, metalness: 0.35,
+    }))),
+    chainLink: getMaterial('courtChainLink', () => withOcclusionFade(new THREE.MeshStandardMaterial({
       color: 0x456f55,
       map: Textures.chainLink(),
       transparent: true,
@@ -273,7 +283,7 @@ function sharedMaterials() {
       forceSinglePass: true, // one draw (not back+front) and no per-draw program flip
       roughness: 0.55,
       metalness: 0.3,
-    })),
+    }))),
     net: getMaterial('courtNetMesh', () => new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: Textures.tennisNet(),
@@ -284,8 +294,12 @@ function sharedMaterials() {
       forceSinglePass: true,
       roughness: 0.9,
     })),
-    windscreen: mat(0xffffff, { map: windscreenTexture(), roughness: 0.92 }),
-    sign: mat(0xffffff, { map: signAtlas(), roughness: 0.7 }),
+    windscreen: getMaterial('courtWindscreen', () => withOcclusionFade(new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: windscreenTexture(), roughness: 0.92, metalness: 0,
+    }))),
+    sign: getMaterial('courtSign', () => withOcclusionFade(new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: signAtlas(), roughness: 0.7, metalness: 0,
+    }))),
     lampGlass: getMaterial('courtLampGlass', () => {
       const m = new THREE.MeshStandardMaterial({
         color: 0xd8dcd8,
@@ -295,7 +309,7 @@ function sharedMaterials() {
         emissiveIntensity: 0,
       });
       registerNightGlow(m, 3.2, 0);
-      return m;
+      return withOcclusionFade(m);
     }),
   };
 }
