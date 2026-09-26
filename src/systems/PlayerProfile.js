@@ -28,6 +28,8 @@ export class PlayerProfile {
     this.projects = {};              // club project id → amount contributed
     this.record = { matches: 0, wins: 0, losses: 0, setsWon: 0, setsLost: 0, bestStreak: 0, streak: 0, drills: 0 };
     this.lessons = 0;
+    // Shop bookkeeping (ShopSystem): per-day counters keyed by the game day, lifetime spend
+    this.shop = { day: 0, spentToday: 0, lessonsToday: 0, spentTotal: 0 };
 
     this._catalog = new Map();       // item id → item (set by the shop)
     this._wallet = null;             // { get(): number, spend(amount, label): boolean, earn?(amount, label) }
@@ -160,6 +162,7 @@ export class PlayerProfile {
       projects: { ...this.projects },
       record: { ...this.record },
       lessons: this.lessons,
+      shop: { ...this.shop },
     };
   }
 
@@ -182,6 +185,9 @@ export class PlayerProfile {
       for (const k in this.record) if (Number.isFinite(s.record[k])) this.record[k] = Math.max(0, s.record[k]);
     }
     if (Number.isFinite(s.lessons)) this.lessons = Math.max(0, s.lessons);
+    if (s.shop && typeof s.shop === 'object') {
+      for (const k in this.shop) if (Number.isFinite(s.shop[k])) this.shop[k] = Math.max(0, s.shop[k]);
+    }
     this._emit('load', null);
   }
 }

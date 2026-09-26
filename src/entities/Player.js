@@ -29,6 +29,10 @@ const PLAYER_STYLE = {
   mouth: 'smile',
 };
 
+/** Style keys the shop may change (Player.setOutfit); anything not in the outfit uses PLAYER_STYLE. */
+const OUTFIT_KEYS = ['shirt', 'collar', 'sleeveTrim', 'bottom', 'bottomColor', 'pantStripe', 'shoes', 'shoeAccent',
+  'wristband', 'hat', 'hatColor', 'hatBrim', 'hatLogo', 'hatBand', 'sunglasses', 'racket', 'racketStrings'];
+
 const _offset = new THREE.Vector3();
 
 // Gait: model units travelled per cycle by the walk / run clips (see CLIP_DEFS stride)
@@ -64,7 +68,9 @@ export class Player {
     this.mesh.name = 'Player';
 
     this.character = new Character(PLAYER_STYLE, 'player');
-    this._capColor = PLAYER_STYLE.hatColor; // see setCapColor()
+    this._rankCap = null;   // rank perk cap colour (setCapColor)
+    this._outfit = null;    // shop look patch (setOutfit)
+    this._styleKey = JSON.stringify(this._stylePatch());
     this.mesh.add(this.character.root);
     // Seated in the cart the game loop no longer calls update(): tick the driving clip from
     // the body's own render callback instead (no main.js wiring). See enterCart().
@@ -222,13 +228,41 @@ export class Player {
 
   /**
    * Staff cap colour (Grounds Lead rank perk). Accepts a hex number or CSS colour string;
-   * null restores the default club-green cap. Rebuilds the body geometry only on change.
+   * null restores the default club-green cap. An equipped shop hat (setOutfit) wins over it.
+   * Rebuilds the body geometry only on change.
    */
   setCapColor(color) {
-    const hex = color == null ? COLORS.playerCap : new THREE.Color(color).getHex();
-    if (hex === this._capColor) return;
-    this._capColor = hex;
-    this.character.restyle({ hatColor: hex, hatBrim: hex });
+    const hex = color == null ? null : new THREE.Color(color).getHex();
+    if (hex === this._rankCap) return;
+    this._rankCap = hex;
+    this._applyStyle();
+  }
+
+  /**
+   * Shop look: a style patch over PLAYER_STYLE (uniform colours, shoes, wristband, hat,
+   * sunglasses, racket frame / strings; see OUTFIT_KEYS). null = the default staff look.
+   * Hat fields in the patch replace the staff cap (and its rank colour).
+   */
+  setOutfit(look) {
+    this._outfit = look ? { ...look } : null;
+    this._applyStyle();
+  }
+
+  /** The complete patch (every OUTFIT_KEY) for the current outfit + rank cap. */
+  _stylePatch() {
+    const o = this._outfit || {};
+    const patch = {};
+    for (const k of OUTFIT_KEYS) patch[k] = k in o ? o[k] : (PLAYER_STYLE[k] ?? null);
+    if (!('hat' in o) && this._rankCap != null) { patch.hatColor = this._rankCap; patch.hatBrim = this._rankCap; }
+    return patch;
+  }
+
+  _applyStyle() {
+    const patch = this._stylePatch();
+    const key = JSON.stringify(patch);
+    if (key === this._styleKey) return;
+    this._styleKey = key;
+    this.character.restyle(patch);
   }
 
   getPosition() {

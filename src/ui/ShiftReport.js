@@ -146,6 +146,7 @@ export class ShiftReport {
           <div class="ccr-row"><span>Task pay</span><span data-r="taskPay">$0</span></div>
           <div class="ccr-row"><span>Tips</span><span data-r="tips2">$0</span></div>
           <div class="ccr-row ccr-row--total"><span>Today</span><span data-r="total">$0</span></div>
+          <div class="ccr-row ccr-row--dim" data-r="spentRow" style="display:none"><span>Spent today (shop)</span><span data-r="spent">$0</span></div>
           <div class="ccr-row ccr-row--dim"><span>Wallet</span><span data-r="wallet">$0</span></div>
         </div>
         <div class="ccr-checks">
@@ -220,6 +221,11 @@ export class ShiftReport {
     r.taskPay.textContent = money(rep.missionPay);
     r.tips2.textContent = money(rep.tips);
     r.total.textContent = money(rep.total);
+    // Shop, lessons and club projects bought today (Game sets rep.spent from ShopSystem)
+    if (r.spentRow) {
+      r.spentRow.style.display = rep.spent > 0 ? '' : 'none';
+      r.spent.textContent = '−' + money(rep.spent || 0);
+    }
     r.wallet.textContent = money(rep.wallet);
 
     r.open.classList.toggle('is-done', !!rep.openingDone);

@@ -210,7 +210,7 @@ function shade(hex, k) {
  *  hairColor, hat ('cap'|'capBack'|'visor'|'headband'|'bucket'|null), hatColor, hatBrim,
  *  brows ('soft'|'haughty'|'worried'|'stern'), mouth ('smile'|'flat'|'o'|'grin'),
  *  mustache (bool), blush (bool), sunglasses (bool), necklace (color|null), wristband (color|null),
- *  racket (color|null), staff (bool: name badge + radio), polo (bool),
+ *  racket (color|null), racketStrings (color), staff (bool: name badge + radio), polo (bool),
  *  apron (color: bib + half apron, apronTrim), whistle (lanyard color: whistle on a cord),
  *  badge (color: shield on the chest), epaulets (color), pantStripe (color: track-pant side
  *  stripes, with bottom 'pants'), noseColor (e.g. white zinc sunscreen)
@@ -355,7 +355,7 @@ function buildGeometry(style) {
     b.add(P.cyl(0.02, 0.018, 0.2, 8), B.racket, 0x1C1C1C, [hx, gy - 0.03, gz]);                         // grip
     b.add(P.cyl(0.012, 0.012, 0.12, 6), B.racket, frame, [hx, gy - 0.18, gz]);                          // throat
     b.add(P.torus(0.118, 0.014, 5, 20), B.racket, frame, [hx, hy, gz], null, [1, 1.25, 1]);             // head
-    b.add(P.cyl(0.112, 0.112, 0.006, 16), B.racket, 0xEDEAD8, [hx, hy, gz], [Math.PI / 2, 0, 0], [1, 1, 1.25]); // strings
+    b.add(P.cyl(0.112, 0.112, 0.006, 16), B.racket, style.racketStrings ?? 0xEDEAD8, [hx, hy, gz], [Math.PI / 2, 0, 0], [1, 1, 1.25]); // strings
   }
   // ── Tennis ball held in the left hand (hidden unless shown) ──
   b.add(P.sphere(0.034, 10, 8), B.ball, 0xD4E157, BALL_POS);
@@ -603,7 +603,15 @@ export class Character {
     if (!patch) return;
     const style = { ...this._style, ...patch };
     const base = this._baseKey || (this._baseKey = this._cacheKey);
-    const key = base ? `${base}|${JSON.stringify(patch)}` : null;
+    if (!this._baseStyle) this._baseStyle = this._style;
+    // Key on everything that now differs from the original style (patches are cumulative, so
+    // keying on the last patch alone could hand back a geometry built from an older combination)
+    let diff = '';
+    for (const k of Object.keys(style).sort()) {
+      if (style[k] !== this._baseStyle[k]) diff += `${k}=${style[k]};`;
+    }
+    for (const k in this._baseStyle) if (!(k in style)) diff += `${k}=~;`;
+    const key = base ? `${base}|${diff}` : null;
     const far = this._geoFar !== null && this.skinned.geometry === this._geoFar;
     let geo = key ? _geoCache.get(key) : null;
     if (!geo) {

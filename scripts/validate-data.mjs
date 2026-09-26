@@ -10,7 +10,8 @@
  * per match, format ranges (validateSchedule). missions.json → templates: shape
  * (validateTemplatesShape) plus sampled fills from every template through MissionGenerator,
  * each checked with validateMission. events.json: schema, boosts that name real templates /
- * missions, each event's merged schedule (validateEvents). Exits 1 on any error (warnings don't fail).
+ * missions, each event's merged schedule (validateEvents). shop.json: validateShop (ShopSystem.js). Exits 1 on
+ * any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,7 @@ import { buildWorldFacts, validateMission, validateSchedule, hasMarkerPoint } fr
 import { ITEMS } from '../src/systems/InventorySystem.js';
 import { MissionGenerator, validateTemplatesShape } from '../src/systems/MissionGenerator.js';
 import { validateEvents } from '../src/systems/EventSystem.js';
+import { validateShop } from '../src/systems/ShopSystem.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -266,9 +268,21 @@ if (events && map && npcs && missions) {
   }
 }
 
+// shop.json (ShopSystem): slots, items (stats / looks / cart looks), lessons, club projects, vendors
+const shop = load('shop.json');
+let nShop = 0;
+if (shop && npcs) {
+  nShop = Array.isArray(shop.items) ? shop.items.length : 0;
+  const ranks = missions && missions.shift && Array.isArray(missions.shift.ranks) ? missions.shift.ranks : [];
+  const npcIds = new Set((npcs.npcs || []).filter(n => n && n.id).map(n => n.id));
+  for (const p of validateShop(shop, { npcIds, rankCount: Math.max(1, ranks.length) })) {
+    (p.level === 'error' ? errors : warnings).push(`shop.json ${p.msg}`);
+  }
+}
+
 for (const w of warnings) console.warn('warn  ' + w);
 console.log(`validate-data: ${nTemplates} mission templates (${nSamples} sampled missions), ${nEvents} events checked`);
 for (const e of errors) console.error('ERROR ' + e);
 const n = map && missions && Array.isArray(missions.missions) ? missions.missions.length : 0;
-console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches checked, ${errors.length} error(s), ${warnings.length} warning(s)`);
+console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches, ${nShop} shop items checked, ${errors.length} error(s), ${warnings.length} warning(s)`);
 process.exit(errors.length ? 1 : 0);
