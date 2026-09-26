@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OCC_UNIFORMS, isOcclusionFaded, resetOcclusionFade } from '../graphics/OcclusionFade.js';
+import { courtOcclusionTwin } from '../world/Court.js';
 
 /**
  * TennisOcclusion — keeps the after-hours tennis view clear: everything standing between the
@@ -72,6 +73,7 @@ export class TennisOcclusion {
     this._projects = [];        // { p, vMin, vMax, uAbs, yMax, hidden }
     this._halos = [];           // { pts: THREE.Points, pos: Float32Array, n, range }
     this._noAO = [];            // { mesh, prev }
+    this._swaps = [];           // { mesh, prev }: court meshes on their see-through twin material
     this._dirty = [];           // InstancedMeshes touched this frame (reused)
   }
 
@@ -155,11 +157,13 @@ export class TennisOcclusion {
       for (const a of this._noAO) {
         if (a.prev === undefined) delete a.mesh.userData.noAO; else a.mesh.userData.noAO = a.prev;
       }
+      for (const w of this._swaps) w.mesh.material = w.prev;
     } catch (e) { console.warn('TennisOcclusion: restore failed', e); }
     this._trees.length = 0;
     this._projects.length = 0;
     this._halos.length = 0;
     this._noAO.length = 0;
+    this._swaps.length = 0;
   }
 
   // ─────────────────────────── region ───────────────────────────
@@ -197,13 +201,17 @@ export class TennisOcclusion {
       if (!root) continue;
       root.updateMatrixWorld(true);
       for (const ch of root.children) {
-        if (!ch.isMesh || !isOcclusionFaded(ch.material)) continue;
+        if (!ch.isMesh) continue;
+        const twin = courtOcclusionTwin(ch.material);
+        if (!twin && !isOcclusionFaded(ch.material)) continue;
         if (root === own && !ch.visible) ch.visible = true;
         if (!ch.geometry.boundingBox) ch.geometry.computeBoundingBox();
         _box.copy(ch.geometry.boundingBox).applyMatrix4(ch.matrixWorld);
         if (this._boxInRegion(_box, uv, true)) {
           this._noAO.push({ mesh: ch, prev: ch.userData.noAO });
           ch.userData.noAO = true;
+          // The plain court material → its precompiled see-through twin, for the session only
+          if (twin) { this._swaps.push({ mesh: ch, prev: ch.material }); ch.material = twin; }
         }
       }
       // Floodlight halos (4 points: -v end pair, +v end pair)
