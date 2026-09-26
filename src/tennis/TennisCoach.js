@@ -45,8 +45,8 @@ const Y_WINNER = 3, Y_ACE = 4, Y_DOUBLE = 5;
 const F_WHIFF = 1, F_LATE = 2, F_EARLY = 4, F_FAR = 8, F_FORCED = 16, F_RUN = 32, F_SET = 64,
   F_STRETCH = 128, F_VOLLEY = 256, F_HALF = 512, F_PERFECT = 1024, F_GOOD = 2048;
 // What is being played (an issue applies to some of these)
-const M_MATCH = 1, M_GS = 2, M_VOL = 4, M_SRV = 8;
-const M_RALLY = M_MATCH | M_GS | M_VOL;
+const M_MATCH = 1, M_GS = 2, M_VOL = 4, M_SRV = 8, M_RD = 16; // M_RD: the rally challenge drill
+const M_RALLY = M_MATCH | M_GS | M_VOL | M_RD;
 // Line priorities (a pending line is only replaced by a more important one)
 const P_PRAISE = 1, P_TIP = 2, P_PRESS = 3, P_CHANGE = 4, P_BETTER = 5, P_HOWTO = 6, P_ESSENTIAL = 7;
 
@@ -131,14 +131,16 @@ const ISSUES = [
         : ['Too far from the ball. Feet first, then the swing.', 'Feet first!'])],
       [(c) => (c.s.opts && c.s.opts.assist
         ? ['Help the assist: run to the ball with the stick, then load.', 'Run to it!']
-        : ['Run to the yellow marker first, then load the swing.', 'To the marker!'])],
+        : c.s.opts && c.s.opts.marker
+          ? ['Run to the yellow marker first, then load the swing.', 'To the marker!']
+          : ['Read the bounce, get there first, then load the swing.', 'Get there first!'])],
       [['Small hop as I hit, then the first step. Quick feet, amigo.', 'Quick feet!']],
     ],
     better: (c, n) => n >= 6 && c.swCount(F_FAR, n) === 0 && c.swCount(F_STRETCH, n) <= 1,
     betterLines: [['Good feet! You get there early now.', 'Good feet!']],
   },
   {
-    id: 'taps', w: 0.9, modes: M_MATCH | M_GS, src: 'sh', fresh: 3, cool: 5,
+    id: 'taps', w: 0.9, modes: M_MATCH | M_GS | M_RD, src: 'sh', fresh: 3, cool: 5,
     sev: (c) => (0.25 - c.groundPow(8)) / 0.1,
     lines: [
       [['Only taps? Hold SWING longer to load some pace.', 'Load it!']],
@@ -149,7 +151,7 @@ const ISSUES = [
     betterLines: [['Eso! Feel the pace now?', 'Eso!']],
   },
   {
-    id: 'full', w: 1.0, modes: M_MATCH | M_GS, src: 'sh', fresh: 3, cool: 4,
+    id: 'full', w: 1.0, modes: M_MATCH | M_GS | M_RD, src: 'sh', fresh: 3, cool: 4,
     sev: (c) => {
       const p = c.groundPow(8), e = c.shErr(8);
       if (!(p > 0.85) || c.shSettled(8) < 5 || e < 3) return 0;
@@ -218,7 +220,7 @@ const ISSUES = [
     betterLines: [['Inside the lines now. Good.', 'Good!']],
   },
   {
-    id: 'onrun', w: 0.75, modes: M_MATCH | M_GS, src: 'sw', fresh: 3, cool: 5,
+    id: 'onrun', w: 0.75, modes: M_MATCH | M_GS | M_RD, src: 'sw', fresh: 3, cool: 5,
     sev: (c) => {
       const n = c.swN(8);
       return n < 5 ? 0 : (c.swCount(F_RUN, 8) / n - 0.2) / 0.3;
@@ -443,7 +445,7 @@ const ISSUES = [
       [(c) => (c.s.srv && c.s.srv.deuce
         ? ['From here: stick right for the T, left for the wide one.', 'Stick aims!']
         : ['From here: stick left for the T, right for the wide one.', 'Stick aims!'])],
-      [['Hold the stick until the racket meets the ball. Slice, 3, curves wide.', 'Hold the aim!']],
+      [['Hold the stick until the racket meets the ball. Slice, 3, skids wide.', 'Hold the aim!']],
     ],
   },
 ];
@@ -464,6 +466,7 @@ const HOWTO = {
   drill_gs: ['Three targets, all deep. Stick up for depth, sideways for corners.', 'Aim deep!'],
   drill_volley: ['Volleys: a quick tap, no big load. Punch it at a target.', 'Just a tap!'],
   drill_serve: ['Two targets: one on the T, one wide. The stick picks.', 'Stick aims!'],
+  drill_rally: ['Rally: topspin, deep, through the middle. Keep it going.', 'Keep it going!'],
 };
 const ESSENTIAL = { charge: true, serve: true, tossAbort: true, tossCatch: true };
 
@@ -508,7 +511,7 @@ export class TennisCoach {
     this.rh = new Win(8, ['u', 'd']);                    // your position when Rafa hits (assist off)
     this.dl = new Win(8, ['kind', 'hit', 'u', 'd', 'res', 'swung', 'ns']); // drill reps
     this.iss = ISSUES.map(def => ({ def, level: 0, lastPt: -99, raised: false, at: 0, times: 0, rep: 0, improved: 0 }));
-    this.next = { text: '', short: '', sec: 0, due: INF, prio: 0, kind: '' };
+    this.next = { text: '', short: '', sec: 0, due: INF, prio: 0, kind: '', queuedAt: 0 };
     this.log = null;          // tests: an array to push { t, text, kind } into
     this.seen = {};
     this._loadSeen();
@@ -549,7 +552,7 @@ export class TennisCoach {
     this.awaitSwing = false; this.reachable = false;
     this.lastDoubleFlat = false;
     this._lastRS = 0;
-    this._rep = { swung: 0, hit: 0, u: 0, d: 0, res: R_PEND, landed: 0 };
+    this._rep = { swung: 0, hit: 0, u: 0, d: 0, res: R_PEND, landed: 0, filed: 0 };
     this._quickT = -INF;
     this.next.due = INF; this.next.prio = 0;
     // The session speaks its own intro line right after this
@@ -739,10 +742,23 @@ export class TennisCoach {
     // A pending line whose moment has come
     const n = this.next;
     if (n.due <= t) {
-      n.due = INF;
-      if (t - this.lastSayT < 1.2 && n.prio < P_HOWTO) n.due = this.lastSayT + 1.2; // let the last line be read
-      else { n.prio = 0; this._speak(n.text, n.short, n.sec, n.kind); }
+      // Tips wait for a dead ball: not during a rally, a loaded stroke or your toss
+      const live = ph === 'rally' || ph === 'feeding' || s.chg.on || (ph === 'serve' && s.srv.started);
+      if (n.prio < P_HOWTO && live) {
+        if (t - n.queuedAt > 6) { n.due = INF; n.prio = 0; } // stale: the moment has passed
+        else n.due = t + 0.25;
+      } else {
+        n.due = INF;
+        if (t - this.lastSayT < 1.2 && n.prio < P_HOWTO) n.due = this.lastSayT + 1.2; // let the last line be read
+        else { n.prio = 0; this._speak(n.text, n.short, n.sec, n.kind); }
+      }
     }
+  }
+
+  /** Rafa is talking, or about to (the session holds his serve until he is done). */
+  talking() {
+    const t = this.s.t;
+    return this.next.due < t + 1.5 || t - this.lastSayT < 1.6;
   }
 
   /** 1–3 concrete lessons for the results card. */
@@ -856,14 +872,27 @@ export class TennisCoach {
     if (s.mode === 'match') return M_MATCH;
     if (s.mode === 'drill') {
       const t = s.drill && s.drill.type;
-      return t === 'serve' ? M_SRV : t === 'volley' ? M_VOL : M_GS;
+      return t === 'serve' ? M_SRV : t === 'volley' ? M_VOL : t === 'rally' ? M_RD : M_GS;
     }
     return 0;
   }
 
+  /** The drill ended: file the last rep (no line — the results card follows). */
+  onDrillEnd() { this._fileRep(); }
+
   _betweenDrill(info) {
+    const s = this.s;
+    if (!info.first) this._fileRep();
+    this._resetRep();
+    if (info.first) { this.lastSayT = s.t; return; }
+    this._choose(0.3, s.drill && s.drill.type === 'serve', false);
+  }
+
+  _fileRep() {
     const s = this.s, r = this._rep, a = this.agg;
-    if (!info.first) {
+    if (r.filed) return;
+    r.filed = 1;
+    {
       // One rep done: file it
       const w = this.dl, i = w.add();
       const type = s.drill ? s.drill.type : '';
@@ -881,10 +910,12 @@ export class TennisCoach {
       if (ns) a.noSwing++;
       this.pts++;
     }
-    r.swung = 0; r.hit = 0; r.landed = 0; r.res = R_PEND; r.u = 0; r.d = 0;
+  }
+
+  _resetRep() {
+    const r = this._rep;
+    r.swung = 0; r.hit = 0; r.landed = 0; r.res = R_PEND; r.u = 0; r.d = 0; r.filed = 0;
     this.reachable = false; this.awaitSwing = false;
-    if (info.first) { this.lastSayT = s.t; return; }
-    this._choose(0.3, s.drill && s.drill.type === 'serve', false);
   }
 
   /**
@@ -1026,6 +1057,7 @@ export class TennisCoach {
     } else if (mb === M_GS && !sn.drill_gs) return this._howto('drill_gs', delay);
     else if (mb === M_VOL && !sn.drill_volley) return this._howto('drill_volley', delay);
     else if (mb === M_SRV && !sn.drill_serve) return this._howto('drill_serve', delay);
+    else if (mb === M_RD && !sn.drill_rally) return this._howto('drill_rally', delay);
     // Never uses the stick to aim?
     if (!sn.aim && (mb & (M_MATCH | M_GS)) && this.sh.len >= 5) {
       let still = 0;
@@ -1138,6 +1170,7 @@ export class TennisCoach {
     n.text = text; n.short = short; n.prio = prio; n.kind = kind;
     n.sec = clamp(1.6 + text.length * 0.034, 2.2, 3.8);
     n.due = this.s.t + delay;
+    n.queuedAt = this.s.t;
   }
 
   _speak(text, short, sec, kind) {

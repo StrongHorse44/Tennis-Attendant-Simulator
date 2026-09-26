@@ -1465,6 +1465,7 @@ export class TennisSession {
       if (t >= srv.tWhiff) { srv.tWhiff = INF; this._fault('miss'); }
     }
     if (srv.who === 1 && !srv.started && this.cam.busy) srv.tAuto = Math.max(srv.tAuto, t + 0.6); // let the camera arrive
+    if (srv.who === 1 && !srv.started && this._coach('talking')) srv.tAuto = Math.max(srv.tAuto, t + 0.3); // Rafa finishes his sentence
     if (srv.who === 1 && !srv.started && t >= srv.tAuto) this._startServe(1, 0.8);
     if (srv.started && t >= srv.tRelease) {
       srv.tRelease = INF;
@@ -1902,7 +1903,6 @@ export class TennisSession {
     this.ai.reset();
     d.count = 0;
     this._drillHud();
-    this._coach('between', { drill: true, first, rep: d.rep });
     if (d.type === 'serve') {
       const deuce = d.rep % 2 === 0;
       this.srv.second = false;
@@ -1911,6 +1911,7 @@ export class TennisSession {
       const r = -side, sgn = deuce ? r : -r;
       this._targets = [{ u: sgn * 0.75, v: r * 5.6, r: 0.85 }, { u: sgn * 3.85, v: r * 5.6, r: 0.85 }];
       this._showTargets();
+      this._coach('between', { drill: true, first, rep: d.rep }); // after the side is set (aim tips)
       return;
     }
     const pv = d.type === 'volley' ? 3.4 : BASE_V;
@@ -1919,6 +1920,7 @@ export class TennisSession {
     this.coachNpc.character.setBallVisible(true);
     this.phase = 'feedWait';
     this.tFeed = this.t + (first ? 1.6 : 0.9);
+    this._coach('between', { drill: true, first, rep: d.rep });
   }
 
   _drillFeed() {
@@ -1998,6 +2000,7 @@ export class TennisSession {
     this.fx.hideAll();
     this._cancelCharge();
     for (const k in s.xp) s.xp[k] += 0.5;
+    this._coach('onDrillEnd'); // the last rep counts in Rafa's lessons too
     const ups = this._applyPendingXp();
     const prof = this.game.profile;
     if (prof) prof.recordMatch({ drill: true });
