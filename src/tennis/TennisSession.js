@@ -404,6 +404,9 @@ export class TennisSession {
     this.hud.setPlayUi(true, 'match');
     this.hud.setInfo(`Practice match · ${FORMATS[this.format].label} · ${DIFFICULTY[this.lastMatch.diff].label}`);
     this._updateScoreboard();
+    this.momentum[0] = this.momentum[1] = 0;
+    this.hud.setMomentum(0, 0);
+    this._coach('reset', 'match', { format: this.format, diff: this.lastMatch.diff });
     this._say(pick(['Bueno. Real points now.', 'Vamos! Show me what you have.', 'Play smart. Not hard. Smart.']), 2.2);
     this._setupPoint(true);
   }
@@ -423,6 +426,7 @@ export class TennisSession {
     this.hud.hideResults();
     this.hud.setPlayUi(true, 'drill');
     this._drillTargets();
+    this._coach('reset', 'drill', { type });
     this._say(type === 'serve' ? 'Serves. Hold, release in the green.' : type === 'volley' ? 'At the net. Short, firm punch.' : 'I feed, you hit the targets. Vamos.', 2.4);
     this._drillSetup(true);
   }
@@ -462,6 +466,8 @@ export class TennisSession {
     g.weather.setShadowFocus(_v1);
     g.weather.update(dt);
     this.cam.update(this, dt);
+    this._coach('update', dt);
+    this._crowd('update', this, dt);
     this.fx.update(dt);
     if (g.hud) g.hud.update(dt);
     this.audio.update(dt);
@@ -1117,9 +1123,10 @@ export class TennisSession {
           fl.bounces = 1;
           this.fx.hideMarker();
           if (fl.kind === 'serve' && fl.let) this._resolve(-1, 'let');
-          else if (this.mode === 'drill' && fl.hitter === 0) this._drillLanded(u, v);
+          else if (this.mode === 'drill' && fl.hitter === 0) { this._coach('onLanded', { kind: fl.kind, result: 'in', spin: fl.shot, power: fl.power || 0, q: fl.q }); this._drillLanded(u, v); }
           else if (fl.kind === 'serve' && fl.hitter === 0) { this.stats.serveIn++; if (!this.srv.second) this.stats.firstIn++; this._xp('serve', this.srv.second ? 0.4 : 0.6); }
           else if (fl.hitter === 0) { this._xp('control', 0.5); if (fl.shot === 'topspin' || fl.shot === 'slice') this._xp('spin', 0.3); }
+          if (fl.hitter === 0 && this.mode === 'match') this._coach('onLanded', { kind: fl.kind, result: 'in', spin: fl.kind === 'serve' ? this.srv.spin : fl.shot, power: fl.kind === 'serve' ? this.srv.power : fl.power || 0, q: fl.kind === 'serve' ? this.srv.q : fl.q, second: this.srv.second });
         }
       } else if (fl.bounces >= 1) {
         // Second bounce: the receiver never got it back
@@ -1795,6 +1802,7 @@ export class TennisSession {
     this.ai.reset();
     this.hud.setInfo(`${DRILLS[d.type].label} · ${Math.min(d.rep + 1, DRILL_REPS)}/${DRILL_REPS} · ${d.score} pts`);
     this.hud.setDrill(d.rep, DRILL_REPS, d.score);
+    this._coach('between', { drill: true, first, rep: d.rep });
     if (d.type === 'serve') {
       const deuce = d.rep % 2 === 0;
       this.srv.second = false;
