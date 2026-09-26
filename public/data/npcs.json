@@ -560,7 +560,9 @@
         "game": ["That's a game.", "Keep digging.", "One more row."],
         "matchWin": ["Proud of ya, kid.", "Bumper crop!", "Knew it. Good work."],
         "matchLose": ["Close. Real close.", "Rafa's had practice.", "Good season anyway."],
-        "drill": ["Right on the spot.", "Good. Again.", "Straight furrow."]
+        "drill": ["Right on the spot.", "Good. Again.", "Straight furrow."],
+        "closeIn": ["Kissed the chalk!", "Paint's still wet!"],
+        "closeOut": ["Missed by a whisker.", "Just off the chalk."]
       }
     },
     {
@@ -677,7 +679,9 @@
         "game": ["Game. As predicted.", "Called it.", "One game closer."],
         "matchWin": ["You beat Rafa. Wow.", "Called it. Mostly.", "Free restring. Once."],
         "matchLose": ["Good hands. Noted.", "Respectable.", "Rafa cheats. Maybe."],
-        "drill": ["Target hit. Noted.", "Consistent. Good.", "Precise. I like it."]
+        "drill": ["Target hit. Noted.", "Consistent. Good.", "Precise. I like it."],
+        "closeIn": ["On the line. Noted.", "Millimetres. In."],
+        "closeOut": ["Out. By a hair.", "Close. Still out."]
       }
     },
     {
@@ -1304,7 +1308,9 @@
         "game": ["Game, boss! Opa!", "That's the special!", "Serve it up!"],
         "matchWin": ["Drinks on Gus!", "Champion, boss!", "Golden! Golden!"],
         "matchLose": ["Next time, boss!", "Good fight, boss!", "Still tasty, boss!"],
-        "drill": ["Bullseye, boss!", "Nice aim, boss!", "Right in the pot!"]
+        "drill": ["Bullseye, boss!", "Nice aim, boss!", "Right in the pot!"],
+        "closeIn": ["Opa! On the line!", "Just a pinch in!"],
+        "closeOut": ["Oof, by a whisker!", "Ay! Just out!"]
       }
     },
     {
@@ -1387,7 +1393,9 @@
         "game": ["Game, champ!", "One more rep!", "Let's GO!"],
         "matchWin": ["CHAMP! Let's go!", "Personal record!", "What a workout!"],
         "matchLose": ["Not yet! Soon!", "Great legs, champ!", "Good work, champ!"],
-        "drill": ["Nice rep!", "Form looks great!", "Again! Again!"]
+        "drill": ["Nice rep!", "Form looks great!", "Again! Again!"],
+        "closeIn": ["That clipped the line!", "Right on the paint!"],
+        "closeOut": ["Inches out!", "Ooh! By an inch!"]
       }
     },
     {
