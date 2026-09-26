@@ -468,6 +468,12 @@ const HOWTO = {
   drill_volley: ['Volleys: a quick tap, no big load. Punch it at a target.', 'Just a tap!'],
   drill_serve: ['Two targets: one on the T, one wide. The stick picks.', 'Stick aims!'],
   drill_rally: ['Rally: topspin, deep, through the middle. Keep it going.', 'Keep it going!'],
+  clay: ['Clay: the ball sits up, slow and high. Topspin, patience, and slide into the wide ones.', 'Patience!'],
+  grass: ['Grass: low and fast. The slice skids, big serves fly. Bend the knees, come forward.', 'Stay low!'],
+  wind: ['Wind tonight. Aim into it: lobs and slow balls drift the most.', 'Mind the wind!'],
+  sliceCurve: ['See it bend? Your slice curves: backhand to the left, forehand to the right.', 'It curves!'],
+  slide: ['Nice slide! Braking into the ball keeps you balanced on clay.', 'Nice slide!'],
+  sliceServe: ['Try the slice serve, 3, from the deuce side: it swings away from me and stays low.', 'Slice it, 3!'],
 };
 const ESSENTIAL = { charge: true, serve: true, tossAbort: true, tossCatch: true };
 
@@ -558,6 +564,13 @@ export class TennisCoach {
     this.next.due = INF; this.next.prio = 0;
     // The session speaks its own intro line right after this
     this.lastSayT = s ? s.t : 0;
+    // First time on this surface / in the wind: one line about it once the intro is read
+    if (s && (mode === 'match' || mode === 'drill')) {
+      const sk = s.surface;
+      if ((sk === 'clay' || sk === 'grass') && !this.seen[sk]) this._howto(sk, 3.6);
+      else if (s.windKey && s.windKey !== 'calm' && !this.seen.wind) this._howto('wind', 3.6);
+      else if (sk === 'grass' && mode === 'match' && !this.seen.sliceServe) this._howto('sliceServe', 3.6);
+    }
   }
 
   /** You released a stroke (the session's swing record; q 0 = whiff). */
@@ -603,6 +616,8 @@ export class TennisCoach {
     w.rafaD[i] = rd;
     a.contacts++;
     a.spinN[sp]++;
+    if (info.slide && !this.seen.slide) this._howto('slide', 0.9);
+    else if (info.spin === 'slice' && !info.volley && !this.seen.sliceCurve) this._howto('sliceCurve', 1.2);
     if (info.onRun) a.onRun++;
     if (info.volley && !info.smash) { a.volleyPow += info.power || 0; a.volleyN++; }
     else if (sp <= SP.slice) { a.powSum += info.power || 0; a.powN++; }

@@ -283,7 +283,7 @@ export class RafaTactics {
       }
       case 'slice': {                               // stretched: a low, deep, safe slice
         spin = 'slice';
-        pace = rand(pr[0], pr[1]) * 0.78;
+        pace = rand(pr[0], pr[1]) * 0.86;
         margin = rand(0.35, 0.6);
         u = clamp(c.pu * 0.25 + rand(-1.6, 1.6), -uMax, uMax);
         depth = rand(Math.max(d.depth[0], 8.6), HALF_L - d.safeV * 1.1);
@@ -309,7 +309,7 @@ export class RafaTactics {
       }
       case 'approach': {
         spin = Math.random() < 0.5 ? 'slice' : 'topspin';
-        pace = rand(pr[0], pr[1]) * (spin === 'slice' ? 0.85 : 0.97);
+        pace = rand(pr[0], pr[1]) * (spin === 'slice' ? 0.9 : 0.97);
         margin = spin === 'slice' ? rand(0.3, 0.5) : rand(0.55, 0.85);
         // Deep, to the weaker wing or down the line (the ball stays in front of him at the net)
         u = Math.random() < d.weakWing + 0.2 ? clamp(weakU(2.4), -uMax, uMax) : clamp(c.myU * 0.9 + rand(-0.8, 0.8), -uMax, uMax);
@@ -326,7 +326,7 @@ export class RafaTactics {
       }
       default: {                                     // 'drive': the neutral rally ball
         spin = baseSpin();
-        pace = rand(pr[0], pr[1]) * (0.9 + 0.2 * appetite) * (spin === 'slice' ? 0.8 : spin === 'flat' ? 1.08 : 1);
+        pace = rand(pr[0], pr[1]) * (0.9 + 0.2 * appetite) * (spin === 'slice' ? 0.88 : spin === 'flat' ? 1.08 : 1);
         margin = spin === 'topspin' ? rand(0.6, 1.1) : spin === 'slice' ? rand(0.28, 0.5) : rand(0.32, 0.6);
         const wide = d.width * (0.75 + 0.35 * appetite);
         const x = Math.random();

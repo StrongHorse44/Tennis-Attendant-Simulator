@@ -30,6 +30,8 @@ import { RafaTactics } from './TennisTactics.js';
 export const DIFFICULTY = {
   easy: {
     label: 'Easy', xp: 0.8,
+    // Spin he puts on the ball (× the shot profiles), how much of the wind he allows for
+    spin: 0.85, wind: 0.5,
     // Eyes and feet: reaction (s), foot speed (m/s), reach tolerance (m), the most the ball may be
     // re-aimed onto his racket (m, horizontal), lunge (how far out of reach he still swings),
     // early (steps in to take short balls on the rise), netSpeed (× foot speed at the net: lunges)
@@ -53,7 +55,7 @@ export const DIFFICULTY = {
     serve: { pace: [12.5, 15], fault1: 0.14, fault2: 0.04, wide: 0.3, kick1: 0, slice1: 0.6, kick2: 0, slice2: 1, weak: 0, serveVolley: 0 },
   },
   medium: {
-    label: 'Medium', xp: 1,
+    label: 'Medium', xp: 1, spin: 1, wind: 0.7,
     react: 0.28, speed: 5.1, tol: 0.18, bend: 0.95, lunge: 0.75, early: 0.35, netSpeed: 0.75,
     pace: [15, 18.2], depth: [8.6, 11], width: 0.76, safeU: 1.0, safeV: 1.45,
     sigma: [0.6, 0.75, 0.12], err: 0.106, flat: 0.2, slice: 0.2,
@@ -64,7 +66,7 @@ export const DIFFICULTY = {
     serve: { pace: [14.5, 18], fault1: 0.18, fault2: 0.05, wide: 0.45, kick1: 0, slice1: 0.4, kick2: 0, slice2: 0.8, weak: 0.15, serveVolley: 0 },
   },
   hard: {
-    label: 'Hard', xp: 1.35,
+    label: 'Hard', xp: 1.35, spin: 1.1, wind: 0.85,
     react: 0.2, speed: 5.75, tol: 0.15, bend: 1.0, lunge: 0.85, early: 0.7, netSpeed: 0.72,
     pace: [15.5, 19], depth: [9.2, 11.2], width: 0.78, safeU: 0.9, safeV: 1.3,
     sigma: [0.44, 0.55, 0.09], err: 0.064, flat: 0.24, slice: 0.14,
@@ -75,6 +77,36 @@ export const DIFFICULTY = {
     serve: { pace: [16, 19.5], fault1: 0.22, fault2: 0.06, wide: 0.5, kick1: 0.04, slice1: 0.35, kick2: 0.1, slice2: 0.6, weak: 0.35, serveVolley: 0.12 },
   },
 };
+
+/**
+ * How Rafa adapts his game to the surface: added to the difficulty's shares (clamped 0..1),
+ * `pace` scales his rally pace, `back` moves his baseline spot (m, + deeper), `react` his read.
+ * Clay: patient, heavy topspin from deep, more drop shots and kick serves, rarely at the net.
+ * Grass: flatter and lower — more slices, approaches and serve-and-volley, closer to the line.
+ */
+export const SURFACE_STYLE = {
+  hard: {},
+  clay: { flat: -0.06, slice: -0.06, drop: 0.06, dropVolley: 0.04, approach: -0.12, aggression: -0.12, patience: 0.25, pace: 0.97, back: 0.9, kick1: 0.12, kick2: 0.3, slice1: -0.1, slice2: -0.25, serveVolley: -0.1, lobDefend: 0.08 },
+  grass: { flat: 0.08, slice: 0.14, drop: -0.04, approach: 0.14, aggression: 0.1, patience: -0.1, pace: 1.02, back: -0.35, kick1: -0.04, kick2: -0.1, slice1: 0.1, slice2: 0.1, serveVolley: 0.12 },
+};
+const SHARE_KEYS = ['flat', 'slice', 'drop', 'dropVolley', 'approach', 'aggression', 'patience', 'lobDefend'];
+const SERVE_KEYS = ['kick1', 'kick2', 'slice1', 'slice2', 'serveVolley'];
+
+/** A difficulty adjusted for a surface (a fresh object; the DIFFICULTY table is never mutated). */
+export function difficultyFor(key, surface) {
+  const base = DIFFICULTY[key] || DIFFICULTY.medium, st = SURFACE_STYLE[surface] || SURFACE_STYLE.hard;
+  const d = { ...base, serve: { ...base.serve }, ret: { ...base.ret }, surface: surface || 'hard' };
+  for (const k of SHARE_KEYS) if (st[k]) d[k] = clamp(base[k] + st[k], 0, 1);
+  for (const k of SERVE_KEYS) if (st[k]) d.serve[k] = clamp(base.serve[k] + st[k], 0, 1);
+  // kick + slice shares must leave room for flat serves
+  for (const n of ['1', '2']) {
+    const tot = d.serve['kick' + n] + d.serve['slice' + n];
+    if (tot > 1) { d.serve['kick' + n] /= tot; d.serve['slice' + n] /= tot; }
+  }
+  if (st.pace) d.pace = [base.pace[0] * st.pace, base.pace[1] * st.pace];
+  if (st.back) d.backDepth = base.backDepth + st.back;
+  return d;
+}
 
 // Rafa's strokes: forehand, backhand (after the bounce), volleys (out of the air), smash (high)
 const STROKES = ['forehand', 'backhand', 'volley_fh', 'volley_bh', 'smash'];
@@ -120,9 +152,10 @@ export class TennisAI {
 
   attach(npc) { this.npc = npc; this.scale = npc.modelScale || 0.9; }
 
-  setDifficulty(key) {
-    this.diff = DIFFICULTY[key] || DIFFICULTY.medium;
+  setDifficulty(key, surface = this.surface) {
     this.diffKey = DIFFICULTY[key] ? key : 'medium';
+    this.surface = surface || 'hard';
+    this.diff = difficultyFor(this.diffKey, this.surface);
     this._resetStats();
     this.tactics.scout.reset();
   }
@@ -186,7 +219,7 @@ export class TennisAI {
     this.tSplit = this.tMove = this.tSwing = this.tRecover = this.tFaceNet = INF;
     this.plan.ok = false;
     const ret = s.fl.kind === 'serve';
-    this.inPace = Math.hypot(b.v0.x, b.v0.z);
+    this.inPace = s.fl.pace || Math.hypot(b.v0.x, b.v0.z);   // average pace to the bounce (the ball slows in the air)
     // Scouting: which wing hit it, did it go in, and the serve pace
     if (ret) { if (!s.fl.let) this.tactics.scout.onServe(this.inPace); }
     else if (s.swing && s.fl.hitter === 0) this.tactics.scout.onShot(s.swing.clip, willBeIn, s.pl.v * s.sides[0], s.pl.u);
