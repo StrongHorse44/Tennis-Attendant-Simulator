@@ -15,6 +15,7 @@ import { TennisFX } from './TennisFX.js';
 import { TennisAudio } from './TennisAudio.js';
 import { TennisOcclusion } from './TennisOcclusion.js';
 import { TennisCrowd } from './TennisCrowd.js';
+import { TennisCoach } from './TennisCoach.js';
 
 /**
  * TennisSession — the after-hours tennis mode: an evening hit with Coach Rafa on Court 1
@@ -178,6 +179,7 @@ export class TennisSession {
     this.audio = new TennisAudio(g.sound);
     this.occ = new TennisOcclusion(g);   // see-through lights / fences / props between the camera and the play
     this.crowd = new TennisCrowd(g);     // members go home, staff watch from the sidelines
+    this.coach = new TennisCoach(this);  // Rafa's tips: patterns in your play, between points
     this.hud = new TennisHUD({
       onSwingDown: () => { this._hudSwing = true; },
       onSwingUp: () => { this._hudSwing = false; },
@@ -2049,9 +2051,12 @@ export class TennisSession {
     try { return cr[method](a, b, c); } catch (err) { console.error('TennisCrowd', method, err); return undefined; }
   }
 
-  /** Rafa speaks: his bubble in the scene, and the same line on the HUD (readable on phones). */
-  _say(text, sec = 2.2) {
-    try { this.coachNpc.say(text, sec); } catch (e) { /* cosmetic */ }
+  /**
+   * Rafa speaks: the full line on the HUD (readable on phones) and in his speech bubble in the
+   * scene — or the short `bubble` version there when one is given (coach tips).
+   */
+  _say(text, sec = 2.2, bubble = null) {
+    try { this.coachNpc.say(bubble || text, sec); } catch (e) { /* cosmetic */ }
     if (this.hud) this.hud.coach(text, sec + 0.6);
   }
 
