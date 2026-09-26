@@ -40,7 +40,7 @@ export const DIFFICULTY = {
     // how far inside the lines he aims, scatter [u, depth, net clearance] (m), mishit rate per
     // shot (raised by a hard ball, a risky shot, nerves and long rallies), flat / slice share
     pace: [11.5, 14], depth: [7.6, 10], width: 0.5, safeU: 1.3, safeV: 2.0,
-    sigma: [0.7, 0.85, 0.13], err: 0.15, flat: 0.08, slice: 0.22,
+    sigma: [0.7, 0.85, 0.13], err: 0.13, flat: 0.08, slice: 0.22,
     // Tactics: risk appetite, patience (fewer risky shots as a rally grows), target shares (open
     // court, behind a runner, the weaker wing), approach off short balls and net position, depth
     // behind the baseline, drop shots / drop volleys, lobs against a net player / when stretched
@@ -58,7 +58,7 @@ export const DIFFICULTY = {
     label: 'Medium', xp: 1, spin: 1, wind: 0.7,
     react: 0.28, speed: 5.1, tol: 0.18, bend: 0.95, lunge: 0.75, early: 0.35, netSpeed: 0.75,
     pace: [15, 18.2], depth: [8.6, 11], width: 0.76, safeU: 1.0, safeV: 1.45,
-    sigma: [0.6, 0.75, 0.12], err: 0.106, flat: 0.2, slice: 0.2,
+    sigma: [0.6, 0.75, 0.12], err: 0.065, flat: 0.2, slice: 0.2,
     aggression: 0.62, patience: 0.1, openCourt: 0.55, behind: 0.08, weakWing: 0.15,
     approach: 0.25, netDepth: 4.3, backDepth: 0.35, drop: 0.05, dropVolley: 0.12, lobAtNet: 0.35, lobDefend: 0.28,
     smashPace: [15, 18.5],
@@ -69,7 +69,7 @@ export const DIFFICULTY = {
     label: 'Hard', xp: 1.35, spin: 1.1, wind: 0.85,
     react: 0.2, speed: 5.75, tol: 0.15, bend: 1.0, lunge: 0.85, early: 0.7, netSpeed: 0.72,
     pace: [15.5, 19], depth: [9.2, 11.2], width: 0.78, safeU: 0.9, safeV: 1.3,
-    sigma: [0.44, 0.55, 0.09], err: 0.064, flat: 0.24, slice: 0.14,
+    sigma: [0.44, 0.55, 0.09], err: 0.035, flat: 0.24, slice: 0.14,
     aggression: 0.7, patience: 0, openCourt: 0.62, behind: 0.15, weakWing: 0.35,
     approach: 0.38, netDepth: 3.9, backDepth: 0.25, drop: 0.1, dropVolley: 0.25, lobAtNet: 0.45, lobDefend: 0.35,
     smashPace: [16, 19.5],
