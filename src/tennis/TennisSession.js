@@ -347,7 +347,6 @@ export class TennisSession {
     g.cameraYaw = g.cameraTargetYaw = Math.atan2(this.frame.cx - x, this.frame.cz - z);
     if (g._snapCamera) g._snapCamera();
     g._actionLabel = undefined;
-    try { g.saveGame(); } catch (e) { /* ignore */ }
     // Continue the evening: the report card if the shift is still closing, else the next day
     const sh = g.shift;
     if (this.from === 'debug') {
@@ -359,6 +358,8 @@ export class TennisSession {
       w.clockFrozen = this._saved ? this._saved.frozen : false;
       if (sh.phase === 'onShift' || sh.phase === 'ending') sh.update(0, true); // clock out → report card
     }
+    // Saved once the club's clock is back (never the session's afternoon-to-night time)
+    try { g.saveGame(); } catch (e) { /* ignore */ }
   }
 
   setOption(k, v) {
