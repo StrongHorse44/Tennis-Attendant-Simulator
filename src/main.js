@@ -35,6 +35,7 @@ import { buildWorldFacts, DETECTABLE_AREAS, INDOOR_AREAS, OUTDOOR_EXTRA_AREAS } 
 import { ITEMS } from './systems/InventorySystem.js';
 import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
+import { TennisSession } from './tennis/TennisSession.js';
 
 /** Seconds of unpaused play between autosaves. */
 /** Staff whereabouts hints (MissionSystem._whereabouts): how to say where someone is. */
@@ -464,6 +465,9 @@ class Game {
       },
     });
 
+    // After-hours tennis with Coach Rafa (report card button / Rafa after closing time)
+    this.tennis = new TennisSession(this);
+
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);
     Quality.onChange((tier, settings) => this._applyQuality(settings));
@@ -749,7 +753,10 @@ class Game {
     };
     shift.onPerks = (perks) => this._applyPerks(perks);
 
-    this.shiftReport = new ShiftReport({ onNextDay: () => this.startNextDay() });
+    this.shiftReport = new ShiftReport({
+      onNextDay: () => this.startNextDay(),
+      onTennis: () => { if (this.tennis) this.tennis.begin('report'); }, // after-hours tennis (src/tennis)
+    });
   }
 
   /** Clock in (clock-in card, or the end of the first-day tutorial). */
@@ -817,7 +824,7 @@ class Game {
   }
 
   _handleTap(screenX, screenY) {
-    if (!this._ready || this.paused || this.dialogueSystem.isActive()) return;
+    if (!this._ready || this.paused || this.dialogueSystem.isActive() || (this.tennis && this.tennis.active)) return;
 
     // Raycast for NPC interaction (reused raycaster / vectors / hit array)
     const raycaster = this._raycaster;
@@ -1029,6 +1036,7 @@ class Game {
       case 'talk':
         if (!target) break;
         this.sound.playUIClick();
+        if (this.tennis && this.tennis.offerFromNpc(target)) break; // Rafa after closing: "stay for a hit?"
         this.missionSystem.handleInteraction(target, playerPos, () => {
           this.hud.updateTaskList();
         });
@@ -1349,6 +1357,8 @@ class Game {
   _update(dt) {
     // Update input
     this.input.update(dt);
+    // After-hours tennis owns the whole frame while it runs (TennisSession steps the world)
+    if (this.tennis && this.tennis.active) { this.tennis.update(dt); return; }
 
     // Keyboard dialogue advance (Space / Enter / E). The press is consumed so it can't also
     // trigger the world action button on the frame the dialogue closes.
