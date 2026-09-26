@@ -36,6 +36,10 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
 .cct-cell.is-cur { background: rgba(244,232,193,0.14); color: var(--cc-cream); font-weight: 700; }
 .cct-cell.is-pts { min-width: 30px; background: var(--cc-green-700); color: #fff; font-weight: 700; }
 .cct-drill { font-family: var(--cc-font-display); font-size: 18px; font-weight: 600; }
+.cct-rally { position: absolute; right: 10px; bottom: -13px; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.6px; background: var(--cc-gold); color: #3a2608; box-shadow: 0 3px 10px rgba(0,0,0,0.35); opacity: 0; transform: scale(0.8);
+  transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; font-variant-numeric: tabular-nums; }
+.cct-rally.is-on { opacity: 1; transform: none; }
 .cct-stam { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--cc-cream-dim); }
 .cct-stam__bar { flex: 1; height: 6px; border-radius: 99px; background: rgba(244,232,193,0.14); overflow: hidden; }
 .cct-stam__bar i { display: block; height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cc-ok), #9be27f); transform-origin: left; }
@@ -242,6 +246,7 @@ export class TennisHUD {
       this.rows.push({ dot, name, cells });
     }
     this.drillEl = el('div', 'cct-drill', board);
+    this.rallyEl = el('div', 'cct-rally', board);
     const st = el('div', 'cct-stam', board);
     el('span', '', st, 'Stamina');
     this.stamBar = el('span', 'cct-stam__bar', st);
@@ -339,7 +344,7 @@ export class TennisHUD {
       this.momRow.classList.toggle('is-on', match);
       if (match) this.setMomentum(0, 0);
     }
-    if (!on) { this.timing(-1); this.setMeter(-1); this.setPower(-1); this.setServeHint(false); }
+    if (!on) { this.timing(-1); this.setMeter(-1); this.setPower(-1); this.setServeHint(false); this.setRally(0); }
   }
 
   setInfo(text) {
@@ -368,6 +373,17 @@ export class TennisHUD {
 
   setDrill(rep, total, score) {
     this.drillEl.textContent = `Ball ${Math.min(rep + 1, total)} / ${total}  ·  ${score} pts`;
+  }
+
+  setDrillLine(text) { this.drillEl.textContent = text; }
+
+  /** Live rally length badge on the scoreboard (from 5 shots; 0 hides it). */
+  setRally(n) {
+    const v = n >= 5 ? n : 0;
+    if (v === this._cache.rally) return;
+    this._cache.rally = v;
+    if (v) this.rallyEl.textContent = `Rally ${v}`;
+    this.rallyEl.classList.toggle('is-on', v > 0);
   }
 
   setStamina(v) {
@@ -488,6 +504,7 @@ export class TennisHUD {
           <button type="button" class="cc-btn cct-big" data-drill="bh">Backhands</button>
           <button type="button" class="cc-btn cct-big" data-drill="volley">Volleys</button>
           <button type="button" class="cc-btn cct-big" data-drill="serve">Serves</button>
+          <button type="button" class="cc-btn cct-big" data-drill="rally" style="grid-column: 1 / -1">Rally challenge (keep it going)</button>
         </div></div>
       <div class="cct-sec"><div class="cc-label">Practice match vs Rafa</div>
         <div class="cct-seg" data-m="format">
