@@ -700,6 +700,7 @@ export class ItemProps {
       // No client: the nearest member within a few metres reacts
       let best = 6;
       for (const n of npcs.values()) {
+        if (n.away) continue;
         const d = this._npcDist(n, rec.x, rec.z);
         if (d < best) { best = d; npc = n; }
       }
@@ -710,13 +711,13 @@ export class ItemProps {
       try { npc.showReaction('😊'); } catch (e) { /* cosmetic */ }
       let near = null, best = 10;
       for (const n of npcs.values()) {
-        if (n === npc) continue;
+        if (n === npc || n.away) continue;
         const dd = this._npcDist(n, rec.x, rec.z);
         if (dd < best) { best = dd; near = n; }
       }
       npc = near;
     }
-    if (!npc) { rec.reacted = true; return; }
+    if (!npc || npc.away) { rec.reacted = true; return; }
     rec.npc = npc;
     const d = this._npcDist(npc, rec.x, rec.z);
     const free = (npc.state === 'idle' || npc.state === 'wandering') && !npc._holdSeat && !npc._sitSeat;
@@ -746,7 +747,7 @@ export class ItemProps {
   _react(rec) {
     rec.reacted = true;
     const npc = rec.npc;
-    if (!npc) return;
+    if (!npc || npc.away) return;
     try {
       if (npc.state !== 'playing' && npc.state !== 'talking' && npc.mesh) {
         const dx = rec.x - npc.mesh.position.x, dz = rec.z - npc.mesh.position.z;

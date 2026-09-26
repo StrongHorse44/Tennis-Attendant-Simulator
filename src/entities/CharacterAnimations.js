@@ -92,6 +92,29 @@ const HANDS_ON_HIPS = {
   armL: [12, 0, 42], foreArmL: [-20, 0, -105], handL: [0, 0, 0],
 };
 
+// Seated on a bench (the looping 'sit' clip and the seated one-shots share it)
+const SIT = {
+  hipsPos: [0, -0.07, 0], hips: [-6, 0, 0], spine: [14, 0, 0], chest: [4, 0, 0], head: [-10, 0, 0],
+  legL: [-48, 0, 5], legR: [-48, 0, -5], shinL: [44, 0, 0], shinR: [44, 0, 0], footL: [6, 0, 0], footR: [6, 0, 0],
+  armL: [-26, 0, -6], armR: [-26, 0, 6], foreArmL: [-34, 0, 0], foreArmR: [-34, 0, 0], racket: [-40, 0, 0],
+};
+
+// Applause: the forearms swing the palms together in front of the chest (palm gap ~0.3 → ~0.05)
+const CLAP_OPEN = { armR: [-34, 0, 22], armL: [-34, 0, -22], foreArmR: [-78, 6, 0], foreArmL: [-78, -6, 0], handR: [-8, 0, 0], handL: [-8, 0, 0] };
+const CLAP_SHUT = { armR: [-36, 0, 28], armL: [-36, 0, -28], foreArmR: [-80, 32, 0], foreArmL: [-80, -32, 0], handR: [-8, 0, 0], handL: [-8, 0, 0] };
+
+/** `count` claps from `start`, one every `period` s (accelerate into the clap, ease back out). */
+function clapKeys(start, count, period, open = {}, shut = {}) {
+  const keys = [];
+  for (let i = 0; i < count; i++) {
+    const t = start + i * period;
+    keys.push({ t, ease: 'in', ...CLAP_OPEN, ...open });
+    keys.push({ t: t + period * 0.5, ease: 'out', ...CLAP_SHUT, ...shut });
+  }
+  keys.push({ t: start + count * period, ease: 'inOut', ...CLAP_OPEN, ...open });
+  return keys;
+}
+
 // Walk (one cycle = two steps); the second half mirrors the first.
 const WALK_HALF = [
   { t: 0, // right heel strike
@@ -286,20 +309,60 @@ export const CLIP_DEFS = {
     ],
   },
 
+  // Applause (spectators): five claps in front of the chest with a little bob
+  clap: {
+    duration: 1.9, base: STAND,
+    keys: [
+      { t: 0, ease: 'out' },
+      ...clapKeys(0.26, 5, 0.26, { head: [3, 0, 0], chest: [2, 0, 0] }, { hipsPos: [0, -0.02, 0], head: [6, 0, 0], chest: [4, 0, 0] }),
+      { t: 1.9 },
+    ],
+  },
+
   // ── Seated ──
   sit: {
-    duration: 6, loop: true,
-    base: {
-      hipsPos: [0, -0.07, 0], hips: [-6, 0, 0], spine: [14, 0, 0], chest: [4, 0, 0], head: [-10, 0, 0],
-      legL: [-48, 0, 5], legR: [-48, 0, -5], shinL: [44, 0, 0], shinR: [44, 0, 0], footL: [6, 0, 0], footR: [6, 0, 0],
-      armL: [-26, 0, -6], armR: [-26, 0, 6], foreArmL: [-34, 0, 0], foreArmR: [-34, 0, 0], racket: [-40, 0, 0],
-    },
+    duration: 6, loop: true, base: SIT,
     keys: [
       { t: 0 },
       { t: 2.2, ease: 'inOut', head: [-8, 22, 0], chest: [4, 5, 0] },
       { t: 3.4, ease: 'inOut', head: [-8, 20, 2], chest: [4, 5, 0] },
       { t: 4.8, head: [-12, -16, 0], chest: [4, -3, 0] },
       { t: 6 },
+    ],
+  },
+  // Seated one-shots (play over 'sit' and fade back to it; the legs stay on the bench)
+  sit_clap: {
+    duration: 1.9, base: SIT,
+    keys: [
+      { t: 0, ease: 'out' },
+      ...clapKeys(0.26, 5, 0.26, { spine: [10, 0, 0], head: [-8, 0, 0] }, { spine: [12, 0, 0], head: [-5, 0, 0] }),
+      { t: 1.9 },
+    ],
+  },
+  sit_wave: {
+    duration: 2.1, base: SIT,
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.35, armR: [0, 0, -150], foreArmR: [0, 0, 32], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 0.6, armR: [0, 0, -148], foreArmR: [0, 0, -12], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 0.85, armR: [0, 0, -150], foreArmR: [0, 0, 32], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 1.1, armR: [0, 0, -148], foreArmR: [0, 0, -12], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 1.4, ease: 'inOut', armR: [0, 0, -146], foreArmR: [0, 0, 8], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 2.1 },
+    ],
+  },
+  sit_cheer: {
+    duration: 2.2, base: SIT,
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.3, ease: 'out', hipsPos: [0, -0.05, 0], spine: [0, 0, 0], chest: [-6, 0, 0], head: [-18, 0, 0],
+        armR: [-14, 0, -150], armL: [-14, 0, 150], foreArmR: [-24, 0, 0], foreArmL: [-24, 0, 0] },
+      { t: 0.56, ease: 'inOut', hipsPos: [0, -0.065, 0], spine: [5, 0, 0], chest: [-3, 0, 0], head: [-12, 0, 0],
+        armR: [-26, 0, -126], armL: [-26, 0, 126], foreArmR: [-68, 0, 0], foreArmL: [-68, 0, 0] },
+      { t: 0.82, ease: 'out', hipsPos: [0, -0.05, 0], spine: [0, 0, 0], chest: [-6, 0, 0], head: [-20, 0, 0],
+        armR: [-12, 0, -154], armL: [-12, 0, 154], foreArmR: [-18, 0, 0], foreArmL: [-18, 0, 0] },
+      ...clapKeys(1.2, 2, 0.26, { spine: [10, 0, 0], head: [-10, 0, 0] }, { spine: [12, 0, 0], head: [-6, 0, 0] }),
+      { t: 2.2 },
     ],
   },
   drive: {

@@ -200,7 +200,7 @@ export class MatchSystem {
   }
 
   _available(npc, busy) {
-    if (!npc || this.exclude.has(npc.id)) return false;
+    if (!npc || npc.away || this.exclude.has(npc.id)) return false;
     if (npc.playing || npc.state === 'talking' || npc.state === 'playing') return false;
     if (busy.has(npc.id)) return false; // a pending "!" encounter is fine: talk to them courtside
     return !this.matches.some(m => m.players[0].npc === npc || m.players[1].npc === npc);
