@@ -1040,7 +1040,7 @@
           "ca": { "area": "court" },
           "cb": { "area": "court", "not": ["ca"] },
           "a": { "npc": "member", "archetypes": ["competitive", "entitled", "veteran"] },
-          "b": { "related": "a", "rel": ["rival", "friend", "acquaintance", "spouse"] }
+          "b": { "npc": "member", "related": "a", "rel": ["rival", "friend", "acquaintance", "spouse"] }
         },
         "key": ["a", "b"],
         "title": ["Director: seed the draw", "Tournament desk: {a.first} vs {b.first}"],
@@ -1405,7 +1405,7 @@
         "client": "guest",
         "trigger": "guest",
         "key": ["guest", "place"],
-        "title": ["Pool party: {item} to {place.label}", "Poolside with {staff.first}"],
+        "title": ["Pool party: {item} for {place}", "Poolside with {staff.first}"],
         "description": ["Pool Party! {staff} needs {item} at {place}, and {guest} is waiting."],
         "steps": [
           {
