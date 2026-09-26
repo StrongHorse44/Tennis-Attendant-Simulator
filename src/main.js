@@ -1870,16 +1870,34 @@ class Game {
       const parallel = r.extensions && r.extensions.has && r.extensions.has('KHR_parallel_shader_compile');
       const compile = (s, c) => (parallel ? r.compileAsync(s, c) : (r.compile(s, c), Promise.resolve()));
       const all = compile(this.scene, this.camera);
+      const aoAll = this._precompileAoNormals(compile);
       for (const o of shown) o.visible = false;
       shown.length = 0;
       const current = compile(this.scene, this.camera);
+      const aoCurrent = this._precompileAoNormals(compile);
       r.setRenderTarget(prevRT);
-      await Promise.race([Promise.all([all, current]), new Promise((res) => setTimeout(res, 8000))]);
+      await Promise.race([Promise.all([all, current, aoAll, aoCurrent]), new Promise((res) => setTimeout(res, 8000))]);
     } catch (err) {
       console.warn('Shader pre-compile skipped:', err);
     } finally {
       for (const o of shown) o.visible = false;
       if (r.getRenderTarget() !== prevRT) r.setRenderTarget(prevRT);
+    }
+  }
+
+  /**
+   * GTAO (high) renders a normal pass with an override material, which renderer.compile does
+   * not see: compile its variants too (skinned / instanced meshes, with the night lights on as
+   * well), or they compile on the first dark frame. Meshes wear the normal material only for
+   * the synchronous part of the compile call.
+   */
+  _precompileAoNormals(compile) {
+    const nm = this.postFX && this.postFX.aoPass && this.postFX.aoPass.normalMaterial;
+    if (!nm) return Promise.resolve();
+    const swapped = [];
+    this.scene.traverse((o) => { if (o.isMesh && o.material && o.visible) { swapped.push(o, o.material); o.material = nm; } });
+    try { return compile(this.scene, this.camera); } catch (err) { return Promise.resolve(); } finally {
+      for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
     }
   }
 
