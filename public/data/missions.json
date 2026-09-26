@@ -1072,6 +1072,214 @@
           ]
         }
       ]
+    },
+    {
+      "id": "staff_pool_towels",
+      "type": "errand",
+      "title": "Poolside Towel Run",
+      "description": "Dani's towel caddy at the pool is empty and the deck is full of dripping members. Fresh towels are stacked in the locker rooms.",
+      "source": "taskBoard",
+      "repeatable": true,
+      "client": "dani_kowalski",
+      "hours": [8, 18],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "dani_kowalski",
+          "prompt": "See Dani at the lifeguard chair by the pool.",
+          "dialogueKey": "staff_pool_towels_1"
+        },
+        {
+          "action": "pickup",
+          "location": "lockerRoom",
+          "item": "towels",
+          "prompt": "Grab a stack of fresh towels from the locker rooms in the clubhouse wing."
+        },
+        {
+          "action": "deliver",
+          "location": "pool",
+          "item": "towels",
+          "prompt": "Bring the towels to the pool deck (side table by the lifeguard chair)."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "dani_kowalski",
+          "prompt": "Let Dani know the towels are out.",
+          "dialogueKey": "staff_pool_towels_2"
+        }
+      ]
+    },
+    {
+      "id": "staff_snack_lemonade",
+      "type": "errand",
+      "title": "Lemonade for the Bridge Club",
+      "description": "Babs Hendricks ordered a case of Gus's lemonade for her bridge club on the patio. Gus can't leave the snack hatch.",
+      "source": "random",
+      "triggerNpc": "gus_papadakis",
+      "client": "gus_papadakis",
+      "hours": [10, 16],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "gus_papadakis",
+          "prompt": "Talk to Gus at the pool house snack hatch.",
+          "dialogueKey": "staff_snack_lemonade_1"
+        },
+        {
+          "action": "pickup",
+          "location": "poolHouse",
+          "item": "water_bottles",
+          "prompt": "Pick up the lemonade case from the snack bar counter inside the pool house."
+        },
+        {
+          "action": "deliver",
+          "location": "patio",
+          "item": "water_bottles",
+          "prompt": "Deliver the lemonade to the bridge table on the clubhouse patio."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "babs_hendricks",
+          "prompt": "Tell Babs her lemonade has arrived.",
+          "dialogueKey": "staff_snack_lemonade_2"
+        }
+      ]
+    },
+    {
+      "id": "staff_gym_bootcamp",
+      "type": "errand",
+      "title": "Footwork Boot Camp",
+      "description": "Marcus wants to run a tennis footwork boot camp in the gym and needs a ball hopper from Court 1. Then someone has to decide who leads the warm-up.",
+      "source": "random",
+      "triggerNpc": "marcus_bell",
+      "client": "marcus_bell",
+      "hours": [7, 16],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "marcus_bell",
+          "prompt": "Talk to Marcus on the gym floor at the fitness centre.",
+          "dialogueKey": "staff_gym_bootcamp_1"
+        },
+        {
+          "action": "pickup",
+          "location": "court1",
+          "item": "ball_hopper",
+          "prompt": "Borrow the ball hopper by the Court 1 bench."
+        },
+        {
+          "action": "deliver",
+          "location": "fitnessCenter",
+          "item": "ball_hopper",
+          "prompt": "Bring the ball hopper to the gym floor in the fitness centre."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "marcus_bell",
+          "prompt": "Check in with Marcus.",
+          "dialogueKey": "staff_gym_bootcamp_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "Who leads the boot camp warm-up?",
+          "choices": [
+            {
+              "label": "Let Frank lead it, drill-sergeant style",
+              "result": "Frank barks the warm-up like it's 1971. Nobody has ever split-stepped with more fear. Marcus writes 'Sergeant?' on the whiteboard and underlines it.",
+              "reactions": { "frank_deluca": "satisfied", "marcus_bell": "neutral" }
+            },
+            {
+              "label": "Marcus runs it by the book",
+              "result": "Dynamic stretches, ladder drills, one hundred high-fives. Marcus is radiant. Frank does it all anyway, ten seconds faster.",
+              "reactions": { "marcus_bell": "satisfied", "frank_deluca": "neutral" }
+            },
+            {
+              "label": "Make it a relay: Nate versus Frank",
+              "result": "Nate wins the cone drill by 0.4 seconds. Frank wins the push-ups by eleven. Both demand a rematch. Marcus calls it the best class of the year.",
+              "reactions": { "marcus_bell": "satisfied", "nate_okafor": "satisfied", "frank_deluca": "satisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "staff_security_parking",
+      "type": "conflict",
+      "title": "Double-Parked",
+      "description": "Security's on the radio: a silver sports car is parked across two spaces and the fire lane by the gate. Otis has a guess whose it is.",
+      "source": "radio",
+      "client": "otis_grant",
+      "hours": [9, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "otis_grant",
+          "prompt": "Meet Otis at the front gate.",
+          "dialogueKey": "staff_security_parking_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "chad_blake",
+          "prompt": "Find Chad Blake and bring up his parking.",
+          "dialogueKey": "staff_security_parking_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you sort out Chad's car?",
+          "choices": [
+            {
+              "label": "Ask Chad to move it now",
+              "result": "Chad sighs, jogs to the lot and re-parks. Crooked, but inside the lines. Otis logs it as 'resolved, aesthetically disappointing'.",
+              "reactions": { "otis_grant": "satisfied", "chad_blake": "neutral" }
+            },
+            {
+              "label": "Offer to valet it yourself",
+              "result": "Chad tosses you the keys like it's a movie. You park it perfectly. Chad tips you a signed ball. Otis raises one eyebrow.",
+              "reactions": { "chad_blake": "satisfied", "otis_grant": "neutral" }
+            },
+            {
+              "label": "Let Otis write the warning",
+              "result": "Otis writes the warning slowly, in pen, reading each word aloud. Chad moves the car before he finishes the second sentence.",
+              "reactions": { "otis_grant": "satisfied", "chad_blake": "unsatisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "staff_security_lost_racket",
+      "type": "errand",
+      "title": "Lost and Found",
+      "description": "Otis found a racket by the perimeter fence on his patrol and left it in the locker room lost-and-found. It belongs at the pro shop, where Jess logs everything.",
+      "source": "taskBoard",
+      "client": "otis_grant",
+      "hours": [8, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "otis_grant",
+          "prompt": "Get the details from Otis at the front gate.",
+          "dialogueKey": "staff_security_lost_racket_1"
+        },
+        {
+          "action": "pickup",
+          "location": "lockerRoom",
+          "item": "racket",
+          "prompt": "Collect the racket from the lost-and-found in the locker rooms."
+        },
+        {
+          "action": "deliver",
+          "location": "proShop",
+          "item": "racket",
+          "prompt": "Take the racket to the pro shop."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "jess_nakamura",
+          "prompt": "Hand the racket over to Jess for the log.",
+          "dialogueKey": "staff_security_lost_racket_2"
+        }
+      ]
     }
   ],
 
@@ -1236,6 +1444,53 @@
       { "speaker": "Gloria Castellano", "text": "Thirty years I have sat in that chair by the fire. Thirty years!" },
       { "speaker": "Gloria Castellano", "text": "And today some teenager is doing his homework in it with a smoothie. On the leather." },
       { "speaker": "Gloria Castellano", "text": "I'm not asking for a plaque, dear. Although a plaque would be lovely." }
+    ],
+    "staff_pool_towels_1": [
+      { "speaker": "Dani Kowalski", "text": "Hi! Towel emergency. Not a real emergency. A towel one." },
+      { "speaker": "Dani Kowalski", "text": "The caddy's empty and I've got six drippy members and one very drippy Babs. I can't leave the chair." },
+      { "speaker": "Dani Kowalski", "text": "Fresh stacks live in the locker rooms, clubhouse wing. Bring them to the side table by my chair. Walking feet!" }
+    ],
+    "staff_pool_towels_2": [
+      { "speaker": "Dani Kowalski", "text": "Towels! You're a hero. A dry hero." },
+      { "speaker": "Dani Kowalski", "text": "Babs says thank you. Well, she said 'finally', but in a thank-you voice." }
+    ],
+    "staff_snack_lemonade_1": [
+      { "speaker": "Gus Papadakis", "text": "Boss! Perfect timing. I got an order and no legs to deliver it." },
+      { "speaker": "Gus Papadakis", "text": "Babs Hendricks, bridge club, patio table. One case of Gus's famous lemonade. Extra lemon. Extra famous." },
+      { "speaker": "Gus Papadakis", "text": "Case is on the counter inside, snack bar side. Come round through the pool house door. Go, go, before the ice gives up." }
+    ],
+    "staff_snack_lemonade_2": [
+      { "speaker": "Babs Hendricks", "text": "Oh, the lemonade! Gus is an angel. A mustached angel." },
+      { "speaker": "Babs Hendricks", "text": "Did he tell you anything? About anyone? No? Well. I'll pry it out of him at lunch." }
+    ],
+    "staff_gym_bootcamp_1": [
+      { "speaker": "Marcus Bell", "text": "Champ! Big idea. Footwork boot camp. Cones, ladders, split-steps, the works." },
+      { "speaker": "Marcus Bell", "text": "Problem: I have zero tennis balls and one hundred percent enthusiasm." },
+      { "speaker": "Marcus Bell", "text": "There's a ball hopper by the Court 1 bench. Borrow it, bring it to the gym floor. That's your warm-up set!" }
+    ],
+    "staff_gym_bootcamp_2": [
+      { "speaker": "Marcus Bell", "text": "Hopper! Let's go! Okay, second problem." },
+      { "speaker": "Marcus Bell", "text": "Frank wants to lead the warm-up. Frank does push-ups on his knuckles. On gravel. For fun." },
+      { "speaker": "Marcus Bell", "text": "Nate says he'll only come if there's a timed drill. So. Coach's call, champ. Who runs it?" }
+    ],
+    "staff_security_parking_1": [
+      { "speaker": "Otis Grant", "text": "Got a minute? We have a situation. Silver sports car. Across two spaces and the fire lane." },
+      { "speaker": "Otis Grant", "text": "Vanity plate says 'ACE CHAD'. I'm not a detective anymore. But I was." },
+      { "speaker": "Otis Grant", "text": "Find Mr. Blake and have a word. Politely. If he waves at me again, I'm writing it up." }
+    ],
+    "staff_security_parking_2": [
+      { "speaker": "Chad Blake", "text": "My car? Bro, that car is a work of art. It needs two spaces. It needs room to breathe." },
+      { "speaker": "Chad Blake", "text": "The fire lane was empty! There was no fire! What do you want me to do, drive it again?" }
+    ],
+    "staff_security_lost_racket_1": [
+      { "speaker": "Otis Grant", "text": "Hello. Found a racket by the perimeter fence on my six a.m. round. Black frame. Good strings." },
+      { "speaker": "Otis Grant", "text": "I left it in the locker room lost-and-found. It should go to the pro shop. Jess logs everything. Faster than I did at the precinct." },
+      { "speaker": "Otis Grant", "text": "Take it over when you get a minute. Chain of custody. Old habit." }
+    ],
+    "staff_security_lost_racket_2": [
+      { "speaker": "Jess Nakamura", "text": "A racket. From the fence. Of course." },
+      { "speaker": "Jess Nakamura", "text": "Fifty-two pounds, cross strings a little loose. That's Rafa's backup. He's been looking for it since Tuesday." },
+      { "speaker": "Jess Nakamura", "text": "Tell Otis thanks. I'm adding him to the chart. The good chart." }
     ]
   }
 }

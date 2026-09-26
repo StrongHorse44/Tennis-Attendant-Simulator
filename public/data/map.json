@@ -445,7 +445,10 @@
     "court4_pickup": { "x": 8.5, "y": 0.15, "z": -23.5, "ry": -0.2 },
     "court5_pickup": { "x": 44.1, "y": 0.04, "z": -23.55, "ry": 1.7 },
     "garden_deliver": { "x": -21.0, "y": 0.0, "z": -11.55, "ry": -0.2 },
-    "equipmentShed_deliver": { "x": -28.4, "y": 0.08, "z": -37.0, "ry": 0.25 }
+    "equipmentShed_deliver": { "x": -28.4, "y": 0.08, "z": -37.0, "ry": 0.25 },
+    "pool_deliver_towels": { "x": -59.7, "y": 0.55, "z": -12.3, "ry": 0.3 },
+    "poolHouse_pickup_water_bottles": { "x": -51.95, "y": 1.075, "z": -25.5, "ry": 0 },
+    "fitnessCenter_deliver_ball_hopper": { "x": 8.8, "y": 0.1, "z": 45.6, "ry": 0.4 }
   },
 
   "waypoints": {

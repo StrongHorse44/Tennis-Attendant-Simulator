@@ -280,7 +280,7 @@ function parseDuty(data, waypoints) {
     patrolChance: chance(patrol && patrol.chance, route.length ? 0.5 : 0),
     pause: range2(patrol && patrol.pause, [1, 3]),
     patrolSpeed: Number.isFinite(patrol && patrol.speed) ? Math.max(0.8, Math.min(3, patrol.speed)) : 0,
-    leg: 'post', target: home, routeIdx: 0, holdOnce: false,
+    leg: 'post', target: home, routeIdx: 0, holdOnce: false, queue: [],
   };
 }
 
@@ -796,6 +796,30 @@ export class NPC {
     this._reactHold = 0;
   }
 
+  /**
+   * Back to the post. Off a patrol, the way home follows the route (forward or back, whichever is
+   * shorter): the loop is known to be walkable, a straight line across the grounds may not be.
+   */
+  _dutyHeadHome() {
+    const d = this.duty;
+    d.queue.length = 0;
+    if (d.leg === 'patrol' && d.route.length) {
+      const c = Math.max(0, Math.min(d.route.length - 1, d.routeIdx - 1)); // point we were walking to
+      const px = this.body.position.x, pz = this.body.position.z;
+      const len = (pts) => {
+        let L = 0, x = px, z = pz;
+        for (const q of pts) { L += Math.hypot(q.x - x, q.z - z); x = q.x; z = q.z; }
+        return L + Math.hypot(d.post.x - x, d.post.z - z);
+      };
+      const fwd = d.route.slice(c);
+      const back = d.route.slice(0, c).reverse();
+      d.queue.push(...(len(back) < len(fwd) ? back : fwd));
+    }
+    const speed = d.patrolSpeed || 0;
+    if (d.queue.length) this._dutyGo(d.queue.shift(), 'home', speed);
+    else this._dutyGo(d.post, 'post', speed);
+  }
+
   _atPoint(pt, r = 1.2) {
     const dx = pt.x - this.body.position.x, dz = pt.z - this.body.position.z;
     return dx * dx + dz * dz < r * r;
@@ -804,10 +828,12 @@ export class NPC {
   /** Idle timer ran out: decide the next duty leg. Mostly: stay at the post. */
   _dutyNext() {
     const d = this.duty;
-    // Mid-patrol: next point on the loop (then home to the post)
-    if (d.leg === 'patrol' && !this.hasRequest) {
+    // Mid-patrol: next point on the loop (then home to the post); needed: head home along it
+    if (d.leg === 'patrol') {
+      if (this.hasRequest) { this._dutyHeadHome(); return; }
       if (d.routeIdx < d.route.length) { this._dutyGo(d.route[d.routeIdx++], 'patrol', d.patrolSpeed); return; }
     }
+    if (d.leg === 'home' && d.queue.length) { this._dutyGo(d.queue.shift(), 'home', d.patrolSpeed); return; }
     if (!this._atPoint(d.post)) { this._dutyGo(d.post, 'post', d.leg === 'patrol' ? d.patrolSpeed : 0); return; }
     const hold = d.holdOnce;
     d.holdOnce = false;
@@ -833,6 +859,7 @@ export class NPC {
     const d = this.duty;
     const pt = d.target || d.post;
     if (d.leg === 'patrol') { this._dutyStay(pt, pt.hold || d.pause); return; }
+    if (d.leg === 'home') { this.wanderTimer = 0; return; }
     if (gaveUp && d.leg === 'post') { this.wanderTimer = 2 + Math.random() * 2; return; }
     const range = d.leg === 'post' ? d.stay : d.leg === 'break' ? d.breakStay : d.roamStay;
     this._dutyStay(pt, pt.hold || range);
@@ -884,9 +911,9 @@ export class NPC {
       return;
     }
     this._wanderTime += dt;
-    // Staff needed for a mission step head straight back to their post
-    if (this.duty && this.hasRequest && this.currentTarget.duty && this.duty.leg !== 'post') {
-      this._dutyGo(this.duty.post, 'post');
+    // Staff needed for a mission step head back to their post (a patrol walks home along its route)
+    if (this.duty && this.hasRequest && this.currentTarget.duty && this.duty.leg !== 'post' && this.duty.leg !== 'home') {
+      this._dutyHeadHome();
     }
     if (this._reactHold > 0) {
       this._reactHold -= dt;
