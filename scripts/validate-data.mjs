@@ -17,7 +17,7 @@ import { ITEMS } from '../src/systems/InventorySystem.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
-const POOL_KEYS = new Set(['satisfied', 'neutral', 'unsatisfied', 'idle', 'morning', 'afternoon', 'evening', 'sunny', 'cloudy', 'rainy', 'windy']);
+const POOL_KEYS = new Set(['satisfied', 'neutral', 'unsatisfied', 'idle', 'morning', 'afternoon', 'evening', 'sunny', 'cloudy', 'rainy', 'windy', 'tips', 'hints']);
 const TIMES = new Set(['morning', 'midday', 'afternoon', 'evening']);
 const REL_TYPES = new Set(['family', 'spouse', 'friend', 'rival', 'mentor', 'student', 'colleague', 'acquaintance']);
 
@@ -51,6 +51,28 @@ function validateNpcs(npcs, map) {
         if (!strings(v)) err(`${at}: dialoguePool.${k} must be an array of non-empty strings`);
       }
       if (pool && !Array.isArray(pool.idle)) warn(`${at}: no dialoguePool.idle small talk`);
+      for (const line of (pool && Array.isArray(pool.hints)) ? pool.hints : []) {
+        if (typeof line === 'string' && !(line.includes('{name}') && line.includes('{place}'))) err(`${at}: dialoguePool.hints line needs {name} and {place}: "${line}"`);
+      }
+    }
+    // Staff duty (NPC.js parseDuty): every post / roam / break / patrol spot must be a waypoint
+    const wps = (map && map.waypoints) || {};
+    const spotOk = (ref, where) => {
+      const key = typeof ref === 'string' ? ref : (ref && typeof ref === 'object' ? ref.spot : null);
+      if (!key || !wps[key]) err(`${at}: ${where} spot "${key}" is not a map.json waypoint`);
+      else if (ref && typeof ref === 'object' && typeof ref.face === 'string' && !wps[ref.face]) err(`${at}: ${where} faces unknown waypoint "${ref.face}"`);
+    };
+    if (n.post !== undefined) {
+      if (!n.post || typeof n.post !== 'object') err(`${at}: post must be an object`);
+      else {
+        spotOk(n.post, 'post');
+        for (const k of ['roam', 'breaks']) for (const r of Array.isArray(n.post[k]) ? n.post[k] : []) spotOk(r, `post.${k}`);
+        for (const k of ['roamChance', 'breakChance']) if (n.post[k] !== undefined && !(n.post[k] >= 0 && n.post[k] <= 1)) err(`${at}: post.${k} must be 0..1`);
+      }
+    }
+    if (n.patrol !== undefined) {
+      if (!n.patrol || !Array.isArray(n.patrol.route) || n.patrol.route.length === 0) err(`${at}: patrol needs a non-empty "route" of waypoints`);
+      else for (const r of n.patrol.route) spotOk(r, 'patrol.route');
     }
     if (n.preferredTime !== undefined && !TIMES.has(n.preferredTime)) err(`${at}: preferredTime must be one of ${[...TIMES].join('/')}`);
     if (n.tennis !== undefined) {

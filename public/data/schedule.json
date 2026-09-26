@@ -4,7 +4,7 @@
   "format": {"gamesToWin": 2, "noAd": true, "warmupSeconds": 10},
   "lateStartHours": 1.0,
   "pool": ["chad_blake", "tommy_chen", "priya_sharma", "diane_ross", "mrs_wellington", "bob_hendricks", "maria_santos", "kevin_park", "rafa_ibarra", "theo_wellington", "lily_santos", "nate_okafor", "babs_hendricks", "gloria_castellano", "frank_deluca", "leo_brandt", "harper_brandt", "vik_rao"],
-  "exclude": ["hank_morris", "jess_nakamura"],
+  "exclude": ["hank_morris", "jess_nakamura", "dani_kowalski", "gus_papadakis", "marcus_bell", "otis_grant"],
   "matches": [
     {"id": "am-1", "court": "court1", "start": "7:30", "end": "10:30", "players": ["chad_blake", "tommy_chen"], "note": "hitting partners, early grind"},
     {"id": "am-2", "court": ["court5", "court4", "court3"], "start": "8:00", "end": "11:00", "players": ["gloria_castellano", "frank_deluca"], "note": "the forty-year Tuesday match"},

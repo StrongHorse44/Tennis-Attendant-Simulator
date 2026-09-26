@@ -124,6 +124,34 @@ const NPC_STYLES = {
     brows: 'worried', mouth: 'smile', racket: 0x2B2B2B, collar: 0xF2EFE8, belt: 0x3B2A1E, shoeAccent: 0x7B241C,
     scale: 0.89,
   },
+  // Pool attendant: lifeguard-red tee, white shorts, white visor with a red brim, whistle, zinc nose
+  dani_kowalski: {
+    female: true, skin: SKIN_TONES[1], hair: 'ponytail', hairColor: HAIR_COLORS.blonde, tieColor: 0xD63A2F, hat: 'visor',
+    hatColor: 0xF4F1EA, hatBrim: 0xD63A2F, bottom: 'shorts', bottomColor: 0xF4F1EA, brows: 'soft', mouth: 'grin',
+    polo: false, sleeveTrim: 0xF4F1EA, whistle: 0xF4F1EA, noseColor: 0xF7F5F0, racket: null, staff: true, belt: null,
+    shoes: 0xD63A2F, shoeSole: 0xF4F1EA, shoeAccent: 0xF4F1EA, socks: 0xF4F1EA, scale: 0.85, build: 0.97,
+  },
+  // Snack bar: pool-house blue shirt, white bib apron with blue trim, yellow cap, grey mustache
+  gus_papadakis: {
+    skin: SKIN_TONES[2], hair: 'short', hairColor: HAIR_COLORS.grey, hat: 'cap', hatColor: 0xF2C14E, hatBrim: 0x2F6DB3,
+    hatLogo: 0x2F6DB3, bottom: 'pants', bottomColor: 0x3A3F4A, brows: 'soft', mouth: 'grin', mustache: true, blush: true,
+    apron: 0xF7F4EC, apronTrim: 0x2F6DB3, collar: 0xF2C14E, racket: null, staff: true, belt: null,
+    shoes: 0x2B2B2B, shoeSole: 0xE8E4DA, shoeAccent: 0x2F6DB3, scale: 0.87, build: 1.13,
+  },
+  // Fitness: teal athletic crew with a white stripe, black track pants with white side stripes
+  marcus_bell: {
+    skin: SKIN_TONES[3], hair: 'short', hairColor: HAIR_COLORS.black, hat: null, bottom: 'pants', bottomColor: 0x1C1D1F,
+    pantStripe: 0xF4F1EA, brows: 'soft', mouth: 'grin', polo: false, stripe: 0xF4F1EA, wristband: 0xF4F1EA,
+    racket: null, staff: true, belt: null, shoes: 0xF4F1EA, shoeSole: 0x1C1D1F, shoeAccent: 0x1FA58A,
+    scale: 0.93, build: 1.1,
+  },
+  // Security: navy uniform shirt + trousers, navy cap with a gold crest, gold shield, epaulets
+  otis_grant: {
+    skin: SKIN_TONES[4], hair: 'short', hairColor: HAIR_COLORS.grey, hat: 'cap', hatColor: 0x1B2338, hatBrim: 0x141A2A,
+    hatLogo: 0xD9A441, bottom: 'pants', bottomColor: 0x1B2338, brows: 'stern', mouth: 'flat', mustache: true,
+    collar: 0x141A2A, sleeveTrim: 0x141A2A, badge: 0xD9A441, epaulets: 0x141A2A, racket: null, staff: true,
+    belt: 0x111111, shoes: 0x151515, shoeSole: 0x0E0E0E, shoeAccent: 0x151515, socks: 0x151515, scale: 0.93, build: 1.1,
+  },
 };
 
 /**
@@ -198,6 +226,64 @@ function isBusyKey(key) {
 // Speech bubble (score calls etc.)
 const BUBBLE_W = 256, BUBBLE_H = 112;
 
+const DEG = Math.PI / 180;
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const range2 = (v, def) => (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite) && v[0] >= 0 && v[0] <= v[1] ? [v[0], v[1]] : def);
+const chance = (v, def) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : def);
+
+/** Yaw a duty point asks for: its `face` (radians, parsed), or none. */
+function faceYaw(pt) {
+  return pt && Number.isFinite(pt.face) ? pt.face : null;
+}
+
+/**
+ * Staff duty from npcs.json (all optional; unknown waypoints are skipped):
+ *   post:   { spot: <waypoint>, face: <deg | waypoint to look at>, seat: <seat id>,
+ *             stay: [s, s], roam: [<spot>…], roamChance, roamStay: [s, s],
+ *             breaks: [<spot>…], breakChance, breakStay: [s, s] }
+ *   patrol: { route: [<spot>…], chance, pause: [s, s], speed }   (a loop from the post and back)
+ * A <spot> is a waypoint key or { spot, face, hold: [s, s] }. face: degrees, 0 = +z (toward the gate),
+ * 90 = +x (east), or a waypoint key to look toward. The NPC idles at the post most of the time,
+ * with short roams / breaks (and, with a patrol, walks the whole route now and then); it heads
+ * straight back to the post while a mission step needs it.
+ */
+function parseDuty(data, waypoints) {
+  const post = data && typeof data.post === 'object' ? data.post : null;
+  const patrol = data && typeof data.patrol === 'object' ? data.patrol : null;
+  if (!post && !patrol) return null;
+  const wps = waypoints || {};
+  const point = (ref) => {
+    const o = typeof ref === 'string' ? { spot: ref } : (ref && typeof ref === 'object' ? ref : null);
+    const wp = o && wps[o.spot];
+    if (!wp || !Number.isFinite(wp.x) || !Number.isFinite(wp.z)) return null;
+    const pt = { key: o.spot, x: wp.x, z: wp.z, face: null, hold: range2(o.hold, null) };
+    if (Number.isFinite(o.face)) pt.face = o.face * DEG;
+    else if (typeof o.face === 'string' && wps[o.face]) pt.face = Math.atan2(wps[o.face].x - wp.x, wps[o.face].z - wp.z);
+    return pt;
+  };
+  const list = (arr) => (Array.isArray(arr) ? arr.map(point).filter(Boolean) : []);
+  const route = list(patrol && patrol.route);
+  const postPt = post ? point({ spot: post.spot, face: post.face, hold: post.hold }) : null;
+  const home = postPt || route[0];
+  if (!home) return null;
+  return {
+    post: home,
+    seatId: post && typeof post.seat === 'string' ? post.seat : null,
+    stay: range2(post && post.stay, [35, 70]),
+    roam: list(post && post.roam),
+    roamChance: chance(post && post.roamChance, 0.3),
+    roamStay: range2(post && post.roamStay, [6, 14]),
+    breaks: list(post && post.breaks),
+    breakChance: chance(post && post.breakChance, 0.08),
+    breakStay: range2(post && post.breakStay, [25, 45]),
+    route,
+    patrolChance: chance(patrol && patrol.chance, route.length ? 0.5 : 0),
+    pause: range2(patrol && patrol.pause, [1, 3]),
+    patrolSpeed: Number.isFinite(patrol && patrol.speed) ? Math.max(0.8, Math.min(3, patrol.speed)) : 0,
+    leg: 'post', target: home, routeIdx: 0, holdOnce: false, queue: [],
+  };
+}
+
 /**
  * NPC - club member with wandering, dialogue, and task functionality
  */
@@ -258,12 +344,16 @@ export class NPC {
     this._settle = true;         // moveTo: settle into 'ready' on arrival
     this.bubble = null;          // speech bubble sprite (lazy)
     this._bubbleTimer = 0;
+    this._dutyFace = null;       // yaw to face while standing at a duty point
+    this._dutySitTime = 0;       // sit time for the next _sitDown (duty seats)
 
     CameraTracker.install(scene);
     this._blobs = BlobShadows.get(scene);
     this._blobSlot = this._blobs.alloc();
 
-    const startWaypoint = this._getPreferredWaypoint();
+    /** Staff duty (npcs.json `post` / `patrol`): where they work instead of wandering. */
+    this.duty = parseDuty(data, waypoints);
+    const startWaypoint = this.duty ? this.duty.post : this._getPreferredWaypoint();
     this._createMesh(startWaypoint);
     this._createPhysics(startWaypoint);
     this._createNameTag();
@@ -650,6 +740,15 @@ export class NPC {
     if (this._holdSeat) { this.body.velocity.set(0, this.body.velocity.y, 0); return; }
     this.wanderTimer -= dt;
 
+    if (this.duty) {
+      this.body.velocity.set(0, this.body.velocity.y, 0);
+      if (this._dutyFace !== null) this._turnToward(this._dutyFace, dt, 4);
+      // Needed for a mission step: wait at the post (walk back to it if away)
+      if (this.hasRequest && this.duty.leg !== 'post' && this.wanderTimer > 2) this.wanderTimer = 2;
+      if (this.wanderTimer <= 0) this._dutyNext();
+      return;
+    }
+
     if (this.wanderTimer <= 0) {
       const seat = this._pickSeat();
       this.state = 'wandering';
@@ -672,13 +771,137 @@ export class NPC {
     let best = null, bestD = SEAT_SEARCH_RADIUS * SEAT_SEARCH_RADIUS;
     const px = this.body.position.x, pz = this.body.position.z;
     for (const seat of seats) {
-      if (seat.taken) continue;
+      if (seat.taken || seat.reserved) continue;
       const dx = seat.x - px, dz = seat.z - pz;
       const d = dx * dx + dz * dz;
       if (d < bestD) { bestD = d; best = seat; }
     }
     if (best && claimSeat(best, this)) return best;
     return null;
+  }
+
+  // ── Staff duty (npcs.json `post` / `patrol`, see parseDuty) ──
+
+  /** Walk to a duty point (a parsed waypoint); `leg` says what happens on arrival. */
+  _dutyGo(pt, leg, speed = 0) {
+    const d = this.duty;
+    d.leg = leg;
+    d.target = pt;
+    this._dutyFace = null;
+    this._cancelSeatTarget();
+    // A fresh target per leg (not per frame): the route planner caches by target identity
+    this.currentTarget = { x: pt.x, z: pt.z, precise: true, duty: true, speed };
+    this.state = 'wandering';
+    this._wanderTime = 0;
+    this._reactHold = 0;
+  }
+
+  /**
+   * Back to the post. Off a patrol, the way home follows the route (forward or back, whichever is
+   * shorter): the loop is known to be walkable, a straight line across the grounds may not be.
+   */
+  _dutyHeadHome() {
+    const d = this.duty;
+    d.queue.length = 0;
+    if (d.leg === 'patrol' && d.route.length) {
+      const c = Math.max(0, Math.min(d.route.length - 1, d.routeIdx - 1)); // point we were walking to
+      const px = this.body.position.x, pz = this.body.position.z;
+      const len = (pts) => {
+        let L = 0, x = px, z = pz;
+        for (const q of pts) { L += Math.hypot(q.x - x, q.z - z); x = q.x; z = q.z; }
+        return L + Math.hypot(d.post.x - x, d.post.z - z);
+      };
+      const fwd = d.route.slice(c);
+      const back = d.route.slice(0, c).reverse();
+      d.queue.push(...(len(back) < len(fwd) ? back : fwd));
+    }
+    const speed = d.patrolSpeed || 0;
+    if (d.queue.length) this._dutyGo(d.queue.shift(), 'home', speed);
+    else this._dutyGo(d.post, 'post', speed);
+  }
+
+  _atPoint(pt, r = 1.2) {
+    const dx = pt.x - this.body.position.x, dz = pt.z - this.body.position.z;
+    return dx * dx + dz * dz < r * r;
+  }
+
+  /** Idle timer ran out: decide the next duty leg. Mostly: stay at the post. */
+  _dutyNext() {
+    const d = this.duty;
+    // Mid-patrol: next point on the loop (then home to the post); needed: head home along it
+    if (d.leg === 'patrol') {
+      if (this.hasRequest) { this._dutyHeadHome(); return; }
+      if (d.routeIdx < d.route.length) { this._dutyGo(d.route[d.routeIdx++], 'patrol', d.patrolSpeed); return; }
+    }
+    if (d.leg === 'home' && d.queue.length) { this._dutyGo(d.queue.shift(), 'home', d.patrolSpeed); return; }
+    if (!this._atPoint(d.post)) { this._dutyGo(d.post, 'post', d.leg === 'patrol' ? d.patrolSpeed : 0); return; }
+    const hold = d.holdOnce;
+    d.holdOnce = false;
+    if (!this.hasRequest && !hold) {
+      let r = Math.random();
+      if (d.route.length && (r -= d.patrolChance) < 0) {
+        d.routeIdx = 0;
+        // Skip a first route point that is the post itself
+        if (d.route.length > 1 && this._atPoint(d.route[0], 1.5)) d.routeIdx = 1;
+        this._dutyGo(d.route[d.routeIdx++], 'patrol', d.patrolSpeed);
+        return;
+      }
+      if (d.breaks.length && (r -= d.breakChance) < 0) { this._dutyGo(pick(d.breaks), 'break'); return; }
+      if (d.roam.length && (r -= d.roamChance) < 0) { this._dutyGo(pick(d.roam), 'roam'); return; }
+    }
+    d.leg = 'post';
+    d.target = d.post;
+    this._dutyStay(d.post, d.stay);
+  }
+
+  /** Arrived at a duty point (or gave up walking there): stay a while, face, maybe sit. */
+  _dutyArrive(gaveUp = false) {
+    const d = this.duty;
+    const pt = d.target || d.post;
+    if (d.leg === 'patrol') { this._dutyStay(pt, pt.hold || d.pause); return; }
+    if (d.leg === 'home') { this.wanderTimer = 0; return; }
+    if (gaveUp && d.leg === 'post') { this.wanderTimer = 2 + Math.random() * 2; return; }
+    const range = d.leg === 'post' ? d.stay : d.leg === 'break' ? d.breakStay : d.roamStay;
+    this._dutyStay(pt, pt.hold || range);
+  }
+
+  _dutyStay(pt, range) {
+    const d = this.duty;
+    const t = range[0] + Math.random() * (range[1] - range[0]);
+    this.wanderTimer = this.hasRequest ? Math.min(t, 6) : t;
+    this._dutyFace = faceYaw(pt);
+    // The post's own seat (e.g. the lifeguard chair); on a break, maybe a bench nearby
+    let seat = null;
+    if (d.leg === 'post' && d.seatId && !this.hasRequest) seat = this._dutySeat();
+    else if (d.leg === 'break' && Math.random() < 0.6) seat = this._pickNearSeat(6);
+    if (seat) {
+      this._dutySitTime = t;
+      this._seatTarget = seat;
+      const a = seat.approach || 0.5;
+      this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a };
+      this.state = 'wandering';
+      this._wanderTime = 0;
+    }
+  }
+
+  /** The reserved seat named by post.seat (claimed for us; null if missing / taken). */
+  _dutySeat() {
+    const id = this.duty.seatId;
+    const seats = findSeats(this.scene);
+    for (const seat of seats) if (seat.id === id) return claimSeat(seat, this, true) ? seat : null;
+    return null;
+  }
+
+  _pickNearSeat(radius) {
+    const seats = findSeats(this.scene);
+    let best = null, bestD = radius * radius;
+    const px = this.body.position.x, pz = this.body.position.z;
+    for (const seat of seats) {
+      if (seat.taken || seat.reserved) continue;
+      const d = (seat.x - px) ** 2 + (seat.z - pz) ** 2;
+      if (d < bestD) { bestD = d; best = seat; }
+    }
+    return best && claimSeat(best, this) ? best : null;
   }
 
   _updateWandering(dt) {
@@ -688,6 +911,10 @@ export class NPC {
       return;
     }
     this._wanderTime += dt;
+    // Staff needed for a mission step head back to their post (a patrol walks home along its route)
+    if (this.duty && this.hasRequest && this.currentTarget.duty && this.duty.leg !== 'post' && this.duty.leg !== 'home') {
+      this._dutyHeadHome();
+    }
     if (this._reactHold > 0) {
       this._reactHold -= dt;
       this.body.velocity.set(0, this.body.velocity.y, 0);
@@ -711,24 +938,30 @@ export class NPC {
     const gx = this.currentTarget.x - this.body.position.x, gz = this.currentTarget.z - this.body.position.z;
     const dist = Math.sqrt(gx * gx + gz * gz);
     const seat = this._seatTarget;
+    const precise = !!this.currentTarget.precise;
 
-    if ((seat && dist < 0.22) || (!seat && dist < 1.5)) {
+    if ((seat && dist < 0.22) || (!seat && dist < (precise ? 0.3 : 1.5))) {
       this.body.velocity.set(0, this.body.velocity.y, 0);
       this.wanderTimer = Math.random() * 8 + 4;
       if (seat) this._sitDown(seat);
-      else this.state = 'idle';
+      else {
+        this.state = 'idle';
+        if (this.duty && this.currentTarget.duty) this._dutyArrive();
+      }
       return;
     }
     // Stuck (hedge, cart, player): give up after a while
     if (this._wanderTime > 30) {
+      const wasDuty = this.duty && this.currentTarget.duty && !seat;
       this._cancelSeatTarget();
       this.state = 'idle';
       this.body.velocity.set(0, this.body.velocity.y, 0);
+      if (wasDuty) this._dutyArrive(true);
       return;
     }
 
-    let speed = SIZES.npcSpeed;
-    if (seat) speed = Math.min(speed, 0.35 + dist * 1.4); // settle precisely in front of the seat
+    let speed = (this.currentTarget.speed || SIZES.npcSpeed);
+    if (seat || precise) speed = Math.min(speed, 0.35 + dist * 1.4); // settle precisely (seat / post)
     this._walkStep(dx, dz, Math.max(0.01, Math.sqrt(dx * dx + dz * dz)), speed, dt);
 
     // Face movement direction (smoothly)
@@ -761,7 +994,8 @@ export class NPC {
     if (this._sitSeat && this._sitSeat !== seat) releaseSeat(this._sitSeat, this);
     this._sitSeat = seat;
     this.state = 'sitting';
-    this._sitTimer = 12 + Math.random() * 22;
+    this._sitTimer = this._dutySitTime > 0 ? this._dutySitTime : 12 + Math.random() * 22;
+    this._dutySitTime = 0;
     this.character.setLocomotion(0);
     this.character.play('sit', { fade: 0.5 });
   }
@@ -1065,6 +1299,11 @@ export class NPC {
     }
     this.state = 'idle';
     this.wanderTimer = Math.random() * 5 + 3;
+    if (this.duty) {
+      // Back to work after a beat; a chat at the post doesn't send them off on a round
+      this.wanderTimer = 1.5 + Math.random() * 2;
+      if (this.duty.leg === 'post') this.duty.holdOnce = true;
+    }
     this.character.stop(0.4);
   }
 

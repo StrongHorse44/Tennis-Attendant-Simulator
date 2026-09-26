@@ -22,8 +22,13 @@ const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 
-export function registerSeat(x, y, z, yaw, id = `seat${_seats.length}`) {
-  const seat = { id, x, y, z, yaw, taken: null };
+/**
+ * opts.reserved: only claimSeat(seat, who, true) takes it (a staff post seat, e.g. the lifeguard
+ * chair; wandering members and rain shelters skip it). opts.approach: how far in front of the seat
+ * the sitter stands before sitting down (default 0.5 m).
+ */
+export function registerSeat(x, y, z, yaw, id = `seat${_seats.length}`, opts = null) {
+  const seat = { id, x, y, z, yaw, taken: null, reserved: !!(opts && opts.reserved), approach: (opts && opts.approach) || 0.5 };
   _seats.push(seat);
   return seat;
 }
@@ -102,8 +107,9 @@ export function findSeats(scene) {
   return _seats;
 }
 
-export function claimSeat(seat, who) {
+export function claimSeat(seat, who, allowReserved = false) {
   if (!seat || (seat.taken && seat.taken !== who)) return false;
+  if (seat.reserved && !allowReserved) return false;
   seat.taken = who;
   return true;
 }

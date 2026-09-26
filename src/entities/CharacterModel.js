@@ -210,7 +210,10 @@ function shade(hex, k) {
  *  hairColor, hat ('cap'|'capBack'|'visor'|'headband'|'bucket'|null), hatColor, hatBrim,
  *  brows ('soft'|'haughty'|'worried'|'stern'), mouth ('smile'|'flat'|'o'|'grin'),
  *  mustache (bool), blush (bool), sunglasses (bool), necklace (color|null), wristband (color|null),
- *  racket (color|null), staff (bool: name badge + radio), polo (bool)
+ *  racket (color|null), staff (bool: name badge + radio), polo (bool),
+ *  apron (color: bib + half apron, apronTrim), whistle (lanyard color: whistle on a cord),
+ *  badge (color: shield on the chest), epaulets (color), pantStripe (color: track-pant side
+ *  stripes, with bottom 'pants'), noseColor (e.g. white zinc sunscreen)
  */
 function buildGeometry(style) {
   const b = new PartBuilder();
@@ -235,6 +238,10 @@ function buildGeometry(style) {
     }
     const shinColor = style.bottom === 'pants' ? bottomColor : skin;
     b.add(P.capsule(0.062, 0.27), shinBone, shinColor, [x, KNEE_Y - 0.17, 0]);
+    if (style.bottom === 'pants' && style.pantStripe) {
+      b.add(P.rbox(0.02, 0.34, 0.035, 0.008), legBone, style.pantStripe, [x + side * 0.066, (HIP_Y + KNEE_Y) / 2, 0]);
+      b.add(P.rbox(0.02, 0.3, 0.032, 0.008), shinBone, style.pantStripe, [x + side * 0.058, KNEE_Y - 0.17, 0]);
+    }
     if (style.bottom === 'pants') {
       b.add(P.cyl(0.074, 0.078, 0.08, 12), shinBone, shade(bottomColor, -0.1), [x, 0.14, 0]);
     } else {
@@ -290,6 +297,30 @@ function buildGeometry(style) {
   if (style.necklace) {
     b.add(P.torus(0.1, 0.013, 5, 18), B.chest, style.necklace, [0, 1.345, 0.02], [Math.PI / 2 - 0.4, 0, 0]);
   }
+  if (style.apron) {
+    // Bib apron: bib + neck straps on the chest, half apron + waist tie on the hips
+    const trim = style.apronTrim ?? shade(style.apron, -0.25);
+    b.add(P.rbox(0.27, 0.34, 0.018, 0.008), B.chest, style.apron, [0, 1.1, 0.153]);
+    b.add(P.rbox(0.2, 0.022, 0.02, 0.008), B.chest, trim, [0, 1.265, 0.155]);
+    for (const side of [1, -1]) {
+      b.add(P.rbox(0.022, 0.13, 0.018, 0.008), B.chest, style.apron, [side * 0.09, 1.325, 0.122], [-0.55, 0, side * 0.3]);
+    }
+    b.add(P.rbox(0.36, 0.4, 0.018, 0.008), B.hips, style.apron, [0, HIP_Y - 0.08, 0.15], [0.06, 0, 0]);
+    b.add(P.rbox(0.28, 0.08, 0.02, 0.008), B.hips, trim, [0, HIP_Y - 0.12, 0.162], [0.06, 0, 0]);
+    b.add(P.rbox(0.38, 0.035, 0.27, 0.015), B.hips, trim, [0, HIP_Y + 0.1, 0]);
+    if (style.staff) b.add(P.rbox(0.09, 0.045, 0.012, 0.006), B.chest, 0xF4E8C1, [0.07, 1.19, 0.164]);
+  }
+  if (style.whistle) {
+    // Lanyard + cord + whistle
+    b.add(P.torus(0.1, 0.011, 5, 18), B.chest, style.whistle, [0, 1.345, 0.02], [Math.PI / 2 - 0.4, 0, 0]);
+    b.add(P.cyl(0.006, 0.006, 0.11, 5), B.chest, style.whistle, [0, 1.235, 0.152]);
+    b.add(P.rbox(0.06, 0.035, 0.035, 0.012), B.chest, 0xC9CED3, [0.012, 1.17, 0.165]);
+    b.add(P.cyl(0.012, 0.012, 0.03, 8), B.chest, 0xC9CED3, [-0.025, 1.17, 0.165], [0, 0, Math.PI / 2]);
+  }
+  if (style.badge) {
+    b.add(P.rbox(0.062, 0.072, 0.014, 0.016), B.chest, style.badge, [0.1, 1.268, 0.146], [0.14, 0, 0]);
+    b.add(P.sphere(0.012, 6, 4), B.chest, shade(style.badge, -0.3), [0.1, 1.27, 0.155]);
+  }
 
   // ── Arms (sleeve + upper arm on the arm bone, forearm, hand) ──
   for (const side of [1, -1]) {
@@ -299,6 +330,9 @@ function buildGeometry(style) {
     const x = side * (SHOULDER_X + 0.005);
     b.add(P.sphere(0.085, 10, 8), bone, shirt, [side * (SHOULDER_X - 0.02), SHOULDER_Y - 0.01, 0], null, [1, 0.9, 1]);
     b.add(P.cyl(0.074, 0.066, 0.17, 10), bone, style.sleeveColor ?? shirt, [x, SHOULDER_Y - 0.1, 0], [0, 0, side * 0.04]);
+    if (style.epaulets) {
+      b.add(P.rbox(0.1, 0.022, 0.075, 0.008), bone, style.epaulets, [side * (SHOULDER_X - 0.03), SHOULDER_Y + 0.065, 0], [0, 0, side * -0.28]);
+    }
     if (style.sleeveTrim) {
       b.add(P.cyl(0.068, 0.068, 0.025, 10), bone, style.sleeveTrim, [x + side * 0.004, SHOULDER_Y - 0.18, 0]);
     }
@@ -332,7 +366,7 @@ function buildGeometry(style) {
   for (const side of [1, -1]) {
     b.add(P.sphere(0.048, 8, 6), B.head, skin, [side * 0.212, HEAD_Y - 0.02, -0.01], null, [0.55, 1, 0.8]);   // ears
   }
-  b.add(P.sphere(0.036, 8, 6), B.head, skinDark, [0, HEAD_Y - 0.035, HEAD_R - 0.01], null, [1, 0.9, 0.9]); // nose
+  b.add(P.sphere(0.036, 8, 6), B.head, style.noseColor ?? skinDark, [0, HEAD_Y - 0.035, HEAD_R - 0.01], null, [1, 0.9, 0.9]); // nose
 
   // Eyes / sunglasses
   const eyeY = HEAD_Y + 0.025;

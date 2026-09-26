@@ -61,7 +61,7 @@ On your first shift, the staff radio walks you through the basics.
 
 ### Your Shift
 
-Each day is one shift, about 15 real minutes:
+Each day is one shift, about 19 real minutes:
 
 1. **7:00 AM**: the club manager radios in. Press **Clock in** to start the clock.
 2. **Opening checklist**: a short round of the pro shop and patio. Checklists don't use a task slot.

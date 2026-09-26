@@ -188,7 +188,7 @@ export const SIZES = {
 // === Game Constants ===
 export const GAME = {
   // Time
-  dayDurationSeconds: 1800, // 30 minutes real time = 1 full day
+  dayDurationSeconds: 2250, // 37.5 minutes real time = 1 full day (a 12 h shift ≈ 19 min)
   startHour: 9, // 9 AM — open in warm, bright daylight
   morningEnd: 11,
   afternoonEnd: 17,
@@ -244,7 +244,7 @@ export const GAME = {
   // Courtside tasks
   coolerInteractRange: 2.5,   // how close cart must be to interact with cooler/bin
 
-  // Shift loop (ShiftSystem). 12 in-game hours at 24 / dayDurationSeconds h/s ≈ 15 real minutes.
+  // Shift loop (ShiftSystem). 12 in-game hours at 24 / dayDurationSeconds h/s ≈ 19 real minutes.
   // Wages, rush windows, ranks and checklists are data in missions.json → "shift".
   shiftStartHour: 7,          // clock-in (the next day starts here; the night is skipped)
   shiftClosingHour: 18.5,     // closing duties are radioed in

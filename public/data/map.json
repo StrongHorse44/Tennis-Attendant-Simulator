@@ -445,7 +445,10 @@
     "court4_pickup": { "x": 8.5, "y": 0.15, "z": -23.5, "ry": -0.2 },
     "court5_pickup": { "x": 44.1, "y": 0.04, "z": -23.55, "ry": 1.7 },
     "garden_deliver": { "x": -21.0, "y": 0.0, "z": -11.55, "ry": -0.2 },
-    "equipmentShed_deliver": { "x": -28.4, "y": 0.08, "z": -37.0, "ry": 0.25 }
+    "equipmentShed_deliver": { "x": -28.4, "y": 0.08, "z": -37.0, "ry": 0.25 },
+    "pool_deliver_towels": { "x": -59.7, "y": 0.55, "z": -12.3, "ry": 0.3 },
+    "poolHouse_pickup_water_bottles": { "x": -51.95, "y": 1.075, "z": -25.5, "ry": 0 },
+    "fitnessCenter_deliver_ball_hopper": { "x": 8.8, "y": 0.1, "z": 45.6, "ry": 0.4 }
   },
 
   "waypoints": {
@@ -487,6 +490,30 @@
     "pool1": { "x": -53, "y": 0, "z": -6 },
     "pool2": { "x": -57.6, "y": 0, "z": -17.5 },
     "pool3": { "x": -50.6, "y": 0, "z": -23.4 },
-    "poolHouse1": { "x": -55.2, "y": 0, "z": -28.6 }
+    "poolHouse1": { "x": -55.2, "y": 0, "z": -28.6 },
+    "post_lifeguard": { "x": -58.85, "y": 0, "z": -7.4 },
+    "post_deck_east": { "x": -48.75, "y": 0, "z": -12.8 },
+    "post_deck_west": { "x": -57.4, "y": 0, "z": -14.5 },
+    "post_hatch_line": { "x": -50.6, "y": 0, "z": -23.6 },
+    "post_deck_north": { "x": -54.5, "y": 0, "z": -22.4 },
+    "post_snack": { "x": -50.95, "y": 0, "z": -26.45 },
+    "post_snack_shelf": { "x": -49.1, "y": 0, "z": -28.0 },
+    "post_snack_fridge": { "x": -50.0, "y": 0, "z": -29.4 },
+    "post_gym": { "x": 7.6, "y": 0, "z": 44.2 },
+    "post_gym_tread": { "x": 6.9, "y": 0, "z": 43.0 },
+    "post_juice": { "x": 15.7, "y": 0, "z": 42.4 },
+    "post_studio": { "x": 13.4, "y": 0, "z": 46.4 },
+    "post_fitness_out": { "x": 16.8, "y": 0, "z": 37.2 },
+    "post_gate": { "x": -31.0, "y": 0, "z": 52.6 },
+    "patrol_lot": { "x": -31.0, "y": 0, "z": 37.5 },
+    "patrol_n1": { "x": -15, "y": 0, "z": 35 },
+    "patrol_n2": { "x": 15, "y": 0, "z": 35 },
+    "patrol_ne": { "x": 48, "y": 0, "z": 35 },
+    "patrol_e": { "x": 48, "y": 0, "z": -10 },
+    "patrol_se": { "x": 48, "y": 0, "z": -45 },
+    "patrol_s": { "x": -2, "y": 0, "z": -45 },
+    "patrol_sw": { "x": -42, "y": 0, "z": -45 },
+    "patrol_w": { "x": -42, "y": 0, "z": -14.5 },
+    "patrol_nw": { "x": -42, "y": 0, "z": 33 }
   }
 }

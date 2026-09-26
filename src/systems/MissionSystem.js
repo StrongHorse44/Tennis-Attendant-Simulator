@@ -20,6 +20,8 @@ const RANDOM_ENCOUNTER_CHECK_INTERVAL = 0.5;
 /** Retry delay (s) for a radio dispatch that found every task slot full. */
 const RADIO_RETRY_WHEN_FULL = 20;
 
+const escapeRe = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * MissionSystem — task board, radio dispatch (with On it / Busy), random encounters,
  * per-day repeatable missions and shift routines (opening checklist / closing duties).
@@ -60,6 +62,8 @@ export class MissionSystem {
     this.pendingDispatchTimer = 0;
     /** NPC ids with an offered (not yet started) random encounter. */
     this.pendingEncounters = new Set();
+    /** (npc) => "on Court 3" | "in the café" | null: where someone is, for staff whereabouts hints (set by Game). */
+    this.describePlace = null;
 
     this.onMissionUpdate = null;
     this.onRadioDispatch = null;
@@ -138,6 +142,41 @@ export class MissionSystem {
       return prev && prev.npcId ? prev.npcId : null;
     }
     return null;
+  }
+
+  /**
+   * Every NPC an active mission still involves: npcIds on the current and remaining
+   * steps, the client and trigger NPC, and anyone the description or remaining prompts
+   * name (e.g. "it needs Jess"). Fills `out` (a Set) so the minimap can colour them
+   * while the player goes back and forth. Name matching is cached per mission+step.
+   */
+  collectInvolvedNpcIds(out) {
+    if (!this._involvedCache) this._involvedCache = new Map();
+    for (let m = 0; m < this.activeMissions.length; m++) {
+      const mission = this.activeMissions[m];
+      const key = `${mission.id}|${mission.currentStep}`;
+      let ids = this._involvedCache.get(key);
+      if (!ids) {
+        ids = new Set();
+        if (mission.client) ids.add(mission.client);
+        if (mission.triggerNpc) ids.add(mission.triggerNpc);
+        const steps = mission.steps || [];
+        let text = mission.description || '';
+        for (let i = Math.max(0, mission.currentStep || 0); i < steps.length; i++) {
+          if (steps[i].npcId) ids.add(steps[i].npcId);
+          if (steps[i].prompt) text += ' ' + steps[i].prompt;
+        }
+        for (const npc of this.npcsMap.values()) {
+          if (!npc.name) continue;
+          const first = npc.name.replace(/^(Mrs?\.|Ms\.|Dr\.|Coach)\s+/, '').split(' ')[0];
+          const re = new RegExp(`\\b(${escapeRe(npc.name)}|${escapeRe(first)})\\b`);
+          if (re.test(text)) ids.add(npc.id);
+        }
+        this._involvedCache.set(key, ids);
+      }
+      for (const id of ids) out.add(id);
+    }
+    return out;
   }
 
   // ───────────────────────────── bookkeeping ─────────────────────────────
@@ -530,11 +569,44 @@ export class MissionSystem {
     const text = pickSmallTalk(npc.data, {
       mood: npc.mood, moodSet: !!npc.moodSet, firstChat,
       hour: EnvState.timeOfDay, weather: EnvState.weather, last: npc._smallTalkLast,
+      whereabouts: () => this._whereabouts(npc),
     });
     npc._smallTalkAt = now;
     npc._smallTalkLast = text;
     this.dialogueSystem.startDialogue(npc, [{ speaker: npc.name, text }], onComplete);
     return true;
+  }
+
+  /**
+   * Someone worth pointing the player at, for a staff member's "hints" small talk: the NPC an
+   * active mission is waiting on (or one with an offered encounter) first, else a random member.
+   * @returns {{ name: string, place: string, needed: boolean } | null}
+   */
+  _whereabouts(speaker) {
+    if (typeof this.describePlace !== 'function') return null;
+    const place = (n) => {
+      if (!n || n === speaker || !n.body) return null;
+      try { return this.describePlace(n); } catch (e) { return null; }
+    };
+    for (const mission of this.activeMissions) {
+      const step = this.getCurrentStep(mission.id);
+      if (!step || step.action !== 'dialogue' || !step.npcId) continue;
+      const n = this.npcsMap.get(step.npcId);
+      const p = place(n);
+      if (p) return { name: n.name, place: p, needed: true };
+    }
+    for (const id of this.pendingEncounters) {
+      const n = this.npcsMap.get(id);
+      const p = place(n);
+      if (p) return { name: n.name, place: p, needed: true };
+    }
+    const all = [...this.npcsMap.values()].filter(n => n !== speaker && n.archetype !== 'staff');
+    for (let tries = 0; tries < 4 && all.length; tries++) {
+      const n = all[Math.floor(Math.random() * all.length)];
+      const p = place(n);
+      if (p) return { name: n.name, place: p, needed: false };
+    }
+    return null;
   }
 
   /** Play a dialogue step, then advance; open the choices if the next step is `choose`. */
