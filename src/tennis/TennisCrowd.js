@@ -193,7 +193,8 @@ export class TennisCrowd {
       const prefix = `court:${f.id}@`;
       let best = 0.5;
       for (const s of seats) {
-        if (!s.id || !s.id.startsWith(prefix) || (s.taken && s.taken !== npc && !s.taken.away)) continue;
+        // Free, ours, a member's who went home, or Rafa's (he just stood up to play)
+        if (!s.id || !s.id.startsWith(prefix) || (s.taken && s.taken !== npc && !s.taken.away && s.taken !== session.coachNpc)) continue;
         const d = Math.hypot(f.lu(s.x, s.z) - L.u, f.lv(s.x, s.z) - L.v);
         if (d < best) { best = d; seat = s; }
       }
@@ -205,7 +206,9 @@ export class TennisCrowd {
         else if (seat.taken && seat.taken !== npc) seat.taken = null; // a member who has gone home
       }
     }
-    const su = seat ? f.lu(seat.x, seat.z) : Math.sign(L.u || 1) * Math.max(MIN_U + 0.4, Math.abs(L.u));
+    // No seat: stand in front of the bench line (benches sit at |u| ≈ 9.2), never inside one
+    const su = seat ? f.lu(seat.x, seat.z)
+      : Math.sign(L.u || 1) * (L.seat ? MIN_U + 0.15 : Math.max(MIN_U + 0.4, Math.abs(L.u)));
     const sv = seat ? f.lv(seat.x, seat.z) : Math.max(-MAX_V, Math.min(MAX_V, L.v));
     const x = f.wx(su, sv), z = f.wz(su, sv);
     const yaw = seat ? seat.yaw : Math.atan2(f.cx - x, f.cz - z);

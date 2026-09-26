@@ -749,7 +749,8 @@ export class ItemProps {
     const npc = rec.npc;
     if (!npc || npc.away) return;
     try {
-      if (npc.state !== 'playing' && npc.state !== 'talking' && npc.mesh) {
+      // A seated client cheers from the bench, facing the way the seat faces
+      if (npc.state !== 'playing' && npc.state !== 'talking' && npc.state !== 'sitting' && !npc._sitSeat && npc.mesh) {
         const dx = rec.x - npc.mesh.position.x, dz = rec.z - npc.mesh.position.z;
         if (dx * dx + dz * dz < 25) npc.mesh.rotation.y = Math.atan2(dx, dz);
       }
