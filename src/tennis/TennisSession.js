@@ -646,7 +646,7 @@ export class TennisSession {
     this._updateWind(dt);
 
     // Physics (NPC bodies), NPCs, scheduled member matches winding down
-    g.physicsWorld.step(1 / 60, dt, 3);
+    g.world.stepPhysics(dt);
     const pp = g.player.mesh.position;
     for (const npc of g.npcs) npc.update(dt, pp);
     if (g.matches) g.matches.update(dt);

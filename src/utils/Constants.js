@@ -125,6 +125,17 @@ export const COLORS = {
   coolerWhite: 0xf2efe6,
   binGreen: 0x2f5a3e,
 
+  // Centre Court stadium (court6: StadiumLayout.js / Stadium.js)
+  stadiumRiser: 0x2a513b,     // deep-green row risers
+  stadiumTread: 0xe3d8c0,     // light concrete tread caps and aisle half-steps
+  stadiumWalk: 0x2c5a40,      // green-painted pit walkway around the pad
+  stadiumStone: 0xeae2cf,     // cream coping, arch piers, plinths
+  stadiumSeat: 0x2f6b45,      // stand seats
+  stadiumSeatFront: 0x24503a, // row 0 seats
+  stadiumSeatBox: 0xefe3c2,   // Members' Box seats
+  stadiumRail: 0x1f3a2b,      // rim rail, posts, mast columns
+  stadiumTrim: 0xd9a441,      // gold nosings, caps and trims
+
   // UI
   uiPrimary: 0x2d5a3d,
   uiAccent: 0xf4e8c1,
@@ -188,6 +199,9 @@ export const SIZES = {
   cameraIndoorHeight: 7.8,     // camera height indoors: steep enough to see over the cut walls
   cameraLerpSpeed: 3,
   cameraLookAhead: 2,
+
+  // Centre Court bowl
+  bowlVyCap: 2.0,              // max upward body speed inside the stadium cut (m/s; stair pops)
 };
 
 // === Game Constants ===
@@ -257,6 +271,15 @@ export const GAME = {
   rushDispatchScale: 2.25,    // radio dispatch timer runs this much faster inside rush windows
   dispatchCardTimeout: 25,    // seconds before an unanswered dispatch card counts as "Busy"
   dispatchDeclineCooldown: 30,// seconds until the next dispatch after "Busy"
+
+  // Centre Court spectators (SpectatorDirector) and the bowl guard (NPC)
+  spectatorBase: 5,           // spectators wanted for a Centre Court match (× event crowd × situation)
+  spectatorMax: 10,           // cap on high
+  spectatorMaxMedium: 8,      // cap on medium
+  spectatorMaxLow: 4,         // cap on low
+  spectatorArriveTimeout: 90, // seconds before a walking-in spectator is helped to the seat
+  bowlStrandedSeconds: 4,     // an idle member inside the stadium footprint walks out after this
+  bowlStuckTeleport: 90,      // ...and is placed at the nearest exit if still inside after this
 };
 
 // === Directions for waypoints ===
@@ -268,6 +291,7 @@ export const AREAS = {
   COURT_3: 'court3',
   COURT_4: 'court4',
   COURT_5: 'court5',
+  CENTRE_COURT: 'court6',
   GARDEN: 'garden',
   PATIO: 'patio',
   PARKING: 'parking',

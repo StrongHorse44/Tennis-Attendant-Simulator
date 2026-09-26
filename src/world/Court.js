@@ -531,6 +531,11 @@ export class Court {
     this.mesh = new THREE.Group();
     this.mesh.name = `court:${config.id}`;
     this.id = config.id;
+    // Court frame height (map.json center.y; 0 for every flat court). The sunken stadium court
+    // (a `stadium` block, see StadiumLayout.js) sits below the lawn at baseY.
+    this.baseY = Number(config.center?.y) || 0;
+    this.surfaceY = this.baseY + SURFACE_Y;   // top of the pad (walk / bounce surface)
+    this.isStadium = !!config.stadium;
     this.surface = courtSurfaceOf(config);   // 'hard' | 'clay' | 'grass'
     this.isClay = this.surface === 'clay';
     this.isGrass = this.surface === 'grass';

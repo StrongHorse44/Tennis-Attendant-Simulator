@@ -6,6 +6,9 @@ import { Building } from './Building.js';
 import { Clubhouse, FitnessCenter, PoolHouse } from './ClubBuildings.js';
 import { CameraTracker } from '../entities/CharacterModel.js';
 import { Garden } from './Garden.js';
+import { GROUND_GROUPS, setGroundModel, groundAt } from './Ground.js';
+import { findStadiumCourt, computeStadiumLayout } from './StadiumLayout.js';
+import { Stadium } from './Stadium.js';
 import { Scenery, bakeParts } from './Scenery.js';
 import { EnvState } from '../graphics/EnvState.js';
 import { Quality } from '../graphics/Quality.js';
@@ -240,6 +243,24 @@ export class World {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.mapData = mapData;
+
+    // The sunken Centre Court (the court entry with a `stadium` block): its analytic layout is
+    // the club's ground model (Ground.js). A broken block degrades to a plain flat court.
+    let layout = null;
+    const sc = findStadiumCourt(mapData);
+    if (sc) {
+      try {
+        layout = computeStadiumLayout(sc);
+      } catch (err) {
+        console.warn(`Stadium "${sc.id}" disabled, building a flat court instead:`, err && err.message ? err.message : err);
+        if (sc.center) sc.center.y = 0;
+        delete sc.stadium;
+        layout = null;
+      }
+    }
+    this.stadiumLayout = layout;
+    setGroundModel(layout);
+    this.stadium = null;
     this.courts = [];
     this.buildings = [];
     this.garden = null;
@@ -266,6 +287,12 @@ export class World {
     this._buildPaths();
     this._buildCourts();
     this._buildCourtJunctions();
+    // Right after the courts and before perimeter, trees, lamps, grass and scenery.build()
+    // (the stadium adds rim benches to the scenery batch)
+    this.stadium = layout ? new Stadium({
+      scene: this.scene, physicsWorld: this.physicsWorld, world: this,
+      court: this.courts.find(c => c.id === layout.id) || null, layout, scenery: this.scenery,
+    }) : null;
     this._buildProShop();
     this._buildClubhouse();
     this._buildClubBuildings();
@@ -455,7 +482,27 @@ export class World {
       shape: groundShape,
     });
     groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    // With a bowl, dynamic bodies inside its cut drop GROUND_TOP from their mask (Stadium)
+    groundBody.collisionFilterGroup = this.stadiumLayout ? GROUND_GROUPS.GROUND_TOP : GROUND_GROUPS.WORLD;
     this.physicsWorld.addBody(groundBody);
+    this.groundBody = groundBody;
+  }
+
+  // ───────────────────────────── physics / ground queries ─────────────────────────────
+
+  /**
+   * The only place the physics world is stepped (main loop and after-hours tennis): the
+   * stadium refreshes collision masks before the step and rescues bodies after it.
+   */
+  stepPhysics(dt) {
+    if (this.stadium) this.stadium.preStep();
+    this.physicsWorld.step(1 / 60, dt, 3);
+    if (this.stadium) this.stadium.postFrame();
+  }
+
+  /** Walk-surface y at (x, z) (Ground.groundAt: 0 everywhere outside the bowl). */
+  groundAt(x, z) {
+    return groundAt(x, z);
   }
 
   // ───────────────────────────── paths ─────────────────────────────
@@ -1652,6 +1699,7 @@ export class World {
     if (this.garden) {
       this.garden.update(dt);
     }
+    if (this.stadium) this.stadium.update(dt);
     this.scenery.update();
     const f = EnvState.lampFactor || 0;
     if (Math.abs(f - this._lastLampFactor) > 0.01) {

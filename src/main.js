@@ -1532,8 +1532,8 @@ class Game {
       this.saveGame();
     }
 
-    // Update physics
-    this.physicsWorld.step(1 / 60, dt, 3);
+    // Update physics (World.stepPhysics: stadium masks before, rescue after; never step directly)
+    this.world.stepPhysics(dt);
 
     // Update player / cart
     const moveDir = this.input.getMoveDirection();

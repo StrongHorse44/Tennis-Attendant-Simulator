@@ -25,10 +25,14 @@ const _fwd = new THREE.Vector3();
 /**
  * opts.reserved: only claimSeat(seat, who, true) takes it (a staff post seat, e.g. the lifeguard
  * chair; wandering members and rain shelters skip it). opts.approach: how far in front of the seat
- * the sitter stands before sitting down (default 0.5 m).
+ * the sitter stands before sitting down (default 0.5 m). opts.stadium: stand info of a Centre
+ * Court seat ({ side, row, aisleId, along, box }), kept as seat.stadium (null otherwise).
  */
 export function registerSeat(x, y, z, yaw, id = `seat${_seats.length}`, opts = null) {
-  const seat = { id, x, y, z, yaw, taken: null, reserved: !!(opts && opts.reserved), approach: (opts && opts.approach) || 0.5 };
+  const seat = {
+    id, x, y, z, yaw, taken: null, reserved: !!(opts && opts.reserved), approach: (opts && opts.approach) || 0.5,
+    stadium: (opts && opts.stadium) || null,
+  };
   _seats.push(seat);
   return seat;
 }
@@ -108,7 +112,9 @@ export function findSeats(scene) {
 }
 
 export function claimSeat(seat, who, allowReserved = false) {
-  if (!seat || (seat.taken && seat.taken !== who)) return false;
+  if (!seat) return false;
+  if (seat.taken && seat.taken === who) return true;   // re-claiming your own seat always works
+  if (seat.taken && seat.taken !== who) return false;
   if (seat.reserved && !allowReserved) return false;
   seat.taken = who;
   return true;

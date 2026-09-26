@@ -1,6 +1,6 @@
 {
   "name": "Greenbriar Tennis & Social Club",
-  "bounds": { "width": 120, "depth": 100 },
+  "bounds": { "minX": -60, "maxX": 104, "minZ": -50, "maxZ": 50 },
   "spawnPoint": { "x": -35, "y": 0, "z": 30 },
   "cartSpawnPoint": { "x": -33, "y": 0, "z": 28 },
 
@@ -41,7 +41,7 @@
       {
         "id": "court2",
         "label": "Court 2",
-        "type": "grass",
+        "type": "hard",
         "center": { "x": 25, "y": 0, "z": 5 },
         "rotation": 0,
         "sharedPadLeft": true
@@ -70,6 +70,35 @@
         "center": { "x": 31, "y": 0, "z": -25 },
         "rotation": 0,
         "adjacentLeft": true
+      },
+      {
+        "id": "court6", "label": "Centre Court", "type": "grass",
+        "center": { "x": 74, "y": -3.0, "z": -10 }, "rotation": 0,
+        "umpireChair": true, "markerHeight": 5.4, "detect": { "width": 28, "depth": 40 },
+        "stadium": {
+          "_comment": "Sunken show court (src/world/StadiumLayout.js). u = x - center.x (east +), v = z - center.z (north +). Floor = court level (center.y + 0.15); treads 0..rows-1 of `tread` m, row 0 at court level, the last flush with the ground; rise = -(center.y + 0.15)/(rows - 1). Cut = floorHalf + rows*tread, on even metres. Everything that stops the cart sits outside the cut.",
+          "floorHalf": { "u": 10.8, "v": 16.8 }, "rows": 8, "tread": 0.9, "footprintPad": 0.6,
+          "rail": { "d0": 0.05, "d1": 0.45, "height": 1.05, "opening": 1.1 }, "concourse": 2.2,
+          "aisles": [
+            { "id": "pw", "side": "w", "at": 0, "width": 2.4, "players": true, "lanes": [-0.7, 0.7], "bollard": 0.36 },
+            { "id": "wn", "side": "w", "at": 11, "width": 1.4 }, { "id": "ws", "side": "w", "at": -11, "width": 1.4 },
+            { "id": "e0", "side": "e", "at": 0, "width": 1.4 },
+            { "id": "en", "side": "e", "at": 11, "width": 1.4 }, { "id": "es", "side": "e", "at": -11, "width": 1.4 },
+            { "id": "nw", "side": "n", "at": -7.5, "width": 1.4 }, { "id": "ne", "side": "n", "at": 7.5, "width": 1.4 },
+            { "id": "sw", "side": "s", "at": -7.5, "width": 1.4 }, { "id": "se", "side": "s", "at": 7.5, "width": 1.4 }
+          ],
+          "endBoards": { "v0": 14.3, "v1": 14.45, "halfU": 9.0, "height": 1.0 },
+          "seats": { "pitch": 0.55, "aisleClear": 0.25, "cornerClear": 0.45,
+                     "colors": { "stand": "#2f6b45", "front": "#24503a", "box": "#efe3c2" } },
+          "spectatorSeats": { "sideRows": [0, 4], "sidePerAisleSide": 3, "endRows": [1, 3], "endPerAisleSide": 2 },
+          "membersBox": { "side": "w", "rows": [2, 4], "halfAlong": 6.2 },
+          "cameraWells": { "halfU": 4.5, "v": [16, 27] },
+          "masts": { "u": 22.8, "v": 28.8, "height": 16 },
+          "scoreboards": { "v": 29.5, "width": 7.0, "height": 3.3, "bottom": 2.2 },
+          "arch": { "aisle": "pw", "pierAlong": 1.55, "d": 0.3 },
+          "rimBenches": [ { "x": 50.9, "z": -13.6, "face": 90 }, { "x": 50.9, "z": -6.4, "face": 90 } ],
+          "crowd": { "capacity": 240, "capacityLow": 120 }
+        }
       }
     ],
     "courtJunctions": [
@@ -412,6 +441,74 @@
         { "x": -15.2, "z": -4.2 }
       ],
       "width": 1.8
+    },
+    {
+      "id": "centre_court_walk",
+      "points": [
+        { "x": 48, "z": -10 },
+        { "x": 53.8, "z": -10 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "centre_court_ring",
+      "points": [
+        { "x": 53.8, "z": -10 },
+        { "x": 53.8, "z": 16.2 },
+        { "x": 94.2, "z": 16.2 },
+        { "x": 94.2, "z": -36.2 },
+        { "x": 53.8, "z": -36.2 },
+        { "x": 53.8, "z": -10 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "centre_court_link_nw",
+      "points": [
+        { "x": 48, "z": 16.2 },
+        { "x": 53.8, "z": 16.2 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "centre_court_link_sw",
+      "points": [
+        { "x": 48, "z": -36.2 },
+        { "x": 53.8, "z": -36.2 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_north_ext",
+      "points": [
+        { "x": 48, "z": 35 },
+        { "x": 94.2, "z": 35 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "centre_court_link_n",
+      "points": [
+        { "x": 94.2, "z": 35 },
+        { "x": 94.2, "z": 16.2 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "perimeter_south_ext",
+      "points": [
+        { "x": 48, "z": -45 },
+        { "x": 94.2, "z": -45 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "centre_court_link_s",
+      "points": [
+        { "x": 94.2, "z": -36.2 },
+        { "x": 94.2, "z": -45 }
+      ],
+      "width": 3
     }
   ],
 
@@ -448,7 +545,10 @@
     "equipmentShed_deliver": { "x": -28.4, "y": 0.08, "z": -37.0, "ry": 0.25 },
     "pool_deliver_towels": { "x": -59.7, "y": 0.55, "z": -12.3, "ry": 0.3 },
     "poolHouse_pickup_water_bottles": { "x": -51.95, "y": 1.075, "z": -25.5, "ry": 0 },
-    "fitnessCenter_deliver_ball_hopper": { "x": 8.8, "y": 0.1, "z": 45.6, "ry": 0.4 }
+    "fitnessCenter_deliver_ball_hopper": { "x": 8.8, "y": 0.1, "z": 45.6, "ry": 0.4 },
+    "court6_deliver": { "x": 83.1, "y": -2.85, "z": -8.4, "ry": 0.2 },
+    "court6_pickup": { "x": 82.5, "y": -2.85, "z": -11.45, "ry": 1.8 },
+    "court6_deliver_water_bottles": { "x": 65.9, "y": -2.85, "z": -9.1, "ry": 1.5708 }
   },
 
   "waypoints": {
@@ -514,6 +614,18 @@
     "patrol_s": { "x": -2, "y": 0, "z": -45 },
     "patrol_sw": { "x": -42, "y": 0, "z": -45 },
     "patrol_w": { "x": -42, "y": 0, "z": -14.5 },
-    "patrol_nw": { "x": -42, "y": 0, "z": 33 }
+    "patrol_nw": { "x": -42, "y": 0, "z": 33 },
+    "court6_bench": { "x": 51.0, "y": 0, "z": -5.2 },
+    "court6_center": { "x": 74, "y": -2.85, "z": -10 },
+    "court6_exit": { "x": 54.5, "y": 0, "z": -10 },
+    "stadium1": { "x": 53.8, "y": 0, "z": -18 },
+    "stadium2": { "x": 53.8, "y": 0, "z": -2 },
+    "stadium3": { "x": 94.2, "y": 0, "z": -18 },
+    "stadium4": { "x": 94.2, "y": 0, "z": -2 },
+    "stadium5": { "x": 64, "y": 0, "z": 16.2 },
+    "stadium6": { "x": 84, "y": 0, "z": -36.2 },
+    "patrol_ne2": { "x": 94.2, "y": 0, "z": 35 },
+    "patrol_e2": { "x": 94.2, "y": 0, "z": -10 },
+    "patrol_se2": { "x": 94.2, "y": 0, "z": -45 }
   }
 }
