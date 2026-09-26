@@ -99,6 +99,15 @@ function gauss() {
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const clamp = THREE.MathUtils.clamp;
 
+// The court for each playing surface (map.json ids): the menu picks a surface, the session
+// moves to its court. A court's surface is its map.json `type`.
+export const SURFACE_COURTS = { hard: 'court1', clay: 'court5', grass: 'court2' };
+export const SURFACE_LABELS = { hard: 'Hard', clay: 'Clay', grass: 'Grass' };
+export function surfaceOf(court) {
+  const t = court && court.config && court.config.type;
+  return t === 'clay' || t === 'grass' ? t : 'hard';
+}
+
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _R = STROKES.map(() => new THREE.Vector3());
@@ -137,8 +146,9 @@ export class TennisSession {
     this.lastDrill = 'fh';
 
     const courts = (game.world && game.world.courts) || [];
-    const court = courts.find(c => c.id === 'court1') || courts.find(c => !c.isClay) || courts[0] || null;
+    const court = courts.find(c => c.id === SURFACE_COURTS.hard) || courts.find(c => !c.isClay) || courts[0] || null;
     this.frame = court ? new CourtFrame(court) : null;
+    this.surface = surfaceOf(court);
     this.coachNpc = (game.npcs || []).find(n => n.id === 'rafa_ibarra') || null;
 
     this.ctl = { moveX: 0, moveY: 0, swing: false, shot: 1 };
@@ -367,6 +377,53 @@ export class TennisSession {
     this.opts[k] = !!v;
     try { storageSet(OPTS_KEY, JSON.stringify(this.opts)); } catch (e) { /* ignore */ }
     if (k === 'marker' && !v) this.fx.hideMarker();
+  }
+
+  /** Courts you can play on right now: [{ surface, id, label }] (one per surface that has a court). */
+  courtChoices() {
+    const courts = (this.game.world && this.game.world.courts) || [];
+    const out = [];
+    for (const key of ['hard', 'clay', 'grass']) {
+      const c = this._courtFor(key, courts);
+      if (c && !out.some(o => o.id === c.id)) out.push({ surface: key, id: c.id, label: c.config?.label || c.id });
+    }
+    return out;
+  }
+
+  _courtFor(surface, courts) {
+    const want = SURFACE_COURTS[surface];
+    const c = courts.find(k => k.id === want && surfaceOf(k) === surface);
+    return c || courts.find(k => surfaceOf(k) === surface) || null;
+  }
+
+  /**
+   * Move the session to the court of another surface ('hard' | 'clay' | 'grass'), from the menu
+   * only. Frees the old court, takes the new one, re-seats the staff and re-aims the see-through.
+   */
+  setSurface(surface) {
+    const courts = (this.game.world && this.game.world.courts) || [];
+    const court = this._courtFor(surface, courts);
+    if (!court) return false;
+    if (this.frame && court.id === this.frame.id) { this.surface = surfaceOf(court); return true; }
+    if (this.active && this.phase !== 'menu') return false;
+    if (!this.active) { this.frame = new CourtFrame(court); this.surface = surfaceOf(court); return true; }
+    try { this.occ.end(); } catch (err) { console.error('TennisOcclusion', err); }
+    NPC.setAreaBusy(this.frame.id, false);
+    this.frame = new CourtFrame(court);
+    this.surface = surfaceOf(court);
+    NPC.setAreaBusy(this.frame.id, true);
+    const npc = this.coachNpc;
+    npc.stopPlaying();
+    npc.startPlaying(this.frame.id, 'north');
+    npc.character.setBallVisible(false);
+    this.sides[0] = 1; this.sides[1] = -1;
+    this._placePlayer(0, BASE_V);
+    this.ai.place(0, -BASE_V);
+    this.cam.snap(this);
+    if (this.crowd && this.crowd.relocate) this._crowd('relocate', this);
+    else { this._crowd('end', this); this._crowd('begin', this); }
+    try { this.occ.begin(this); } catch (err) { console.error('TennisOcclusion', err); }
+    return true;
   }
 
   setShot(i) {
