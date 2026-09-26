@@ -29,9 +29,47 @@ export class TennisAudio {
     if (s && s.playBallHit) s.playBallHit(Math.min(1, this._vol(pos) * 1.25 * k), 'hit');
   }
 
-  bounce(pos) {
+  /** A bounce on the playing surface ('hard' | 'clay' | 'grass': duller on clay, soft on grass). */
+  bounce(pos, surface = 'hard') {
     const s = this.sound;
-    if (s && s.playBallHit) s.playBallHit(this._vol(pos), 'bounce');
+    if (s && s.playBallHit) s.playBallHit(this._vol(pos), 'bounce', surface);
+  }
+
+  /** Feet sliding on clay: a short gritty scrape. */
+  slide(pos, k = 1) {
+    const s = this.sound;
+    if (!s || !s.initialized || s.paused || s.muted) return;
+    try {
+      const ctx = s.ctx, now = ctx.currentTime;
+      const v = 0.16 * k * this._vol(pos);
+      if (v < 0.005) return;
+      this._ensureNoise(ctx);
+      const src = ctx.createBufferSource();
+      src.buffer = this._noise;
+      src.playbackRate.value = 0.55 + Math.random() * 0.15;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.Q.value = 0.8;
+      bp.frequency.setValueAtTime(2200, now);
+      bp.frequency.exponentialRampToValueAtTime(900, now + 0.32);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(v, now + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.36);
+      src.connect(bp); bp.connect(g); g.connect(s.masterGain);
+      src.start(now, Math.random() * 0.2);
+      src.stop(now + 0.38);
+    } catch (e) { /* audio is optional */ }
+  }
+
+  _ensureNoise(ctx) {
+    if (this._noise) return;
+    // Lightly smoothed noise: airy rather than hissy
+    const n = Math.floor(ctx.sampleRate * 0.6);
+    this._noise = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = this._noise.getChannelData(0);
+    let b = 0;
+    for (let i = 0; i < n; i++) { b = b * 0.35 + (Math.random() * 2 - 1) * 0.65; d[i] = b; }
   }
 
   net(pos) {
@@ -62,14 +100,7 @@ export class TennisAudio {
     try {
       const ctx = s.ctx, now = ctx.currentTime;
       const p = Math.max(0, Math.min(1, power));
-      if (!this._noise) {
-        // Lightly smoothed noise: airy rather than hissy
-        const n = Math.floor(ctx.sampleRate * 0.6);
-        this._noise = ctx.createBuffer(1, n, ctx.sampleRate);
-        const d = this._noise.getChannelData(0);
-        let b = 0;
-        for (let i = 0; i < n; i++) { b = b * 0.35 + (Math.random() * 2 - 1) * 0.65; d[i] = b; }
-      }
+      this._ensureNoise(ctx);
       const tp = now + Math.max(0.06, peakIn);
       const t1 = tp + 0.07 + 0.06 * (1 - p);
       const fPeak = (1100 + 1700 * p) * (0.94 + Math.random() * 0.12);

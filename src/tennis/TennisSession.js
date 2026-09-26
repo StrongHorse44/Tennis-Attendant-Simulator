@@ -18,8 +18,8 @@ import { TennisCrowd } from './TennisCrowd.js';
 import { TennisCoach } from './TennisCoach.js';
 
 /**
- * TennisSession — the after-hours tennis mode: an evening hit with Coach Rafa on Court 1
- * under the floodlights. Drills (forehand / backhand / volley / serve, fed by Rafa, with
+ * TennisSession — the after-hours tennis mode: an evening hit with Coach Rafa under the
+ * floodlights, on hard (Court 1), clay (Court 5) or grass (Court 2), calm or windy. Drills (forehand / backhand / volley / serve, fed by Rafa, with
  * scored targets) or a practice match (real scoring, three formats, three difficulties).
  *
  * While active, Game._update hands the whole frame to update(dt): the session steps physics,
@@ -280,7 +280,7 @@ export class TennisSession {
     ds.active = true;
     ds.dialogueBox.show(npc.name, 'The courts are quiet now. Stay for a hit after your shift? We play into the sunset, then under the lights. I will go easy. Maybe.', npc.dialogueColor || '#7db5ee');
     ds.showChoices([
-      { label: "Let's hit! 🎾", description: 'Clock out and meet Rafa on Court 1' },
+      { label: "Let's hit! 🎾", description: `Clock out and meet Rafa on ${this.frame.court?.config?.label || 'Court 1'}` },
       { label: 'Not tonight', description: 'Maybe another evening' },
     ], (i) => {
       if (i === 0) this.begin('rafa');
@@ -813,7 +813,10 @@ export class TennisSession {
     const k = 1 - Math.exp(-dt * (speeding ? 11 * mv.accel : 17 * mv.stop));
     const cur = Math.hypot(pl.vu, pl.vv);
     if (mv.slide && !speeding && cur > 2.6 && Math.hypot(vu, vv) < cur * 0.6) {
-      if (pl.sliding <= 0) this.fx.dust(f.wx(pl.u, pl.v), f.wz(pl.u, pl.v), pl.vu * f.c + pl.vv * f.s, -pl.vu * f.s + pl.vv * f.c);
+      if (pl.sliding <= 0) {
+        this.fx.dust(f.wx(pl.u, pl.v), f.wz(pl.u, pl.v), pl.vu * f.c + pl.vv * f.s, -pl.vu * f.s + pl.vv * f.c);
+        this.audio.slide(p.mesh.position, Math.min(1, cur / 5));
+      }
       pl.sliding = 0.3;
     } else if (pl.sliding > 0) pl.sliding -= dt;
     pl.vu += (vu - pl.vu) * k; pl.vv += (vv - pl.vv) * k;

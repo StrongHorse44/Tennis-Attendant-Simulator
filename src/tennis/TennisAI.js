@@ -392,6 +392,16 @@ export class TennisAI {
 
   _startSwing(t) {
     const npc = this.npc, pl = this.plan, s = this.s, d = this.diff;
+    // Running into the ball on clay: he slides into it (a puff of clay)
+    const mv = npc._playMove;
+    if (mv && mv.speed > 2.8 && s.ball && s.ball.surface && s.ball.surface.key === 'clay') {
+      const px = npc.body.position.x, pz = npc.body.position.z;
+      const dx = mv.x - px, dz = mv.z - pz, dl = Math.hypot(dx, dz);
+      if (dl > 0.25) {
+        s.fx.dust(px, pz, dx / dl * mv.speed, dz / dl * mv.speed);
+        s.audio.slide(npc.body.position, 0.8);
+      }
+    }
     npc.stopMove();
     npc.mesh.rotation.y = this.yaw;
     npc.setFacing(this.yaw);
