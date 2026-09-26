@@ -242,7 +242,7 @@ function faceYaw(pt) {
  *             stay: [s, s], roam: [<spot>…], roamChance, roamStay: [s, s],
  *             breaks: [<spot>…], breakChance, breakStay: [s, s] }
  *   patrol: { route: [<spot>…], chance, pause: [s, s], speed }   (a loop from the post and back)
- * A <spot> is a waypoint key or { spot, face, hold: [s, s] }. face: degrees, 0 = +z (south),
+ * A <spot> is a waypoint key or { spot, face, hold: [s, s] }. face: degrees, 0 = +z (toward the gate),
  * 90 = +x (east), or a waypoint key to look toward. The NPC idles at the post most of the time,
  * with short roams / breaks (and, with a patrol, walks the whole route now and then); it heads
  * straight back to the post while a mission step needs it.
