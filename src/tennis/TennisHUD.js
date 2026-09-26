@@ -376,12 +376,12 @@ export class TennisHUD {
   /** Wind pill: speed (m/s) and the direction on screen (radians, 0 = up the screen, clockwise). */
   setWind(speed, ang) {
     const on = speed >= 0.3;
-    const deg = Math.round((ang * 180) / Math.PI / 10) * 10;
-    const txt = on ? `Wind ${speed.toFixed(1)} m/s` : '';
     const c = this._cache;
     if (c.windOn !== on) { c.windOn = on; this.windRow.classList.toggle('is-on', on); }
     if (!on) return;
-    if (c.windTxt !== txt) { c.windTxt = txt; this.windTxt.textContent = txt; }
+    const tenths = Math.round(speed * 10);
+    const deg = Math.round((ang * 180) / Math.PI / 10) * 10;
+    if (c.windTenths !== tenths) { c.windTenths = tenths; this.windTxt.textContent = `Wind ${(tenths / 10).toFixed(1)} m/s`; }
     if (c.windDeg !== deg) { c.windDeg = deg; this.windArr.style.transform = `rotate(${deg}deg)`; }
   }
 

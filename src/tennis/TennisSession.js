@@ -1168,16 +1168,21 @@ export class TennisSession {
     const f = this.frame, b = this.ball, fl = this.fl, t = this.t;
     const sp = prof || SPIN[spin] || SPIN.flat;
     const bx = f.wx(u, v), bz = f.wz(u, v);
-    const P = planFlight(this._plan, C.x, C.y, C.z, bx, bz, pace, sp, margin, minT, f, this._windAllowed(hitter));
+    const allowed = this._windAllowed(hitter);
+    const P = planFlight(this._plan, C.x, C.y, C.z, bx, bz, pace, sp, margin, minT, f, allowed);
     let vx = P.vx, vy = P.vy, vz = P.vz;
     if (margin < 0 && P.tNet < INF && P.hNet >= netTop(P.netU) + R) {
-      // A netted shot: fly on a low line straight into the tape (below it by -margin)
+      // A netted shot: fly on a low line straight into the tape (below it by -margin), with the
+      // acceleration it is launched with (so it really meets the tape)
       const nx = f.wx(P.netU, 0), nz = f.wz(P.netU, 0);
       const ny = Math.max(SURF + 0.3, netTop(P.netU) + R + margin);
       const Tn = Math.max(0.2, Math.hypot(nx - C.x, nz - C.z) / Math.max(6, pace));
       vx = (nx - C.x - 0.5 * P.ax * Tn * Tn) / Tn; vy = (ny - C.y - 0.5 * P.ay * Tn * Tn) / Tn; vz = (nz - C.z - 0.5 * P.az * Tn * Tn) / Tn;
     }
-    b.launchSpin(t, C.x, C.y, C.z, vx, vy, vz, P.wx, P.wy, P.wz);
+    // The flight is the plan, plus whatever of the real wind the hitter did not allow for
+    const w = b.wind;
+    const ex = w ? w.x - (allowed ? allowed.x : 0) : 0, ez = w ? w.z - (allowed ? allowed.z : 0) : 0;
+    b.launchPlanned(t, C.x, C.y, C.z, vx, vy, vz, P.wx, P.wy, P.wz, P.ax + P.wk * ex, P.ay, P.az + P.wk * ez);
     b.spin = spin; b.bounced = 0;
     fl.active = true; fl.kind = kind; fl.hitter = hitter; fl.receiver = 1 - hitter; fl.resolved = false;
     fl.bounces = 0; fl.let = false; fl.contactBy = -1; fl.tContact = INF; fl.shot = spin;
@@ -1631,7 +1636,7 @@ export class TennisSession {
     const sm = (0.2 + (1 - q) * 0.45 + (1 - ct) * 0.18) * (spin === 'flat' ? 1.3 : spin === 'topspin' ? 0.8 : 1) * (2 - fat) * press
       * (1 + risk * 0.5) * (onRun ? 1.2 : 1);
     margin += gauss() * sm;
-    if (spin === 'lob') margin = Math.max(margin, 0.5);
+    if (spin === 'lob') { margin = Math.max(margin, 0.5); pace = clamp(pace, 7.8, 11); } // (a lob always carries: ≤ ~3 s in the air)
     if (spin === 'drop' && depth < 1.2) depth = 1.2 + Math.random() * 0.4;
     const side = this.sides[0], opp = -side;
     const u = side * xs, v = opp * depth;

@@ -50,6 +50,7 @@ export const ROLL_VY = 0.8;              // a rebound slower than this (m/s up) 
 export const AIR_K = 0.036;
 export const CD = 0.3;
 export const WIND_K = 1.6;
+export const T_MAX = 3.0;                // longest planned flight (s): lobs stay readable and reachable
 
 /**
  * Playing surfaces. Bounce: e = vertical restitution, mu = sliding friction, grip = how far the
@@ -103,9 +104,11 @@ export function netTop(u) {
 
 /**
  * Acceleration of a ball with velocity v and spin W (world, m/s) in `wind` ({ x, z } m/s or
- * null): gravity + lift (W × v_h, saturating) + drag (horizontal) + wind. Writes out.x/y/z.
+ * null): gravity + lift (W × v_h, saturating) + drag (horizontal) + wind. Writes out.x/y/z
+ * and out.wk (the wind's coefficient: a = … + wk·wind). dragCap limits the drag deceleration
+ * (m/s²): a segment keeps its launch drag, so a long flight must not be braked to a standstill.
  */
-export function airAccel(vx, vy, vz, wx, wy, wz, wind, out) {
+export function airAccel(vx, vy, vz, wx, wy, wz, wind, out, dragCap = Infinity) {
   const hs = Math.sqrt(vx * vx + vz * vz);
   const sp = Math.sqrt(hs * hs + vy * vy);
   // Lift from the horizontal velocity only (a constant vertical term would push a rising
@@ -114,8 +117,10 @@ export function airAccel(vx, vy, vz, wx, wy, wz, wind, out) {
   const lm = Math.sqrt(lx * lx + ly * ly + lz * lz);
   const S = lm / (Math.max(hs, 1) * Math.max(sp, 1));
   const k = AIR_K / (1 + 2 * S);
-  const d = AIR_K * CD * sp;
-  const wk = wind ? d * WIND_K : 0;
+  let d = AIR_K * CD * sp;
+  if (d * hs > dragCap) d = dragCap / Math.max(hs, 1e-3);
+  const wk = d * WIND_K;
+  out.wk = wk;
   out.x = k * lx - d * vx + (wind ? wk * wind.x : 0);
   out.y = -G + k * ly;
   out.z = k * lz - d * vz + (wind ? wk * wind.z : 0);
@@ -236,7 +241,9 @@ export class TennisBallSim extends TennisBall {
     this.bounced = 0;                       // bounces since the last racket contact
     this.groundY = SURF;
     this.surface = SURFACES.hard;
-    this.wind = null;                       // { x, z } m/s, or null (calm)
+    this.wind = null;                       // live { x, z } m/s from the session, or null (calm)
+    this.flightWind = { x: 0, z: 0 };       // the wind this flight took at its racket launch
+    this.windOn = false;
   }
 
   /** Downward acceleration of the current segment (legacy readers). */
@@ -249,10 +256,23 @@ export class TennisBallSim extends TennisBall {
     this.launch(t, px, py, pz, vx, vy, vz);
   }
 
-  /** Segment with spin W: the acceleration comes from gravity, lift, drag and the wind. */
+  /**
+   * A racket launch with a planned acceleration (planFlight's, so the ball flies exactly the
+   * plan): takes a snapshot of the wind for the whole flight (its bounces use it too).
+   */
+  launchPlanned(t, px, py, pz, vx, vy, vz, wx, wy, wz, ax, ay, az) {
+    const wd = this.wind;
+    this.windOn = !!wd;
+    this.flightWind.x = wd ? wd.x : 0; this.flightWind.z = wd ? wd.z : 0;
+    this.w.set(wx, wy, wz);
+    this.a.set(ax, ay, az);
+    this.launch(t, px, py, pz, vx, vy, vz);
+  }
+
+  /** Segment with spin W (bounces, net cords): gravity, lift, drag and this flight's wind. */
   launchSpin(t, px, py, pz, vx, vy, vz, wx, wy, wz) {
     this.w.set(wx, wy, wz);
-    airAccel(vx, vy, vz, wx, wy, wz, this.wind, this.a);
+    airAccel(vx, vy, vz, wx, wy, wz, this.windOn ? this.flightWind : null, this.a);
     this.launch(t, px, py, pz, vx, vy, vz);
   }
 
@@ -324,6 +344,7 @@ export class BallPredictor {
     this.rolling = false;
     this.surf = SURFACES.hard;
     this.wind = null;
+    this._wind = { x: 0, z: 0 };
     this.x = 0; this.y = 0; this.z = 0;    // result
     this.vxr = 0; this.vyr = 0; this.vzr = 0; // velocity at the queried time (result)
     this._s = { px: 0, py: 0, pz: 0, vx: 0, vy: 0, vz: 0, ax: 0, ay: -G, az: 0, wx: 0, wy: 0, wz: 0, t0: 0 };
@@ -341,7 +362,7 @@ export class BallPredictor {
     this.bounces = ball.bounced;
     this.rolling = !!ball.rolling;
     this.surf = ball.surface || SURFACES.hard;
-    this.wind = ball.wind || null;
+    if (ball.windOn && ball.flightWind) { this._wind.x = ball.flightWind.x; this._wind.z = ball.flightWind.z; this.wind = this._wind; } else this.wind = null;
     return this;
   }
 
@@ -410,17 +431,20 @@ export function planFlight(out, cx, cy, cz, bx, bz, pace, spin, margin, minT, fr
   const W = spinVector(spin ? spin.top : 0, spin ? spin.side : 0, spin ? spin.gyro : 0, ux, uz, _w);
   out.wx = W.x; out.wy = W.y; out.wz = W.z;
   const P = Math.max(3, pace);
-  const T0 = Math.max(0.18, D / P, minT || 0);
+  const T0 = Math.min(T_MAX, Math.max(0.18, D / P, minT || 0));
   let T = T0;
   const L0 = frame ? frame.lv(cx, cz) : 0, L1 = frame ? frame.lv(bx, bz) : 0;
   const crosses = !!frame && (L0 > 0) !== (L1 > 0) && Math.abs(L1 - L0) > 1e-3;
-  const A = _acc; A.x = 0; A.y = -G; A.z = 0;
+  const A = _acc;
+  A.x = 0; A.y = -G; A.z = 0; A.wk = 0;
   let vx = 0, vy = 0, vz = 0;
-  for (let it = 0; it < 7; it++) {
+  for (let it = 0; it < 8; it++) {
     vx = (dx - 0.5 * A.x * T * T) / T;
     vy = (BALL_Y - cy - 0.5 * A.y * T * T) / T;
     vz = (dz - 0.5 * A.z * T * T) / T;
-    airAccel(vx, vy, vz, W.x, W.y, W.z, wind, A);
+    // (drag may take at most 45 % of the average pace over the flight: never a standstill)
+    airAccel(vx, vy, vz, W.x, W.y, W.z, wind, A, 0.45 * (D / T) / T);
+    if (!(Math.abs(A.x) + Math.abs(A.y) + Math.abs(A.z) < 200)) { A.x = 0; A.y = -G; A.z = 0; A.wk = 0; break; }
     if (!crosses) continue;
     vx = (dx - 0.5 * A.x * T * T) / T;
     vz = (dz - 0.5 * A.z * T * T) / T;
@@ -432,14 +456,14 @@ export function planFlight(out, cx, cy, cz, bx, bz, pace, spin, margin, minT, fr
     const base = cy + f * (BALL_Y - cy);
     const k = 0.5 * g * f * (1 - f);
     const tNeed = need > base && k > 1e-4 ? Math.sqrt((need - base) / k) : 0;
-    const Tn = margin >= 0 ? Math.max(T0, tNeed) : Math.max(D / (P * 1.5), tNeed);
+    const Tn = Math.min(T_MAX, margin >= 0 ? Math.max(T0, tNeed) : Math.max(D / (P * 1.5), tNeed));
     T = it < 3 ? Tn : 0.5 * (T + Tn);     // (damped once it is close)
   }
   vx = (dx - 0.5 * A.x * T * T) / T;
   vy = (BALL_Y - cy - 0.5 * A.y * T * T) / T;
   vz = (dz - 0.5 * A.z * T * T) / T;
   out.vx = vx; out.vy = vy; out.vz = vz;
-  out.ax = A.x; out.ay = A.y; out.az = A.z;
+  out.ax = A.x; out.ay = A.y; out.az = A.z; out.wk = A.wk || 0;
   out.T = T;
   out.tNet = Infinity; out.hNet = Infinity; out.netU = 0;
   if (crosses) {
@@ -453,4 +477,4 @@ export function planFlight(out, cx, cy, cz, bx, bz, pace, spin, margin, minT, fr
   return out;
 }
 const _w = { x: 0, y: 0, z: 0 };
-const _acc = { x: 0, y: 0, z: 0 };
+const _acc = { x: 0, y: 0, z: 0, wk: 0 };
