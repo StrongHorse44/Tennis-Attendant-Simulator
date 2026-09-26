@@ -13,6 +13,8 @@ import { TennisHUD } from './TennisHUD.js';
 import { TennisCamera } from './TennisCamera.js';
 import { TennisFX } from './TennisFX.js';
 import { TennisAudio } from './TennisAudio.js';
+import { TennisOcclusion } from './TennisOcclusion.js';
+import { TennisCrowd } from './TennisCrowd.js';
 
 /**
  * TennisSession — the after-hours tennis mode: an evening hit with Coach Rafa on Court 1
@@ -174,6 +176,8 @@ export class TennisSession {
     this.fx = new TennisFX(g.scene);
     this.cam = new TennisCamera(g.camera);
     this.audio = new TennisAudio(g.sound);
+    this.occ = new TennisOcclusion(g);   // see-through lights / fences / props between the camera and the play
+    this.crowd = new TennisCrowd(g);     // members go home, staff watch from the sidelines
     this.hud = new TennisHUD({
       onSwingDown: () => { this._hudSwing = true; },
       onSwingUp: () => { this._hudSwing = false; },
@@ -253,10 +257,10 @@ export class TennisSession {
     // Court 1 to ourselves
     if (g.matches) {
       g.matches.enabled = false;
-      for (const m of g.matches.matches.slice()) if (m.frame.id === this.frame.id) { try { g.matches._finish(m); } catch (e) { /* ignore */ } }
+      // After hours: every member match winds up (Rafa may be booked on another court)
+      for (const m of g.matches.matches.slice()) { try { g.matches._finish(m); } catch (e) { /* ignore */ } }
     }
     NPC.setAreaBusy(this.frame.id, true);
-    this._setFences(false);
 
     // Player: on foot, racket out, no collisions (we place the body ourselves)
     const p = g.player;
@@ -276,10 +280,12 @@ export class TennisSession {
     this.ball.hide();
     this.fx.hideAll();
     this.cam.snap(this);
+    try { this.occ.begin(this); } catch (err) { console.error('TennisOcclusion', err); }
     document.body.classList.add('cc-tennis');
     this.hud.show();
     this.openMenu(false);
     this.audio.start();
+    this._crowd('begin', this);
     npc.say(pick(['Vamos! The court is ours.', 'Evening light. The most honest light.', 'Hola! Warm up the feet first.']), 2.6);
     this._resetCtl();
     return true;
@@ -297,8 +303,9 @@ export class TennisSession {
     this.fx.hideAll();
     this.ball.hide();
     this.audio.stop();
+    try { this.occ.end(); } catch (err) { console.error('TennisOcclusion', err); }
+    this._crowd('end', this);
     document.body.classList.remove('cc-tennis');
-    this._setFences(true);
     NPC.setAreaBusy(this.frame.id, false);
     const npc = this.coachNpc;
     this.ai.reset();
@@ -366,15 +373,6 @@ export class TennisSession {
     this.ctl.swing = false;
     this._prevSwing = false;
     this._hudSwing = false;
-  }
-
-  _setFences(on) {
-    // The two back fences (chain link + windscreen) of our court would block the camera
-    const m = this.frame && this.frame.court && this.frame.court.mesh;
-    if (!m) return;
-    for (const ch of m.children) {
-      if (ch.name === 'court-chain' || ch.name === 'court-wind' || ch.name === 'court-sign') ch.visible = on;
-    }
   }
 
   // ─────────────────────────── modes ───────────────────────────
@@ -470,6 +468,7 @@ export class TennisSession {
     g.weather.setShadowFocus(_v1);
     g.weather.update(dt);
     this.cam.update(this, dt);
+    try { this.occ.update(this, dt); } catch (err) { /* cosmetic */ }
     this._coach('update', dt);
     this._crowd('update', this, dt);
     this.fx.update(dt);
@@ -665,7 +664,7 @@ export class TennisSession {
   _onSwingDown() {
     if (!this.active) return;
     const ph = this.phase, s = this.srv;
-    if (ph === 'serve' && s.who === 0 && !s.started) { this._serveToss(); return; }
+    if (ph === 'serve' && s.who === 0 && !s.started) { if (!this.cam.busy) this._serveToss(); return; }
     if (this._incoming()) { if (!this.chg.on) this._startCharge(); return; }
     // A practice swing between points (never mid-rally: it would plant your feet)
     if (this.t >= this.pl.swingFree && (ph === 'menu' || ph === 'feedWait' || ph === 'results')) {
@@ -845,7 +844,10 @@ export class TennisSession {
     if (sw.half && sw.q > 0.5) sw.label = sw.label === 'Perfect!' ? 'Half volley!' : sw.label;
     const kind = sw.label === 'Perfect!' || sw.label === 'Power shot!' || sw.label === 'Half volley!' ? 'perfect' : sw.q > 0.72 ? 'good' : 'meh';
     this.hud.pop(sw.label, kind);
-    if (sw.label === 'Perfect!' || sw.label === 'Power shot!') this._swingMomentum(0, 0.025);
+    if (sw.label === 'Perfect!' || sw.label === 'Power shot!') {
+      this._swingMomentum(0, 0.025);
+      this._crowd('react', sw.label === 'Power shot!' ? 'powerShot' : 'perfect', 0);
+    }
     this._coach('onSwing', sw);
     this.scheduleContact(0, tc, _R[best]);
   }
@@ -1405,6 +1407,7 @@ export class TennisSession {
       }
       if (t >= srv.tWhiff) { srv.tWhiff = INF; this._fault('miss'); }
     }
+    if (srv.who === 1 && !srv.started && this.cam.busy) srv.tAuto = Math.max(srv.tAuto, t + 0.6); // let the camera arrive
     if (srv.who === 1 && !srv.started && t >= srv.tAuto) this._startServe(1, 0.8);
     if (srv.started && t >= srv.tRelease) {
       srv.tRelease = INF;
@@ -1649,7 +1652,7 @@ export class TennisSession {
     this.stats.rallyShots += this.rallyShots;
     this.stats.longest = Math.max(this.stats.longest, this.rallyShots);
     if (this.rallyShots >= 6) this._xp('stamina', Math.min(3, 0.8 + 0.1 * (this.rallyShots - 6)));
-    if (this.rallyShots >= 9) this._crowd('react', 'longRally', winner);
+    if (this.rallyShots >= 9) this._crowd('react', 'longRally', winner, { shots: this.rallyShots });
     if (why === 'out' || why === 'net') {
       this.stats.errors[hitter]++;
       this.hud.pop(why === 'net' ? 'Net' : 'Out!', 'call');
@@ -1881,7 +1884,7 @@ export class TennisSession {
       this._xp('control', 0.35);
       if (this.fl.shot === 'topspin' || this.fl.shot === 'slice') this._xp('spin', 0.2);
       if (d.count >= 6) this._xp('stamina', 0.25);
-      if (d.count % 5 === 0) { this.hud.pop(`${d.count}!`, 'good'); this._crowd('react', 'longRally', 0); }
+      if (d.count % 5 === 0) { this.hud.pop(`${d.count}!`, 'good'); this._crowd('react', 'longRally', 0, { shots: d.count }); }
       this._coach('onDrillLanded', { hit: false, pts: 1, type: d.type, count: d.count });
       return; // the rally goes on: Rafa plays it back
     }

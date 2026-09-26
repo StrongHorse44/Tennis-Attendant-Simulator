@@ -51,6 +51,9 @@ export class TennisCamera {
   /** Change of ends: glide round (over the net) instead of cutting. */
   flip() { this._swing = 1; }
 
+  /** Still gliding to the other end (serves wait for it). */
+  get busy() { return this._swing > 0.08; }
+
   update(s, dt) {
     this._pose(s, _pos, _look);
     const cam = this.camera;
