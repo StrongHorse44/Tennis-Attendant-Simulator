@@ -41,7 +41,7 @@ const NEAR_V = HALF_L + 0.5;    // the fade ramps in over 0.5 m from here: full 
 const U_MAX = 10.2;             // across-court limit: Court 1's fence ends at |u| 9, Court 2's starts at 11
 const U_FEATHER = 0.6;
 const MIN_Y = 0.28;             // curbs, base plates, stray balls and the surface stay solid
-const KEEP = 0.8;               // fraction of pixels removed at full fade (3/16 remain as a ghost)
+const KEEP = 0.87;              // fraction of pixels removed at full fade (2/16 remain as a faint ghost)
 const RAMP = 0.4;               // s, fade in at begin / swap ends
 const NET_GUARD = 1.2;          // the segments never reach within this of the net (v)
 const CHEST_Y = 1.05, CHEST_R = 1.1;

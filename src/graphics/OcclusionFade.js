@@ -26,7 +26,7 @@ import * as THREE from 'three';
  *     (v * ends.w > ends.z), so the net band and posts are never touched;
  *   - everything below zone.w (curbs, base plates, stray balls, the court surface) stays.
  * Pixels are removed with a 4x4 Bayer threshold on gl_FragCoord: stable on screen, and at the
- * usual strength (uOccK ~0.8) 3 of every 16 pixels remain as a faint ghost of the structure.
+ * usual strength (uOccK ~0.87) 2 of every 16 pixels remain as a faint ghost of the structure.
  *
  * Shadows are untouched (depth materials are not patched): faded poles still cast shadows.
  * GTAO draws its gbuffer with an override material, so a driver should also flag faded
