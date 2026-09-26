@@ -560,27 +560,39 @@ export class TennisSession {
     let vu = 0, vv = 0;
     const planted = t < pl.swingFree || (this.phase === 'serve' && this.srv.who === 0) || this.phase === 'menu' || this.phase === 'results';
     if (!planted) {
-      // Charging: only small adjustment steps (be in position before you load up)
       const full = this._speed() * (pl.burst > 0 ? 1.12 : 1); // a quicker first step out of a split step
-      let speed = full * (this.chg.on ? 0.6 : 1);
-      const len = Math.min(1, Math.hypot(c.moveX, c.moveY));
-      if (len > 0.12) {
-        vu = side * c.moveX / Math.max(len, 1e-3) * speed * len;
-        vv = side * c.moveY / Math.max(len, 1e-3) * speed * len;
-      }
-      // Auto-move assist: drift toward the ideal hitting spot (or home after your shot)
-      if (this.opts.assist && pl.aValid && t >= pl.aFrom) {
-        const du = pl.ax - pl.u, dvv = pl.az - pl.v;
-        const d = Math.hypot(du, dvv);
-        if (d > 0.05) {
-          const as = Math.min(full * 0.88, d * 5); // a touch slower than your legs: steering still pays
-          const k = len > 0.12 ? 0.45 : 1;
-          vu = vu * (len > 0.12 ? 0.75 : 0) + du / d * as * k;
-          vv = vv * (len > 0.12 ? 0.75 : 0) + dvv / d * as * k;
+      if (this.chg.on) {
+        // Loading a stroke (Top Spin style): the stick aims now, the feet make the adjustment
+        // steps toward the ideal hitting spot — briskly with the assist, small steps without it
+        if (pl.aValid && t >= pl.aFrom) {
+          const du = pl.ax - pl.u, dvv = pl.az - pl.v;
+          const d = Math.hypot(du, dvv);
+          if (d > 0.05) {
+            const as = Math.min(full * (this.opts.assist ? 0.88 : 0.55), d * 5);
+            vu = du / d * as; vv = dvv / d * as;
+          }
         }
+      } else {
+        const speed = full;
+        const len = Math.min(1, Math.hypot(c.moveX, c.moveY));
+        if (len > 0.12) {
+          vu = side * c.moveX / Math.max(len, 1e-3) * speed * len;
+          vv = side * c.moveY / Math.max(len, 1e-3) * speed * len;
+        }
+        // Auto-move assist: drift toward the ideal hitting spot (or home after your shot)
+        if (this.opts.assist && pl.aValid && t >= pl.aFrom) {
+          const du = pl.ax - pl.u, dvv = pl.az - pl.v;
+          const d = Math.hypot(du, dvv);
+          if (d > 0.05) {
+            const as = Math.min(speed * 0.88, d * 5); // a touch slower than your legs: steering still pays
+            const k = len > 0.12 ? 0.45 : 1;
+            vu = vu * (len > 0.12 ? 0.75 : 0) + du / d * as * k;
+            vv = vv * (len > 0.12 ? 0.75 : 0) + dvv / d * as * k;
+          }
+        }
+        const sp = Math.hypot(vu, vv);
+        if (sp > speed) { vu *= speed / sp; vv *= speed / sp; }
       }
-      const sp = Math.hypot(vu, vv), cap = Math.max(speed, this.opts.assist && pl.aValid ? full * 0.88 : 0);
-      if (sp > cap) { vu *= cap / sp; vv *= cap / sp; }
     }
     // Feet, not skates: quick acceleration, quicker stops
     const speeding = vu * vu + vv * vv > pl.vu * pl.vu + pl.vv * pl.vv;

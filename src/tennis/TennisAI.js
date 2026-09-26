@@ -65,9 +65,9 @@ export const DIFFICULTY = {
   },
   hard: {
     label: 'Hard', xp: 1.35,
-    react: 0.22, speed: 5.6, tol: 0.15, bend: 1.0, lunge: 0.85, early: 0.7, netSpeed: 0.72,
-    pace: [15, 18.5], depth: [9.2, 11.2], width: 0.78, safeU: 0.9, safeV: 1.3,
-    sigma: [0.5, 0.62, 0.1], err: 0.082, flat: 0.24, slice: 0.14,
+    react: 0.2, speed: 5.75, tol: 0.15, bend: 1.0, lunge: 0.85, early: 0.7, netSpeed: 0.72,
+    pace: [15.5, 19], depth: [9.2, 11.2], width: 0.78, safeU: 0.9, safeV: 1.3,
+    sigma: [0.44, 0.55, 0.09], err: 0.064, flat: 0.24, slice: 0.14,
     aggression: 0.7, patience: 0, openCourt: 0.62, behind: 0.15, weakWing: 0.35,
     approach: 0.38, netDepth: 3.9, backDepth: 0.25, drop: 0.1, dropVolley: 0.25, lobAtNet: 0.45, lobDefend: 0.35,
     smashPace: [16, 19.5],

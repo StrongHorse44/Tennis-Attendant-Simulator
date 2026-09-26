@@ -106,7 +106,7 @@ export class RafaTactics {
     this.scout = new Scout();
     // Rally shot context (filled by chooseShot, reused)
     this.ctx = {
-      ret: false, volley: false, smash: false, block: false, hc: 0, mySv: 0, myU: 0, stretch: 0, vin: 0,
+      ret: false, volley: false, smash: false, block: false, hc: 0, mySv: 0, myU: 0, stretch: 0, vin: 0, slow: 0, heavy: 0,
       pu: 0, pd: 0, pvu: 0, fh: 1, rally: 0, nerves: 1, mo: 0, high: false, low: false, lobbed: false, dropped: false,
       wide: 0,
     };
@@ -154,6 +154,9 @@ export class RafaTactics {
     c.nerves = this._nerves();
     c.high = !c.smash && c.hc > 1.45;
     c.low = c.hc < 0.45;
+    // The incoming ball: a soft one gives him time (attack it), a heavy one rushes him
+    c.slow = clamp((12 - c.vin) / 5, 0, 1);
+    c.heavy = c.ret ? 0 : clamp((c.vin - 14) / 6, 0, 1);
     c.lobbed = s.fl.shot === 'lob';
     c.dropped = s.fl.shot === 'drop';
     out.minT = 0; out.kind = 'rally';
@@ -162,7 +165,7 @@ export class RafaTactics {
     if (c.ret) st.returns++;
 
     // Risk appetite: aggression (difficulty, momentum), patience in long rallies (Easy)
-    let appetite = d.aggression * (1 + 0.35 * c.mo);
+    let appetite = d.aggression * (1 + 0.35 * c.mo) * (1 + 0.6 * c.slow);
     if (c.rally > 4 && d.patience > 0) appetite *= 1 - d.patience * Math.min(1, (c.rally - 4) / 6);
     const defensive = c.stretch > 0.85 || (c.mySv > 13.3 && (c.low || c.high)) || (c.lobbed && c.mySv > 11.5 && !c.smash);
     const playerAtNet = c.pd < 7.2;
@@ -181,7 +184,7 @@ export class RafaTactics {
       fam = Math.random() < lobP ? 'lob' : 'pass';
     } else if (defensive) {
       fam = Math.random() < d.lobDefend * (c.stretch > 1.1 ? 1.5 : 1) ? 'lobDefend' : 'slice';
-    } else if (c.mySv < 10.9 && c.hc > 0.45 && c.stretch < 0.6 && !c.dropped && Math.random() < d.approach * (0.6 + appetite)) {
+    } else if (c.mySv < 10.9 && c.hc > 0.45 && c.stretch < 0.6 && !c.dropped && Math.random() < d.approach * (0.6 + appetite) * (1 + c.slow)) {
       fam = 'approach';
     } else if (c.pd > 12.4 && c.mySv < 12.6 && c.stretch < 0.45 && !c.high && Math.random() < d.drop * (c.rally > 3 ? 1.3 : 0.7)) {
       fam = 'drop';
@@ -355,7 +358,7 @@ export class RafaTactics {
     }
     // Rafa's pace is also his balance: stretched or rushed balls come back softer
     if (fam !== 'drop' && fam !== 'dropVolley' && fam !== 'lob' && fam !== 'lobDefend') {
-      pace *= 1 - Math.min(0.3, c.stretch * 0.22) - (c.block && fam !== 'blockReturn' ? 0.1 : 0);
+      pace *= 1 - Math.min(0.3, c.stretch * 0.22) - (c.block && fam !== 'blockReturn' ? 0.1 : 0) - 0.12 * c.heavy;
     }
     this._fam = fam;
     out.spin = spin; out.pace = pace; out.margin = margin;
@@ -371,9 +374,9 @@ export class RafaTactics {
   _scatter(out, fam, pressure, appetite) {
     const d = this.d, c = this.ctx, s = this.s, st = this.ai.stats;
     const ps = s.sides[0];
-    const hard = 0.55 * Math.min(1.4, c.stretch) + 0.45 * clamp((c.vin - 14) / 8, 0, 1)
-      + (c.high ? 0.35 : 0) + (c.low ? 0.3 : 0) + 0.2 * Math.max(0, pressure || 0);
-    let k = (1 + hard) * c.nerves;
+    const hard = 0.55 * Math.min(1.4, c.stretch) + 0.6 * clamp((c.vin - 13) / 7, 0, 1)
+      + (c.high ? 0.35 : 0) + (c.low ? 0.3 : 0) + 0.2 * Math.max(0, pressure || 0) - 0.35 * c.slow;
+    let k = Math.max(0.6, 1 + hard) * c.nerves;
     if (c.rally > 9) k *= 1 + 0.03 * (c.rally - 9);           // long rallies end eventually
     let ku = 1, kv = 1, km = 1, risk = 0;
     // Error mix [net, long, wide] per family
@@ -392,16 +395,18 @@ export class RafaTactics {
       case 'slice': risk = 0; pn = 0.5; pLong = 0.3; break;
       case 'dig': risk = 0.2; pn = 0.6; pLong = 0.1; break;
       default:
-        risk = 0.35 * appetite;
+        risk = 0.35 * appetite * (1 - 0.6 * c.slow); // a sitter: time to go for it without much risk
         if (out.spin === 'flat') { ku = 1.12; km = 1.3; risk += 0.15; pn = 0.4; pLong = 0.4; }
         else if (out.spin === 'topspin') { km = 0.8; pn = 0.3; pLong = 0.4; } else { pn = 0.5; pLong = 0.3; }
     }
     let depth = this._depth;
+    // Rushed by a heavy ball: a drive or slice lands shorter (something to attack)
+    if (c.heavy > 0 && (fam === 'drive' || fam === 'slice' || fam === 'driveReturn')) depth -= 1.3 * c.heavy;
     let u = out.u + gauss() * d.sigma[0] * k * ku;
     depth += gauss() * d.sigma[1] * k * kv;
     out.margin += gauss() * d.sigma[2] * k * km;
     // Mishit
-    let pErr = d.err * (1 + hard + risk) * c.nerves;
+    let pErr = d.err * Math.max(0.35, 1 + hard + risk) * c.nerves;
     if (c.rally > 8) pErr += d.err * 0.05 * (c.rally - 8);
     if (Math.random() < pErr) {
       st.mishits++;
