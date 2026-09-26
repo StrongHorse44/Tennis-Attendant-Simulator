@@ -13,6 +13,7 @@ import { TENNIS_STATS } from '../systems/PlayerProfile.js';
 const CSS = `
 body.cc-tennis .cc-hud-left, body.cc-tennis .cc-map, body.cc-tennis .cc-action,
 body.cc-tennis .cc-inv, body.cc-tennis .cc-toasts, body.cc-tennis .cc-radio { display: none !important; }
+body.cc-tennis-modal .cc-joy { display: none !important; }
 body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important; right: calc(var(--cc-safe-right) + 12px) !important; }
 .cct { position: fixed; inset: 0; pointer-events: none; z-index: 90; font-family: var(--cc-font-ui); color: var(--cc-cream); display: none; }
 .cct.is-on { display: block; }
@@ -299,6 +300,7 @@ export class TennisHUD {
   show() { this.root.classList.add('is-on'); }
   hide() {
     this.root.classList.remove('is-on');
+    document.body.classList.remove('cc-tennis-modal');
     this.hideMenu();
     this.hideResults();
     this.setPlayUi(false);
@@ -489,10 +491,16 @@ export class TennisHUD {
     for (const b of this.optBtns) b.setAttribute('aria-pressed', opts && opts[b.dataset.o] ? 'true' : 'false');
     this._fillProfile(profile);
     this.menu.classList.add('is-on');
+    this._modal();
     try { this.mq.play.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
   }
 
-  hideMenu() { this.menu.classList.remove('is-on'); this._blur(this.menu); }
+  hideMenu() { this.menu.classList.remove('is-on'); this._blur(this.menu); this._modal(); }
+
+  _modal() {
+    const on = this.menu.classList.contains('is-on') || this.results.classList.contains('is-on');
+    document.body.classList.toggle('cc-tennis-modal', on && this.root.classList.contains('is-on'));
+  }
 
   _blur(scope) {
     const a = document.activeElement;
@@ -562,8 +570,9 @@ export class TennisHUD {
     const r = d.record;
     q.record.textContent = r ? `Record vs Rafa: ${r.wins}–${r.losses} · drills done: ${r.drills}` : '';
     this.results.classList.add('is-on');
+    this._modal();
     try { q.again.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
   }
 
-  hideResults() { this.results.classList.remove('is-on'); this._blur(this.results); }
+  hideResults() { this.results.classList.remove('is-on'); this._blur(this.results); this._modal(); }
 }

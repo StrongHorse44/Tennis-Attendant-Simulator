@@ -45,6 +45,7 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── InteriorArt.js  # Shared interior furnishing builders (merged by material)
 │   │   ├── NavRooms.js     # Room/door nav graph so NPCs route through doorways
 │   │   ├── ItemProps.js    # Visible errand items: waiting at pickup spots, carried (hand bones / cart), set down on delivery
+│   │   ├── ClubUpgrades.js # Club projects in the world (koi, trophy, planters, scoreboard, patio heaters, hitting wall), shown when funded
 │   │   ├── Garden.js       # Paver walks, hedges, flower beds, animated fountain
 │   │   └── Scenery.js      # Instanced trees/grass/flowers/benches/lamps/blob shadows + wind sway
 │   ├── entities/
@@ -67,6 +68,7 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── MissionMarkers.js # Floating gold objective markers for place-based steps (pooled)
 │   │   ├── SmallTalk.js    # Per-member small-talk selector (greeting, personality, time-of-day, weather, mood lines)
 │   │   ├── ShiftSystem.js  # Daily loop: clock-in, checklist, rush windows, closing, report; wallet, tips, rank + perks
+│   │   ├── ShopSystem.js   # Club shop + services: buy / equip gear, cosmetics, cart upgrades; lessons; club projects; horn; validateShop
 │   │   ├── MatchSystem.js  # Scheduled member tennis matches (schedule.json): walk-in, rallies, scoring, rain, clay wear
 │   │   ├── RoutePlanner.js # A* over static physics boxes for scripted NPC walks (match walk-in / walk-off / rain shelter)
 │   │   ├── InventorySystem.js # Carry up to 3 items for errands
@@ -82,13 +84,15 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── GeometryUtils.js# Cached geometries (rounded boxes), mergeStaticMeshes, createInstanced
 │   │   ├── Sky.js          # Sky dome, stars, clouds, horizon hills + backdrop treeline
 │   │   └── PostFX.js       # Composer: MSAA, grade/vignette (medium), GTAO + bloom (high)
+│   ├── tennis/             # After-hours tennis with Coach Rafa: session, spin ball sim, AI, scoring, HUD, camera, FX, audio
 │   ├── ui/
 │   │   ├── theme.js        # Shared UI tokens (CSS custom properties --cc-*) + base classes (.cc-panel, .cc-btn…)
 │   │   ├── Joystick.js     # Virtual joystick (touch + mouse fallback)
 │   │   ├── DialogueBox.js  # Bottom-center dialogue overlay with choices (typewriter)
-│   │   ├── PauseMenu.js    # Pause button + menu: Resume, Settings (volume, graphics, camera), Save, Reset
+│   │   ├── PauseMenu.js    # Pause button + menu: Resume, Settings (volume, graphics, camera), Save, Locker, Reset
 │   │   ├── HUD.js          # Mini-map, task list, clock/weather, wallet, radio dispatch card, inventory, action button, toasts, grooming overlay (+ groom camera button)
 │   │   ├── GroomSummary.js # End-of-groom card with the paint-mask heatmap (auto-hides in game time)
+│   │   ├── ShopUI.js       # Shop / lessons / Locker overlay (tabs, item cards with stat deltas, project progress)
 │   │   └── ShiftReport.js  # End-of-shift report card (pay, tips, happiness, court quality, rank) + Next day
 │   └── utils/
 │       ├── Constants.js    # Colors, sizes, game tuning values, area enums
@@ -98,6 +102,7 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
     │   ├── map.json        # Club layout: areas, courts, paths, waypoints
     │   ├── npcs.json       # NPC definitions: names, archetypes (tipChance / tipRange), dialogue pools
     │   ├── missions.json   # Mission templates, dialogue scripts, branching choices, taskTypes pay, "shift" (wage, rush, ranks)
+    │   ├── shop.json       # Shop catalog: slots, items (stats / looks / cart looks), lessons, club projects, vendors
     │   ├── schedule.json   # Court reservations for member matches (MatchSystem)
     │   └── events.json     # Daily events calendar (EventSystem): week rotation, event modifiers, extra matches
     └── assets/             # Future: models, textures, audio files
@@ -160,7 +165,17 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 - **Money**: wages (`shift.hourlyWage` × hours worked), mission pay (`taskTypes[type].baseReward`, plus `groomBonus[rating]` on a maintenance mission after a groom) and tips. A tip rolls the client's archetype `tipChance` / `tipRange` (npcs.json), scaled by mood (`tipMoods`) and the Head of Grounds `tipBonus`. `onEarn` drives the HUD wallet and "+$X" floaters.
 - **Rank**: points = lifetime earnings + rep × `shift.repPoints`; rep comes from tasks, satisfied members, grooms and checklists (`shift.rep`). `shift.ranks` (points strictly increasing, first at 0) are Rookie Attendant → Court Attendant → Senior Attendant → Grounds Lead → Head of Grounds. Perks are cumulative (later ranks override a key): `cartSpeed` (fraction), `brushWidth` (m), `capColor`, `tipBonus`.
 - **Perk hooks**: `ShiftSystem.onPerks(perks)` → `Game._applyPerks`, which sets `cart.maxSpeedScale`, `cart.setBrushWidthBonus()` (paint width *and* the brush mesh) and `player.setCapColor()` (`Character.restyle({ hatColor, hatBrim })`, a cached geometry swap). `SIZES` / `GAME` are never mutated. `onPerks` also fires from `setState()`, so perks re-apply on every load.
-- The report card shows tasks, tips, member happiness, court quality (`CourtMaintenanceSystem.getAverageCleanliness()`), pay breakdown, checklists and rank progress.
+- The report card shows tasks, tips, member happiness, court quality (`CourtMaintenanceSystem.getAverageCleanliness()`), pay breakdown, "Spent today" (shop), checklists and rank progress.
+
+### Shop and spending (`systems/ShopSystem.js`, `ui/ShopUI.js`, `world/ClubUpgrades.js`, `public/data/shop.json`)
+
+- **What wages buy** (all data in `shop.json`, checked by `validateShop` in `npm run validate`): **Tennis gear** (slots `racket`, `strings`, `shoes`, `grip`; `stats` add to `PlayerProfile.getTennisStats()`, most with a trade-off; `look` colours the racket frame / strings, shoes, wristband), **Lessons** with Coach Rafa (`lessons.list[].boosts` → `profile.applyLesson`; `perDay` 2, price `basePrice + priceStep × lessons taken` capped at `maxPrice`), **Style** (`uniform`, `hat`, `eyewear`: `look` = Player style keys), **Cart** (`cartPaint`, `cartCanopy`, `cartLights`, `cartHorn`, `cartRack`: `cart` = `GolfCart.restyle` keys + `horn`), **Club projects** (contributions add up across days; each `id` must be a `ClubUpgrades` builder). `minRank` (rank index) locks an item; every non-optional slot has one free `starter` item (granted and worn on new games and old saves).
+- **Economy**: a shift pays about $300–450 (wage $144 + $90–200 task pay + $50–165 tips in full-shift test runs). Cosmetics $120–480, gear $120–1150, cart $180–900, lessons $150 → $400, projects $1,200–3,500 (about 3–10 shifts; all six ≈ $13,200).
+- **Entry points**: the **Shop** action at the pro shop counter (`Game._nearShopCounter`, customer side of the Building counter) opens every tab; talking to Jess or Rafa with nothing mission-related (`Game._offerShopTalk`; `shop.json → vendors`) offers "Browse the shop" / "Book a lesson" or small talk; the pause menu **Locker** opens `ShopUI` in locker mode (equip owned items only, over the pause menu). `Game.openShop({ vendor, tab, mode })` pauses with reason `'shop'` (no pause menu); Esc / ✕ closes and resumes (`togglePause` closes the shop first).
+- **State** lives in `PlayerProfile` (saved as `profile`): `owned`, `equipped`, `projects` (contributed $), `lessons`, `skills`, and `shop` (`day`, `spentToday`, `lessonsToday`, `spentTotal`; reset when the game day changes). Money goes through `profile.spend` → the shift wallet (rank points use lifetime earnings, so spending never costs rank). On load `profile.setState` emits `'load'` → `ShopSystem.applyAll()` re-grants starters, re-dresses the player / repaints the cart (`onLook`) and shows funded projects (`onProjectsChanged`).
+- **Looks**: `Player.setOutfit(look)` builds one complete style patch (`OUTFIT_KEYS`, defaults from `PLAYER_STYLE`) and restyles only when it changes; a shop hat replaces the staff cap, otherwise the rank `capColor` (gold Grounds Lead cap) still applies, and buying a hat while the rank cap is earned leaves it in the Locker until chosen. `Character.restyle` keys its geometry cache on the full style diff, so cumulative patches are safe. `GolfCart.restyle(look)` swaps cached merged paint / matte / headlight geometries (no extra draw calls); `ShopSystem.honk()` plays the equipped horn (H while driving).
+- **Club projects in the world** (`ClubUpgrades`, built hidden at load so shaders precompile, one or two merged meshes each on the buildings' prop / metal / lamp-glass materials, static bodies only while shown): koi + lily pads circling the fountain, a cup on the lounge trophy case (hidden beyond 32 m), brick planters by the entrance walk, a double-sided Court 1 scoreboard (canvas face redrawn only when `MatchSystem`'s court-1 score changes), patio heaters + colonnade lanterns (night glow), and a practice hitting wall with its own pad behind Court 2. All six add about 10 draw calls; the overview on medium measured 242 with everything funded.
+- **Feedback**: coin sound on every spend, wallet bump + status line in the shop, rank-up jingle when a project completes, and confetti + a toast when the shop closes. Members (not staff) mention funded projects in small talk (`SmallTalk.setClubTalkProvider` → `ShopSystem.clubTalk()`).
 
 ### Characters and clips (`entities/CharacterModel.js`, `CharacterAnimations.js`, `CharacterRig.js`)
 
@@ -175,6 +190,14 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 - The ball is analytic (`TennisBall`: parabolic segments on the match clock). Each contact is planned: the receiver runs to where the racket head will meet the ball (`getContactPointWorld`) and starts the swing exactly `contact` seconds early; the remaining flight is re-aimed at the real racket at swing start. One pooled ball per court, no per-frame allocation, frustum LOD on low.
 - Wear on clay is queued and flushed to `court.wearAt` every 0.4 s (one texture upload per court). Hit and bounce "pocks" go through `SoundSystem.playBallHit(volume, kind)` with distance attenuation.
 - Matches are not saved; after a load the schedule restarts any match still inside its late-start window. Dev: `__game.matches.debugStart('court1', ['chad_blake', 'tommy_chen'], { teleport: true, warmup: 0, gamesToWin: 1 })`, `.debugStop(id)`, `.list()`, `.enabled`.
+
+### After-hours tennis (`src/tennis/`)
+
+- **Entry**: the shift report's "Stay for a hit with Coach Rafa" button (`ShiftReport` `onTennis`), or talking to Rafa after `shiftClosingHour` (`TennisSession.offerFromNpc`, hooked in `Game._runAction` 'talk'). `begin()` sets 7:30 PM (clock frozen, rain cleared, weather rerolls held), takes Court 1 (`NPC.setAreaBusy`, any match there ends, its back fences / signs hidden for the camera), puts Rafa in the `playing` state and hides the regular HUD (`body.cc-tennis`). While `tennis.active`, `Game._update` hands the frame to `TennisSession.update(dt)`, which steps physics, NPCs, matches, world, weather and its own camera. Leaving (`end()`): Next day if the report was already shown, else the clock goes to 19:00 and the normal clock-out shows the report. Nothing is saved mid-session; a reload returns to the report card. XP and the record are written when a drill / match ends (or is abandoned via Menu), then autosaved.
+- **Files**: `TennisSession.js` (flow, player control, flights and events, scoring glue, XP, coach tips), `TennisBallSim.js` (analytic ball with per-segment gravity for spin: `SPIN` table — topspin dips and kicks, slice floats and skids; `BallPredictor` walks bounces; `planFlight` solves the flight time for a wanted net clearance; court constants), `TennisAI.js` (Rafa: intercept search on the predicted flight + contact probe, `DIFFICULTY` easy/medium/hard, shot choice, serves, drill feeds), `TennisScore.js` (pure scoring: deuce/ad, tiebreak at 6–6 / 4–4 with every-two-points serve rotation, change of ends; formats `short` / `set` / `bo3`), `TennisHUD.js`, `TennisCamera.js`, `TennisFX.js` (landing marker, target rings), `TennisAudio.js` (pocks via `playBallHit`, net thud, crickets).
+- **Controls**: move with the joystick / WASD (optional auto-move assist drifts toward the ideal hitting spot after a 0.22 s read); SWING button or Space / J — the racket meets the ball `LEAD` (0.18 s) after the press, quality comes from the predicted ball–racket distance at that instant (Perfect / Good / Early / Late / Stretch / whiff); the timing ring on the button closes at the ideal press. Stick direction at contact aims (left/right, up = deep, down = short). Shots: Flat / Topspin / Slice / Lob (buttons or 1–4). Serve: hold SWING, release in the green (0.72–0.93), stick aims; faults, lets (net cord) and double faults. Shot scatter / pace / net margin come from `PlayerProfile.getTennisStats()` (power, control, spin, speed, serve, stamina), fatigue and incoming pace.
+- **Balance** (headless bot, 50 ms timing noise): Easy ≈ comfortable wins, Medium ≈ even, Hard ≈ losses; average rally 4–7 shots. Tune in `DIFFICULTY` (`TennisAI.js`) and the sigma / margin lines in `_playerShot`. XP is capped at `XP_CAP` per stat per session.
+- **Dev**: `__game.tennis.begin('debug')`, `.startMatch('short', 'easy')`, `.startDrill('fh'|'bh'|'volley'|'serve')`, `.externalClock = true` + `._tick(1/60)` for headless stepping, `.bot = { think(session, dt) { session.ctl.* } }` to drive it. The session adds about 6 draw calls (ball, marker, targets).
 
 ### Rendering pipeline (`src/graphics/`)
 
@@ -350,6 +373,8 @@ Saves from a newer version, or with no migration path, are backed up to `courtca
 **Adding a setting:** Add a default to `DEFAULT_SETTINGS` and validation in `SettingsStore.load()` (`SaveSystem.js`), a control in `PauseMenu._buildSettingsView()` plus syncing in `_syncSettings()`, and apply it in the `settings.onChange` handler in `main.js`.
 
 **Adding a UI component:** Call `injectTheme()`, build DOM into `#ui-root`, and style it with the `--cc-*` variables and `.cc-*` classes. Keep touch targets at least 44px and respect `--cc-safe-*` insets. Stop pointer and touch events from reaching the canvas where needed (see `PauseMenu`).
+
+**Adding a shop item / lesson / project:** Add it to `public/data/shop.json` (`items[]` with `id`, `slot`, `name`, `desc`, `price`, optional `stats`, `look`, `cart`, `minRank`; `lessons.list[]` with `boosts`; `projects[]` with `cost`, `place`, `comments`) and run `npm run validate`. A new slot needs an entry in `slots` (with a free `starter` item unless `"optional": true`). A new project also needs a builder in `ClubUpgrades` and its id in `CLUB_UPGRADE_IDS` (`ShopSystem.js`); a new look key needs `PLAYER_LOOK_KEYS` / `CART_LOOK_KEYS` plus support in `Player` / `GolfCart`.
 
 **Adding inventory items:** Add a new entry to the `ITEMS` object in `src/systems/InventorySystem.js` with a name and emoji. Current items: `towels`, `ball_hopper`, `water_bottles`, `racket`.
 
