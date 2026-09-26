@@ -15,6 +15,7 @@ import { NPC, configureArchetypes } from './entities/NPC.js';
 import { Joystick } from './ui/Joystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
 import { injectTheme } from './ui/theme.js';
+import { PlayerProfile } from './systems/PlayerProfile.js';
 import { HUD } from './ui/HUD.js';
 import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
 import { Quality } from './graphics/Quality.js';
@@ -423,6 +424,21 @@ class Game {
       this.shift.recordReaction(mood);
     };
     this._wireShift();
+
+    // Player profile: owned gear, club project contributions, tennis skills and
+    // record. Spending comes out of the shift wallet (rank points use lifetime
+    // earnings, so spending never costs rank).
+    this.profile = new PlayerProfile();
+    this.profile.setWallet({
+      get: () => this.shift.wallet,
+      spend: (amount) => {
+        if (this.shift.wallet < amount) return false;
+        this.shift.wallet -= amount;
+        this.hud.setWallet(this.shift.wallet);
+        if (this.sound.playCoin) this.sound.playCoin();
+        return true;
+      },
+    });
 
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);

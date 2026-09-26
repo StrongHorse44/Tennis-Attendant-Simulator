@@ -15,6 +15,8 @@
  *   saveSystem.save(captureSaveData(game));
  */
 
+import { sanitizeProfile } from './PlayerProfile.js';
+
 export const SAVE_KEY = 'courtcall.save.v1';
 export const SAVE_BACKUP_KEY = 'courtcall.save.v1.backup';
 export const SETTINGS_KEY = 'courtcall.settings';
@@ -245,6 +247,7 @@ export function sanitizeSave(raw) {
     groomSession,
     courtDegradeTimer: num(raw.courtDegradeTimer, NaN, 0, 1e6),
     shift: sanitizeShift(raw.shift),
+    profile: sanitizeProfile(raw.profile),
     flags: {
       tutorialSeen: bool(flags.tutorialSeen),
       groomTutorialSeen: bool(flags.groomTutorialSeen),
@@ -387,6 +390,7 @@ export function captureSaveData(game) {
     groomSession: cm.session || null,
     courtDegradeTimer: cm.degradeTimer,
     shift: game.shift ? game.shift.getState() : null,
+    profile: game.profile ? game.profile.getState() : null,
     flags,
   };
 }
@@ -447,6 +451,7 @@ export function applySaveData(game, data) {
   step('missions', () => missionSystem.setState(data.missions));
   // After time/weather (the phase is checked against the clock) and missions (routines)
   step('shift', () => { if (game.shift) game.shift.setState(data.shift); });
+  step('profile', () => { if (game.profile && data.profile) game.profile.setState(data.profile); });
 
   step('cart', () => {
     if (!data.cart) return;
