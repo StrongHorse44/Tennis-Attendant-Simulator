@@ -1,4 +1,5 @@
 import { CameraTracker } from '../entities/CharacterModel.js';
+import { EnvState } from '../graphics/EnvState.js';
 
 /**
  * TennisAudio — sound for the after-hours mode, all through the shared SoundSystem (master
@@ -14,7 +15,7 @@ export class TennisAudio {
   }
 
   start() { this.on = true; this._next = 0.6; }
-  stop() { this.on = false; }
+  stop() { this.on = false; if (this.sound) this.sound.ambientHold = false; }
 
   _vol(pos) {
     if (!CameraTracker.valid) return 0.8;
@@ -51,9 +52,53 @@ export class TennisAudio {
     } catch (e) { /* audio is optional */ }
   }
 
+  /**
+   * Racket whoosh for a loaded swing: band-passed air noise whose pitch and loudness peak
+   * `peakIn` seconds from now (the ball contact), louder and brighter with power.
+   */
+  whoosh(power = 1, peakIn = 0.16) {
+    const s = this.sound;
+    if (!s || !s.initialized || s.paused || s.muted) return;
+    try {
+      const ctx = s.ctx, now = ctx.currentTime;
+      const p = Math.max(0, Math.min(1, power));
+      if (!this._noise) {
+        // Lightly smoothed noise: airy rather than hissy
+        const n = Math.floor(ctx.sampleRate * 0.6);
+        this._noise = ctx.createBuffer(1, n, ctx.sampleRate);
+        const d = this._noise.getChannelData(0);
+        let b = 0;
+        for (let i = 0; i < n; i++) { b = b * 0.35 + (Math.random() * 2 - 1) * 0.65; d[i] = b; }
+      }
+      const tp = now + Math.max(0.06, peakIn);
+      const t1 = tp + 0.07 + 0.06 * (1 - p);
+      const fPeak = (1100 + 1700 * p) * (0.94 + Math.random() * 0.12);
+      const src = ctx.createBufferSource();
+      src.buffer = this._noise;
+      src.playbackRate.value = 0.9 + Math.random() * 0.2;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.Q.value = 1.4 + 1.2 * p;
+      bp.frequency.setValueAtTime(fPeak * 0.35, now);
+      bp.frequency.exponentialRampToValueAtTime(fPeak, tp);        // racket head accelerating
+      bp.frequency.exponentialRampToValueAtTime(fPeak * 0.5, t1);  // and past the ear
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.06 + 0.16 * p, tp);
+      g.gain.exponentialRampToValueAtTime(0.0001, t1);
+      src.connect(bp); bp.connect(g); g.connect(s.masterGain);
+      src.start(now, Math.random() * 0.2);
+      src.stop(t1 + 0.02);
+    } catch (e) { /* audio is optional */ }
+  }
+
   /** Evening crickets: schedule a chirp now and then (no continuous nodes). */
   update(dt) {
     if (!this.on) return;
+    // The session starts in daylight: birds until dusk, crickets once the lights come on
+    const dusk = EnvState.lampFactor > 0.45;
+    if (this.sound) this.sound.ambientHold = dusk;
+    if (!dusk) return;
     this._next -= dt;
     if (this._next > 0) return;
     this._next = 0.7 + Math.random() * 1.6;

@@ -4,9 +4,10 @@ import { getGeometry } from '../graphics/GeometryUtils.js';
 
 /**
  * TennisFX — flat court overlays for the after-hours mode: the landing marker for the
- * incoming ball (optional aid), drill target rings, and a small burst ring where a drill
- * shot lands. A handful of unlit meshes (≤ 6 draw calls, only while the mode runs), with
- * shared geometries and per-role materials; nothing allocates per frame.
+ * incoming ball (optional aid), the aim guide while a stroke is loaded (optional aid), drill
+ * target rings, and a small burst ring where a drill shot lands. A handful of unlit meshes
+ * (≤ 8 draw calls, only while the mode runs), with shared geometries and per-role materials;
+ * nothing allocates per frame.
  */
 
 const MAX_TARGETS = 3;
@@ -54,6 +55,14 @@ export class TennisFX {
       this.root.add(m);
       this.targets.push(m);
     }
+    // Aim guide: a crosshair ring on Rafa's side where the stick is pointing
+    const aimRing = getGeometry('tennisAimRing', () => new THREE.RingGeometry(0.6, 0.78, 36));
+    const aimDot = getGeometry('tennisAimDot', () => new THREE.CircleGeometry(0.16, 12));
+    this.aimMat = flatMat('tennisAimMat', 0x9fe8ff, 0.85);
+    this.aim = flatMesh(aimRing, this.aimMat, 4);
+    this.aimDot = flatMesh(aimDot, this.aimMat, 4);
+    this.root.add(this.aim, this.aimDot);
+    this._aimOn = false;
     this.burstMat = getMaterial('tennisBurstMat', () => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, depthWrite: false, fog: false }));
     this.burst = flatMesh(burst, this.burstMat, 5);
     this.root.add(this.burst);
@@ -74,6 +83,18 @@ export class TennisFX {
   hideMarker() {
     this.marker.visible = this.markerDot.visible = false;
     this._markerOn = false;
+  }
+
+  showAim(x, y, z) {
+    this.aim.position.set(x, y + Y_OFF * 1.2, z);
+    this.aimDot.position.set(x, y + Y_OFF * 1.2, z);
+    if (!this._aimOn) { this.aim.visible = this.aimDot.visible = true; this._aimOn = true; }
+  }
+
+  hideAim() {
+    if (!this._aimOn) return;
+    this.aim.visible = this.aimDot.visible = false;
+    this._aimOn = false;
   }
 
   /** list: [{ x, z, r }] (world) — up to three rings. */
@@ -97,6 +118,7 @@ export class TennisFX {
 
   hideAll() {
     this.hideMarker();
+    this.hideAim();
     for (const m of this.targets) m.visible = false;
     this.burst.visible = false;
     this._burstT = 0;
@@ -117,6 +139,7 @@ export class TennisFX {
         this.burstMat.opacity = 1 - k;
       }
     }
+    if (this._aimOn) this.aim.scale.setScalar(1 + 0.08 * Math.sin(this._t * 12));
     const pulse = 0.6 + 0.2 * Math.sin(this._t * 3);
     this.targetMat.opacity = pulse;
   }

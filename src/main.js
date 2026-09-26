@@ -966,7 +966,7 @@ class Game {
     // Check NPCs
     const hits = this._hits;
     for (const npc of this.npcs) {
-      if (!npc.mesh) continue;
+      if (!npc.mesh || npc.away) continue;
       hits.length = 0;
       raycaster.intersectObjects(npc.mesh.children, true, hits);
       if (hits.length > 0 && npc.distanceTo(this._getPlayerWorldPos()) < GAME.interactionRange) {
@@ -1034,6 +1034,7 @@ class Game {
       let closestDist = GAME.interactionRange;
 
       for (const npc of this.npcs) {
+        if (npc.away) continue; // gone home (after-hours tennis)
         const dist = npc.distanceTo(playerPos);
         if (dist < closestDist) {
           closestDist = dist;
@@ -1280,6 +1281,7 @@ class Game {
       const c = (this.mapData.areas.courts || []).find(k => k.id === id);
       return (c && c.label) || id;
     };
+    if (npc.away) return null;
     if (npc.playing && npc.playing.courtId) return `playing a match on ${courtLabel(npc.playing.courtId)}`;
     const id = this._detectCurrentArea(npc.body.position);
     if (!id) return null;
@@ -1658,6 +1660,7 @@ class Game {
     this.paused = true;
     this.pauseReason = reason;
     this._pausedAt = performance.now();
+    if (this.tennis && this.tennis.active) this.tennis.onPause();
     this.input.setEnabled(false);
     this.sound.setPaused(true);
     if (this.dialogueBox && this.dialogueBox.setPaused) this.dialogueBox.setPaused(true);

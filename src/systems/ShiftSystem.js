@@ -301,6 +301,10 @@ export class ShiftSystem {
     if (this.phase !== 'report' && this.phase !== 'ending') return false;
     if (this.phase === 'ending') this.finishShift();
     this.weather.startNewDay(this.startHour);
+    if (this.getEvent) this.getEvent();   // today's event may set the morning weather (it applies lazily)
+    // Refresh EnvState (7:00, today's weather) before the first board reads it: the game may be
+    // paused on the report card, or coming out of the after-hours tennis clock
+    if (typeof this.weather.update === 'function') this.weather.update(0);
     this.missions.newDay();
     this.shift = createShiftCounters();
     this.phase = 'preShift';

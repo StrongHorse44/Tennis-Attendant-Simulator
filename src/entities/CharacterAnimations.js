@@ -92,6 +92,29 @@ const HANDS_ON_HIPS = {
   armL: [12, 0, 42], foreArmL: [-20, 0, -105], handL: [0, 0, 0],
 };
 
+// Seated on a bench (the looping 'sit' clip and the seated one-shots share it)
+const SIT = {
+  hipsPos: [0, -0.07, 0], hips: [-6, 0, 0], spine: [14, 0, 0], chest: [4, 0, 0], head: [-10, 0, 0],
+  legL: [-48, 0, 5], legR: [-48, 0, -5], shinL: [44, 0, 0], shinR: [44, 0, 0], footL: [6, 0, 0], footR: [6, 0, 0],
+  armL: [-26, 0, -6], armR: [-26, 0, 6], foreArmL: [-34, 0, 0], foreArmR: [-34, 0, 0], racket: [-40, 0, 0],
+};
+
+// Applause: the forearms swing the palms together in front of the chest (palm gap ~0.3 → ~0.05)
+const CLAP_OPEN = { armR: [-34, 0, 22], armL: [-34, 0, -22], foreArmR: [-78, 6, 0], foreArmL: [-78, -6, 0], handR: [-8, 0, 0], handL: [-8, 0, 0] };
+const CLAP_SHUT = { armR: [-36, 0, 28], armL: [-36, 0, -28], foreArmR: [-80, 32, 0], foreArmL: [-80, -32, 0], handR: [-8, 0, 0], handL: [-8, 0, 0] };
+
+/** `count` claps from `start`, one every `period` s (accelerate into the clap, ease back out). */
+function clapKeys(start, count, period, open = {}, shut = {}) {
+  const keys = [];
+  for (let i = 0; i < count; i++) {
+    const t = start + i * period;
+    keys.push({ t, ease: 'in', ...CLAP_OPEN, ...open });
+    keys.push({ t: t + period * 0.5, ease: 'out', ...CLAP_SHUT, ...shut });
+  }
+  keys.push({ t: start + count * period, ease: 'inOut', ...CLAP_OPEN, ...open });
+  return keys;
+}
+
 // Walk (one cycle = two steps); the second half mirrors the first.
 const WALK_HALF = [
   { t: 0, // right heel strike
@@ -286,20 +309,60 @@ export const CLIP_DEFS = {
     ],
   },
 
+  // Applause (spectators): five claps in front of the chest with a little bob
+  clap: {
+    duration: 1.9, base: STAND,
+    keys: [
+      { t: 0, ease: 'out' },
+      ...clapKeys(0.26, 5, 0.26, { head: [3, 0, 0], chest: [2, 0, 0] }, { hipsPos: [0, -0.02, 0], head: [6, 0, 0], chest: [4, 0, 0] }),
+      { t: 1.9 },
+    ],
+  },
+
   // ── Seated ──
   sit: {
-    duration: 6, loop: true,
-    base: {
-      hipsPos: [0, -0.07, 0], hips: [-6, 0, 0], spine: [14, 0, 0], chest: [4, 0, 0], head: [-10, 0, 0],
-      legL: [-48, 0, 5], legR: [-48, 0, -5], shinL: [44, 0, 0], shinR: [44, 0, 0], footL: [6, 0, 0], footR: [6, 0, 0],
-      armL: [-26, 0, -6], armR: [-26, 0, 6], foreArmL: [-34, 0, 0], foreArmR: [-34, 0, 0], racket: [-40, 0, 0],
-    },
+    duration: 6, loop: true, base: SIT,
     keys: [
       { t: 0 },
       { t: 2.2, ease: 'inOut', head: [-8, 22, 0], chest: [4, 5, 0] },
       { t: 3.4, ease: 'inOut', head: [-8, 20, 2], chest: [4, 5, 0] },
       { t: 4.8, head: [-12, -16, 0], chest: [4, -3, 0] },
       { t: 6 },
+    ],
+  },
+  // Seated one-shots (play over 'sit' and fade back to it; the legs stay on the bench)
+  sit_clap: {
+    duration: 1.9, base: SIT,
+    keys: [
+      { t: 0, ease: 'out' },
+      ...clapKeys(0.26, 5, 0.26, { spine: [10, 0, 0], head: [-8, 0, 0] }, { spine: [12, 0, 0], head: [-5, 0, 0] }),
+      { t: 1.9 },
+    ],
+  },
+  sit_wave: {
+    duration: 2.1, base: SIT,
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.35, armR: [0, 0, -150], foreArmR: [0, 0, 32], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 0.6, armR: [0, 0, -148], foreArmR: [0, 0, -12], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 0.85, armR: [0, 0, -150], foreArmR: [0, 0, 32], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 1.1, armR: [0, 0, -148], foreArmR: [0, 0, -12], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 1.4, ease: 'inOut', armR: [0, 0, -146], foreArmR: [0, 0, 8], chest: [2, 0, -4], head: [-12, 0, 5] },
+      { t: 2.1 },
+    ],
+  },
+  sit_cheer: {
+    duration: 2.2, base: SIT,
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.3, ease: 'out', hipsPos: [0, -0.05, 0], spine: [0, 0, 0], chest: [-6, 0, 0], head: [-18, 0, 0],
+        armR: [-14, 0, -150], armL: [-14, 0, 150], foreArmR: [-24, 0, 0], foreArmL: [-24, 0, 0] },
+      { t: 0.56, ease: 'inOut', hipsPos: [0, -0.065, 0], spine: [5, 0, 0], chest: [-3, 0, 0], head: [-12, 0, 0],
+        armR: [-26, 0, -126], armL: [-26, 0, 126], foreArmR: [-68, 0, 0], foreArmL: [-68, 0, 0] },
+      { t: 0.82, ease: 'out', hipsPos: [0, -0.05, 0], spine: [0, 0, 0], chest: [-6, 0, 0], head: [-20, 0, 0],
+        armR: [-12, 0, -154], armL: [-12, 0, 154], foreArmR: [-18, 0, 0], foreArmL: [-18, 0, 0] },
+      ...clapKeys(1.2, 2, 0.26, { spine: [10, 0, 0], head: [-10, 0, 0] }, { spine: [12, 0, 0], head: [-6, 0, 0] }),
+      { t: 2.2 },
     ],
   },
   drive: {
@@ -447,6 +510,59 @@ export const CLIP_DEFS = {
         hips: [6, 12, 0], spine: [14, 4, 0], chest: [8, 10, 0], head: [-20, -10, 0], hipsPos: [0, -0.11, 0.05],
         ik: { L: [0.2, 0, 0.18, 8], R: [-0.24, 0, 0.0, -14] } },
       { t: 2.2 },
+    ],
+  },
+  // Overhead smash: trophy (still 0.25–0.35, held while charging), racket drop, contact high and forward
+  smash: {
+    duration: 1.4, base: READY, events: { contact: 0.7 },
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.32, ease: 'inOut', hips: [0, -40, 0], spine: [-6, -8, 0], chest: [-8, -10, 0], head: [-40, 44, 0], hipsPos: [0.02, -0.12, -0.04],
+        ik: { L: [0.14, 0, 0.2, -25], R: [-0.22, 0, -0.12, -65] }, armR: [-90, -30, -95], foreArmR: [-110, 0, 0], handR: [0, 0, 0], racket: [0, 0, 0],
+        armL: [-165, 0, 6], foreArmL: [-10, 0, 0], handL: [0, 0, 0] },
+      { t: 0.55, ease: 'in', hips: [0, -22, 0], spine: [-10, -4, 0], chest: [-8, -2, 0], head: [-42, 26, 0], hipsPos: [0.02, -0.07, 0],
+        ik: { L: [0.14, 0, 0.2, -25], R: [-0.2, 0.02, -0.1, -55, 20] }, armR: [90, -10, -150], foreArmR: [-140, 0, 0], handR: [0, 0, 0],
+        armL: [-130, 0, 8], foreArmL: [-20, 0, 0] },
+      { t: 0.7, ease: 'out', hips: [0, 8, 0], spine: [4, 4, 0], chest: [4, 10, 0], head: [-34, 0, 0], hipsPos: [0, 0.02, 0.06],
+        ik: { L: [0.12, 0, 0.28, -10], R: [-0.14, 0.08, -0.08, -10, 35] }, armR: [0, 0, -168], foreArmR: [-6, 0, 0], handR: [-10, 0, 0],
+        armL: [-40, 0, 20], foreArmL: [-100, -40, 0] },
+      { t: 0.95, ease: 'inOut', hips: [4, 34, 0], spine: [22, 14, 0], chest: [20, 30, 0], head: [-14, -26, 0], hipsPos: [0, -0.12, 0.1],
+        ik: { L: [0.14, 0, 0.3, 0], R: [-0.16, 0.1, -0.2, -10, 40] }, armR: [-40, 0, 44], foreArmR: [-22, 0, 0], handR: [0, 0, 0],
+        armL: [-20, 0, 30], foreArmL: [-90, -30, 0] },
+      { t: 1.4 },
+    ],
+  },
+  // Volleys: short take-back (still at 0.16, held while charging), firm punch out in front
+  volley_fh: {
+    duration: 0.9, base: READY, events: { contact: 0.3 },
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.16, hips: [6, -20, 0], spine: [12, -14, 0], chest: [4, -22, 0], head: [-16, 30, 0], hipsPos: [-0.02, -0.14, 0],
+        ik: { L: [0.24, 0, 0.04, 10], R: [-0.26, 0, -0.02, -30] }, armR: [-40, -10, -50], foreArmR: [-95, 0, 0], handR: [-20, 0, -30], racket: [0, 0, 0],
+        armL: [-60, -20, 0], foreArmL: [-40, 0, 0] },
+      { t: 0.3, ease: 'out', hips: [6, 0, 0], spine: [14, -2, 0], chest: [6, -4, 0], head: [-14, 12, 0], hipsPos: [0, -0.17, 0.08],
+        ik: { L: [0.2, 0, 0.34, 4], R: [-0.26, 0.02, -0.04, -30, 15] }, armR: [-62, 24, -44], foreArmR: [-40, 0, 0], handR: [-30, 0, -20],
+        armL: [-30, 20, 10], foreArmL: [-60, 0, 0] },
+      { t: 0.45, ease: 'inOut', hips: [6, 4, 0], spine: [14, 0, 0], chest: [6, 0, 0], head: [-14, 8, 0], hipsPos: [0, -0.17, 0.08],
+        ik: { L: [0.2, 0, 0.34, 4], R: [-0.26, 0.02, -0.04, -30, 15] }, armR: [-66, 28, -42], foreArmR: [-38, 0, 0], handR: [-30, 0, -20],
+        armL: [-30, 20, 10], foreArmL: [-60, 0, 0] },
+      { t: 0.9 },
+    ],
+  },
+  volley_bh: {
+    duration: 0.9, base: READY, events: { contact: 0.3 },
+    keys: [
+      { t: 0, ease: 'out' },
+      { t: 0.16, hips: [6, 22, 0], spine: [12, 16, 0], chest: [6, 26, 0], head: [-16, -34, 0], hipsPos: [0.02, -0.14, 0],
+        ik: { L: [0.26, 0, -0.02, 30], R: [-0.22, 0, 0.06, -10] }, armR: [-70, 0, 40], foreArmR: [-80, 0, 0], handR: [-40, 0, 0], racket: [0, 0, 0],
+        armL: [-50, 0, -10], foreArmL: [-100, -40, 0] },
+      { t: 0.3, ease: 'out', hips: [6, 8, 0], spine: [14, 8, 0], chest: [6, 10, 0], head: [-14, 16, 0], hipsPos: [0, -0.17, 0.08],
+        ik: { L: [0.26, 0.02, -0.04, 30, 15], R: [-0.18, 0, 0.34, -4] }, armR: [-80, 0, 44], foreArmR: [-18, 0, 0], handR: [-45, 0, 0],
+        armL: [10, 0, 30], foreArmL: [-20, 0, 0] },
+      { t: 0.45, ease: 'inOut', hips: [6, 0, 0], spine: [14, 0, 0], chest: [6, -2, 0], head: [-14, 12, 0], hipsPos: [0, -0.17, 0.08],
+        ik: { L: [0.26, 0.02, -0.04, 30, 15], R: [-0.18, 0, 0.34, -4] }, armR: [-84, 0, 40], foreArmR: [-16, 0, 0], handR: [-45, 0, 0],
+        armL: [16, 0, 34], foreArmL: [-18, 0, 0] },
+      { t: 0.9 },
     ],
   },
   pickup_ball: {

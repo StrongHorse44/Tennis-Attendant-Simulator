@@ -148,6 +148,50 @@ export class TennisScore {
     return out.join('  ');
   }
 
+  /** Player i wins the current game if they win the next point. */
+  gamePointFor(i) {
+    if (this.done) return false;
+    const a = this.pts[i], b = this.pts[1 - i];
+    if (this.tiebreak) return a >= 6 && a - b >= 1;
+    return a >= 3 && a - b >= 1;
+  }
+
+  /** Player i wins the current set with the next point. */
+  setPointFor(i) {
+    if (!this.gamePointFor(i)) return false;
+    if (this.tiebreak) return true;
+    const ga = this.games[i] + 1, gb = this.games[1 - i];
+    return ga >= this.gamesPerSet && ga - gb >= 2;
+  }
+
+  /** Player i wins the match with the next point. */
+  matchPointFor(i) { return this.setPointFor(i) && this.setsWon[i] + 1 >= this.setsToWin; }
+
+  /**
+   * The biggest thing riding on the next point, or null:
+   * { kind: 'match' | 'set' | 'break' | 'game', for: 0 | 1 }. A break point is a game point
+   * for the receiver (never inside a tiebreak).
+   */
+  pressure() {
+    if (this.done) return null;
+    for (const k of ['match', 'set']) {
+      for (let i = 0; i < 2; i++) {
+        if (k === 'match' ? this.matchPointFor(i) : this.setPointFor(i)) return this._pr(k, i);
+      }
+    }
+    if (!this.tiebreak) {
+      const rcv = 1 - this.currentServer;
+      if (this.gamePointFor(rcv)) return this._pr('break', rcv);
+    }
+    return null;
+  }
+
+  _pr(kind, who) {
+    const p = this._press || (this._press = { kind: '', for: 0 });
+    p.kind = kind; p.for = who;
+    return p;
+  }
+
   /** Games won by player i in set k (k = current set when k === this.sets.length). */
   gamesIn(k, i) {
     if (k < this.sets.length) return this.sets[k].g[i];

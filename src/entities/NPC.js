@@ -201,8 +201,11 @@ const REACTION_CLIPS = {
   '\uD83D\uDE0A': 'react_happy', '\uD83D\uDE00': 'react_happy', '\uD83D\uDE03': 'react_happy', '\uD83C\uDF89': 'react_happy', '\uD83D\uDC4D': 'react_happy',
   '\uD83D\uDE24': 'react_annoyed', '\uD83D\uDE20': 'react_annoyed', '\uD83D\uDE21': 'react_annoyed', '\uD83D\uDE12': 'react_annoyed',
   '\uD83E\uDD37': 'shrug', '\uD83E\uDD14': 'shrug',
+  '\uD83D\uDC4F': 'clap', '\uD83D\uDE4C': 'react_happy',
 };
 const MOOD_CLIPS = { satisfied: 'react_happy', unsatisfied: 'react_annoyed', neutral: 'shrug' };
+// Seated versions of reaction clips: a member on a bench cheers / claps without getting up
+const SEATED_CLIPS = { clap: 'sit_clap', react_happy: 'sit_cheer', cheer: 'sit_cheer', celebrate: 'sit_cheer', happy: 'sit_cheer', wave: 'sit_wave' };
 
 const WALK_STRIDE = 1.45;   // model units per walk cycle (CLIP_DEFS.walk.stride)
 const RUN_STRIDE = 2.4;
@@ -213,7 +216,7 @@ const _tmpV = new THREE.Vector3();
 
 // One-shot clips a new movement command may cut short (swings / serves always finish)
 const INTERRUPTIBLE = new Set(['split_step', 'react_happy', 'react_annoyed', 'shrug', 'wave', 'greet',
-  'idle_look', 'idle_shift', 'idle_watch']);
+  'idle_look', 'idle_shift', 'idle_watch', 'clap', 'sit_clap', 'sit_cheer', 'sit_wave']);
 
 // Areas (e.g. a court with a match on) wandering NPCs should not pick as a destination
 const _busyAreas = new Set();
@@ -346,6 +349,10 @@ export class NPC {
     this._bubbleTimer = 0;
     this._dutyFace = null;       // yaw to face while standing at a duty point
     this._dutySitTime = 0;       // sit time for the next _sitDown (duty seats)
+    this._holdFace = null;       // yaw to face while held standing (shelter point with a `face`)
+    /** Gone home (after hours): hidden, no physics body, update() skipped. See setAway(). */
+    this.away = false;
+    this._overlaysHidden = false; // name tag + "!" marker suppressed (setOverlaysHidden)
 
     CameraTracker.install(scene);
     this._blobs = BlobShadows.get(scene);
@@ -556,11 +563,100 @@ export class NPC {
 
   setHasRequest(val) {
     this.hasRequest = val;
-    this.exclamation.visible = val;
+    this.exclamation.visible = val && !this._overlaysHidden;
     if (val) this._markerTime = 0;
   }
 
-  showReaction(emoji) {
+  /**
+   * Suppress the name tag and the "!" request marker (e.g. staff watching courtside, where they
+   * would only clutter the view). Speech bubbles and reaction emoji still show.
+   */
+  setOverlaysHidden(hidden) {
+    this._overlaysHidden = !!hidden;
+    this.exclamation.visible = this.hasRequest && !this._overlaysHidden;
+    if (hidden) { this.nameTag.material.opacity = 0; this.nameTag.visible = false; }
+  }
+
+  /**
+   * After hours: the member has gone home (away = true) or comes back (false). Away hides the
+   * mesh (name tag, "!", bubble and emoji are children) and the blob shadow, takes the body out
+   * of the physics world and makes update() a no-op. Coming back places them at `spawn`
+   * ({x, z, y?}; default: their duty post, else a preferred waypoint) and they carry on.
+   */
+  setAway(away, spawn = null) {
+    if (!!away === this.away) return;
+    if (away) {
+      if (this.state === 'talking') this.stopTalking();
+      this._resetPose();
+      this.away = true;
+      this.mesh.visible = false;
+      this._blobs.hide(this._blobSlot);
+      if (this.body.world) this.physicsWorld.removeBody(this.body);
+    } else {
+      this.away = false;
+      const p = spawn || (this.duty ? this.duty.post : this._getPreferredWaypoint());
+      if (!this.body.world) this.physicsWorld.addBody(this.body);
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) this.placeAt(p.x, p.z, null, p.y || 0);
+      else this._resetPose();
+      this.mesh.visible = true;
+      this.wanderTimer = 1 + Math.random() * 4;
+    }
+  }
+
+  /**
+   * Drop whatever the NPC was doing: seat, walk target, shelter hold, match 'playing' state,
+   * reaction / bubble, head look-at, duty leg. Leaves them idle where they stand.
+   */
+  _resetPose() {
+    if (this.playing || this.state === 'playing') this.stopPlaying();
+    this._holdSeat = false;
+    this._holdFace = null;
+    this._cancelSeatTarget();
+    if (this._sitSeat) { releaseSeat(this._sitSeat, this); this._sitSeat = null; }
+    this._sitBlend = 0;
+    this._playMove = null;
+    this._reactHold = 0;
+    this._resumePlaying = false;
+    this.currentTarget = null;
+    this._route = null;
+    this._routeFor = null;
+    this._dutyFace = null;
+    this._dutySitTime = 0;
+    this.state = 'idle';
+    this.body.velocity.set(0, 0, 0);
+    this.character.setLocomotion(0);
+    this.character.stop(0);
+    this.character.lookAt(null);
+    this.character.setBallVisible(false);
+    if (this.bubble) this.bubble.visible = false;
+    if (this.reactionSprite && this.reactionSprite.parent) this.mesh.remove(this.reactionSprite);
+    this.reactionTimer = 0;
+    if (this.duty) {
+      this.duty.leg = 'post';
+      this.duty.target = this.duty.post;
+      this.duty.queue.length = 0;
+      this.duty.holdOnce = false;
+    }
+  }
+
+  /**
+   * Teleport to (x, z) on ground height `groundY` (e.g. a court pad), facing `yaw` if given.
+   * Resets the pose first (see _resetPose), so the NPC stands idle there.
+   */
+  placeAt(x, z, yaw = null, groundY = 0) {
+    this._resetPose();
+    this.body.position.set(x, groundY + SIZES.npcRadius + 0.02, z);
+    this.body.velocity.set(0, 0, 0);
+    this.mesh.position.set(x, groundY, z);
+    if (yaw !== null && Number.isFinite(yaw)) this.mesh.rotation.y = yaw;
+    this._settleTime = 0; // already resting on the ground (a court pad is higher than 0)
+  }
+
+  /**
+   * Show a floating emoji. `clip` picks the body language: omitted = from the emoji (or the
+   * mood); a clip name = that clip (see react()); null / false = the emoji only.
+   */
+  showReaction(emoji, clip) {
     let texture = _emojiTextures.get(emoji);
     if (!texture) {
       const canvas = document.createElement('canvas');
@@ -590,18 +686,28 @@ export class NPC {
     this.reactionTimer = 2.0;
 
     // Body language to match
-    const clip = REACTION_CLIPS[emoji] || MOOD_CLIPS[this.mood];
-    if (clip) this.react(clip);
+    const c = clip === undefined ? (REACTION_CLIPS[emoji] || MOOD_CLIPS[this.mood]) : clip;
+    if (c) this.react(c);
   }
 
-  /** Play a reaction clip ('react_happy' | 'react_annoyed' | 'shrug' | 'wave' | 'greet' …). */
+  /**
+   * Play a reaction clip ('react_happy' | 'react_annoyed' | 'shrug' | 'wave' | 'greet' | 'clap' …).
+   * Seated: 'clap' / 'react_happy' / 'wave' (and any 'sit_*' clip) play seated; other clips stand up first.
+   * @returns {number} clip duration (s)
+   */
   react(clip) {
-    if (this.state === 'sitting') this._standUp();
+    if (this.state === 'sitting') {
+      const seated = SEATED_CLIPS[clip] || (/^sit_/.test(clip) ? clip : null);
+      if (seated) return this.character.play(seated, { fade: 0.25 });
+      this._standUp();
+    }
     const d = this.character.play(clip, { fade: 0.2 });
     if (this.state === 'wandering') this._reactHold = d; // stand still while reacting
+    return d;
   }
 
   update(dt, playerPos) {
+    if (this.away) return; // gone home (setAway): hidden, no body
     // Reaction timer (float up + fade)
     if (this.reactionTimer > 0) {
       this.reactionTimer -= dt;
@@ -672,6 +778,7 @@ export class NPC {
     this.character.updateEvery = cd > 30 ? (low ? 5 : 4) : cd > 16 ? (low ? 3 : 2) : (low && cd > 10 ? 2 : 1);
     // Racket swings stay frame-exact near the camera (the ball meets the strings on the contact frame)
     if (this.state === 'playing' && cd < 26 && this.character.anim.oneShot) this.character.updateEvery = 1;
+    if (this.fullRateAnim) this.character.updateEvery = 1; // e.g. Rafa as the after-hours opponent
     this.character.update(dt);
 
     const bs = 0.95 * this.modelScale;
@@ -696,10 +803,11 @@ export class NPC {
     if (camDist > TAG_FAR_FULL) a = 1 - (camDist - TAG_FAR_FULL) / (TAG_FAR_ZERO - TAG_FAR_FULL);
     if (camDist < TAG_NEAR_FULL) a = Math.min(a, (camDist - TAG_NEAR_ZERO) / (TAG_NEAR_FULL - TAG_NEAR_ZERO));
     if (this.state === 'talking') a = Math.min(a, 0.35);
+    if (this._overlaysHidden) a = 0;
     a = Math.max(0, Math.min(1, a));
     this._camDist = camDist;
     // Body LOD: low-detail mesh when far (hysteresis) and always on the low tier
-    const far = Quality.tier === 'low' || (this._lodFar ? camDist > 13 : camDist > 16);
+    const far = Quality.tier === 'low' || (!this.fullRateAnim && (this._lodFar ? camDist > 13 : camDist > 16));
     if (far !== this._lodFar) { this._lodFar = far; this.character.setLod(far); }
     const tag = this.nameTag;
     tag.material.opacity += (a - tag.material.opacity) * Math.min(1, dt * 10);
@@ -737,7 +845,11 @@ export class NPC {
 
   _updateIdle(dt) {
     this.character.setLocomotion(0);
-    if (this._holdSeat) { this.body.velocity.set(0, this.body.velocity.y, 0); return; }
+    if (this._holdSeat) {
+      this.body.velocity.set(0, this.body.velocity.y, 0);
+      if (this._holdFace !== null) this._turnToward(this._holdFace, dt, 5);
+      return;
+    }
     this.wanderTimer -= dt;
 
     if (this.duty) {
@@ -1095,9 +1207,12 @@ export class NPC {
   /**
    * Rain delay: walk to `seat` (a Seats.js seat; claimed here) or to `point` {x, z} and stay
    * there (sitting or standing) until releaseShelter() / startPlaying(). Keeps `playing` info.
+   * point.precise: stop on the spot (default: within 1.5 m); point.face: yaw to turn to while
+   * standing there.
    */
   shelter(seat, point) {
     this._holdSeat = true;
+    this._holdFace = point && Number.isFinite(point.face) ? point.face : null;
     this._playMove = null;
     this.character.setBallVisible(false);
     this.character.anim.autoIdleVariants = true;
@@ -1110,7 +1225,7 @@ export class NPC {
       this._seatTarget = seat;
       this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
     } else if (point) {
-      this.currentTarget = { x: point.x, z: point.z };
+      this.currentTarget = point.precise ? { x: point.x, z: point.z, precise: true } : { x: point.x, z: point.z };
     } else {
       this.currentTarget = null;
     }
@@ -1122,6 +1237,7 @@ export class NPC {
   /** End a rain-delay shelter (the NPC gets up after a while and wanders on). */
   releaseShelter() {
     this._holdSeat = false;
+    this._holdFace = null;
     if (this.state === 'sitting') this._sitTimer = Math.min(this._sitTimer, 2 + Math.random() * 4);
   }
 

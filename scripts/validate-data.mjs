@@ -26,9 +26,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
 const POOL_KEYS = new Set(['satisfied', 'neutral', 'unsatisfied', 'idle', 'morning', 'afternoon', 'evening', 'sunny', 'cloudy', 'rainy', 'windy', 'tips', 'hints']);
 const TIMES = new Set(['morning', 'midday', 'afternoon', 'evening']);
+const COURTSIDE_KEYS = new Set(['arrive', 'winner', 'ace', 'rally', 'rafa', 'error', 'game', 'matchWin', 'matchLose', 'drill']);
 const REL_TYPES = new Set(['family', 'spouse', 'friend', 'rival', 'mentor', 'student', 'colleague', 'acquaintance']);
 
-/** Member data (npcs.json): ids, colours, small-talk pools, relationships, tennis, match lines. */
+/** Member data (npcs.json): ids, colours, small-talk pools, relationships, tennis, match / courtside lines. */
 function validateNpcs(npcs, map) {
   const out = [];
   const err = (msg) => out.push({ level: 'error', msg });
@@ -105,6 +106,16 @@ function validateNpcs(npcs, map) {
         if (ml[k] === undefined) continue;
         if (!strings(ml[k])) err(`${at}: matchLines.${k} must be an array of strings`);
         else for (const line of ml[k]) if (line.length > 22) warn(`${at}: match line "${line}" is long for a speech bubble (> 22 chars)`);
+      }
+    }
+    // Courtside lines (after-hours tennis spectators, src/tennis/TennisCrowd.js)
+    const cs = n.courtside;
+    if (cs !== undefined) {
+      if (!cs || typeof cs !== 'object' || Array.isArray(cs)) err(`${at}: courtside must be an object { key: [lines] }`);
+      else for (const [k, arr] of Object.entries(cs)) {
+        if (!COURTSIDE_KEYS.has(k)) warn(`${at}: courtside.${k} is never used (known: ${[...COURTSIDE_KEYS].join(', ')})`);
+        if (!strings(arr)) err(`${at}: courtside.${k} must be an array of non-empty strings`);
+        else for (const line of arr) if (line.length > 22) warn(`${at}: courtside line "${line}" is long for a speech bubble (> 22 chars)`);
       }
     }
   }

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
-import { mat, getMaterial, registerWet, registerNightGlow } from '../graphics/Materials.js';
+import { getMaterial, registerWet, registerNightGlow } from '../graphics/Materials.js';
 import { Textures, createCanvasTexture, seededRandom } from '../graphics/Textures.js';
 import { roundedBox, boxGeo, cylinderGeo, sphereGeo, getGeometry, mergeParts, makeMatrix } from '../graphics/GeometryUtils.js';
 import { EnvState } from '../graphics/EnvState.js';
+import { withOcclusionFade } from '../graphics/OcclusionFade.js';
 
 /**
  * Court - tennis court: one shader-painted surface (zones, lines, clay dirt), net, chain-link
@@ -44,11 +45,15 @@ const _shared = {
   flood: { value: 0 },
   haloMat: null,
   halos: [],
+  mats: null,          // sharedMaterials(), built once
+  twins: new Map(),    // court material → its see-through twin (after-hours tennis)
+  twinGroup: null,     // hidden meshes so the twins precompile with the scene
 };
 
 function updateShared() {
   const f = EnvState.lampFactor || 0;
-  _shared.flood.value = f;
+  // The fake floodlight pool on the surface steps back when real stadium light is on the scene
+  _shared.flood.value = f * (1 - 0.7 * (EnvState.floodFactor || 0));
   if (_shared.haloMat) _shared.haloMat.opacity = f * 0.6;
   const vis = f > 0.02;
   for (let i = 0; i < _shared.halos.length; i++) _shared.halos[i].visible = vis;
@@ -259,11 +264,23 @@ function signAtlas() {
 
 // ───────────────────────────── Shared materials ─────────────────────────────
 
+// After-hours tennis dithers the poles, fence, windscreen and signs between its camera and the
+// play (graphics/OcclusionFade.js). The opaque court materials stay plain in the normal game (a
+// shader that may `discard` costs early-Z on tile GPUs); each has a patched "fade twin" that
+// TennisOcclusion swaps onto the meshes in its fade region for the session only. The twins are
+// precompiled with the scene (a hidden mesh each under the first court). The chain-link already
+// discards (alphaTest), so it is patched in place. Named materials, so a patch never reaches a
+// parameter-cached mat() another module might share.
 function sharedMaterials() {
-  return {
-    matte: mat(0xffffff, { vertexColors: true, roughness: 0.78 }),
-    metal: mat(0xffffff, { vertexColors: true, roughness: 0.45, metalness: 0.35 }),
-    chainLink: getMaterial('courtChainLink', () => new THREE.MeshStandardMaterial({
+  if (_shared.mats) return _shared.mats;
+  const mats = {
+    matte: getMaterial('courtMatte', () => new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.78, metalness: 0,
+    })),
+    metal: getMaterial('courtMetal', () => new THREE.MeshStandardMaterial({
+      color: 0xffffff, vertexColors: true, roughness: 0.45, metalness: 0.35,
+    })),
+    chainLink: getMaterial('courtChainLink', () => withOcclusionFade(new THREE.MeshStandardMaterial({
       color: 0x456f55,
       map: Textures.chainLink(),
       transparent: true,
@@ -273,7 +290,7 @@ function sharedMaterials() {
       forceSinglePass: true, // one draw (not back+front) and no per-draw program flip
       roughness: 0.55,
       metalness: 0.3,
-    })),
+    }))),
     net: getMaterial('courtNetMesh', () => new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: Textures.tennisNet(),
@@ -284,8 +301,12 @@ function sharedMaterials() {
       forceSinglePass: true,
       roughness: 0.9,
     })),
-    windscreen: mat(0xffffff, { map: windscreenTexture(), roughness: 0.92 }),
-    sign: mat(0xffffff, { map: signAtlas(), roughness: 0.7 }),
+    windscreen: getMaterial('courtWindscreen', () => new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: windscreenTexture(), roughness: 0.92, metalness: 0,
+    })),
+    sign: getMaterial('courtSign', () => new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: signAtlas(), roughness: 0.7, metalness: 0,
+    })),
     lampGlass: getMaterial('courtLampGlass', () => {
       const m = new THREE.MeshStandardMaterial({
         color: 0xd8dcd8,
@@ -298,6 +319,44 @@ function sharedMaterials() {
       return m;
     }),
   };
+  // Fade twins (see above)
+  const twins = _shared.twins;
+  for (const k of ['matte', 'metal', 'windscreen', 'sign', 'lampGlass']) {
+    const base = mats[k];
+    const twin = getMaterial(`${base.name || k}Occ|${k}`, () => {
+      const t = withOcclusionFade(base.clone());
+      if (k === 'lampGlass') registerNightGlow(t, 3.2, 0);
+      return t;
+    });
+    twins.set(base, twin);
+  }
+  _shared.mats = mats;
+  return mats;
+}
+
+/**
+ * The see-through twin of a court material (after-hours tennis), or null. TennisOcclusion swaps
+ * it onto a mesh for the session and restores the original afterwards.
+ */
+export function courtOcclusionTwin(material) {
+  return _shared.twins.get(material) || null;
+}
+
+/** Hidden meshes so _precompileShaders compiles the twins' programs with the scene. */
+function twinPrecompileGroup() {
+  if (_shared.twinGroup) return null;
+  const g = new THREE.Group();
+  g.name = 'courtOcclusionTwins';
+  g.visible = false;
+  const geo = boxGeo(0.01, 0.01, 0.01);
+  for (const t of _shared.twins.values()) {
+    const m = new THREE.Mesh(geo, t);
+    m.frustumCulled = false;
+    m.userData.noMerge = true;
+    g.add(m);
+  }
+  _shared.twinGroup = g;
+  return g;
 }
 
 function haloMaterial() {
@@ -870,6 +929,8 @@ export class Court {
     this.mesh.position.set(center.x, 0, center.z);
 
     this._mats = sharedMaterials();
+    const twinGroup = twinPrecompileGroup();
+    if (twinGroup) this.mesh.add(twinGroup);
     this._parts = { matte: [], metal: [], chain: [], wind: [], net: [], sign: [], glass: [] };
     this._halo = [];
     this._rand = seededRandom(hashStr(this.id));

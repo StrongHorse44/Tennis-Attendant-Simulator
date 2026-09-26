@@ -3,10 +3,11 @@ import { TENNIS_STATS } from '../systems/PlayerProfile.js';
 
 /**
  * TennisHUD — DOM overlay for the after-hours mode (in #ui-root, theme.js tokens):
- * scoreboard (sets / games / points, server dot) with the stamina bar, a big SWING button
- * (timing ring, thumb-reachable bottom-right), the serve power meter, the shot selector
- * (Flat / Topspin / Slice / Lob), "Perfect!" / "Out!" popups, the mode menu and the results
- * card. The regular HUD is hidden while body.cc-tennis is set. DOM writes are cached so the
+ * scoreboard (sets / games / points, server dot) with the stamina and momentum bars, a big
+ * SWING button (hold to load: the power fill rises inside it; the timing ring closes at the
+ * ideal release; thumb-reachable bottom-right), the serve toss meter, the shot selector
+ * (Flat / Topspin / Slice / Lob / Drop), "Perfect!" / "Out!" popups, the mode menu and the
+ * results card. The regular HUD is hidden while body.cc-tennis is set. DOM writes are cached so the
  * per-frame calls (timing, stamina, meter) only touch the DOM when a value changes.
  */
 
@@ -35,10 +36,21 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
 .cct-cell.is-cur { background: rgba(244,232,193,0.14); color: var(--cc-cream); font-weight: 700; }
 .cct-cell.is-pts { min-width: 30px; background: var(--cc-green-700); color: #fff; font-weight: 700; }
 .cct-drill { font-family: var(--cc-font-display); font-size: 18px; font-weight: 600; }
+.cct-rally { position: absolute; right: 10px; bottom: -13px; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.6px; background: var(--cc-gold); color: #3a2608; box-shadow: 0 3px 10px rgba(0,0,0,0.35); opacity: 0; transform: scale(0.8);
+  transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; font-variant-numeric: tabular-nums; }
+.cct-rally.is-on { opacity: 1; transform: none; }
 .cct-stam { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--cc-cream-dim); }
 .cct-stam__bar { flex: 1; height: 6px; border-radius: 99px; background: rgba(244,232,193,0.14); overflow: hidden; }
 .cct-stam__bar i { display: block; height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cc-ok), #9be27f); transform-origin: left; }
 .cct-stam__bar.is-low i { background: linear-gradient(90deg, var(--cc-danger), var(--cc-warn)); }
+.cct-mom { display: none; align-items: center; gap: 6px; margin-top: 5px; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: var(--cc-cream-dim); }
+.cct-mom.is-on { display: flex; }
+.cct-mom__bar { flex: 1; height: 6px; border-radius: 99px; background: rgba(244,232,193,0.14); position: relative; overflow: hidden; }
+.cct-mom__bar::after { content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: rgba(244,232,193,0.45); }
+.cct-mom__bar i { position: absolute; top: 0; bottom: 0; left: 50%; width: 50%; transform-origin: left; transform: scaleX(0); border-radius: 0 99px 99px 0; background: linear-gradient(90deg, #f2c14e, #ffe066); }
+.cct-mom__bar i.is-neg { left: 0; transform-origin: right; border-radius: 99px 0 0 99px; background: linear-gradient(90deg, #e07a4f, var(--cc-clay)); }
+.cct-mom__bar.is-zone { box-shadow: 0 0 8px rgba(255,224,102,0.8); }
 .cct-menu-btn {
   position: absolute; top: calc(var(--cc-safe-top) + 10px); right: calc(var(--cc-safe-right) + 64px);
   height: 44px; min-width: 44px; padding: 0 14px; border-radius: 22px; pointer-events: auto;
@@ -54,6 +66,12 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   touch-action: none; user-select: none; -webkit-user-select: none; transition: transform 0.08s ease;
 }
 .cct-swing.is-down { transform: scale(0.93); }
+.cct-pow { position: absolute; inset: 5px; border-radius: 50%; overflow: hidden; pointer-events: none; }
+.cct-pow i { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; transform-origin: bottom; transform: scaleY(0);
+  background: linear-gradient(0deg, rgba(232,96,46,0.85), rgba(255,210,90,0.55)); }
+.cct-swing.is-full .cct-pow i { background: linear-gradient(0deg, rgba(255,70,40,0.95), rgba(255,236,150,0.8)); }
+.cct-swing.is-full { box-shadow: 0 0 22px rgba(255,190,80,0.9), 0 8px 22px rgba(0,0,0,0.4); }
+.cct-swing b, .cct-swing small { position: relative; }
 .cct-swing b { font-size: 17px; letter-spacing: 1.2px; font-weight: 800; pointer-events: none; }
 .cct-swing small { font-size: 10px; opacity: 0.7; font-weight: 600; pointer-events: none; }
 .cct-ring { position: absolute; inset: -9px; pointer-events: none; transform: rotate(-90deg); opacity: 0; transition: opacity 0.15s; }
@@ -70,7 +88,7 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   overflow: hidden; display: none;
 }
 .cct-meter.is-on { display: block; }
-.cct-meter__zone { position: absolute; left: 0; right: 0; bottom: 57.6%; height: 16.8%; background: rgba(76,175,106,0.55); border-top: 1px solid #9be27f; border-bottom: 1px solid #9be27f; }
+.cct-meter__zone { position: absolute; left: 0; right: 0; bottom: 69.2%; height: 12.3%; background: rgba(76,175,106,0.55); border-top: 1px solid #9be27f; border-bottom: 1px solid #9be27f; }
 .cct-meter__fill { position: absolute; left: 3px; right: 3px; bottom: 3px; height: 0; border-radius: 7px; background: linear-gradient(0deg, #f2c14e, #fff4d2); }
 .cct-meter__fill.is-over { background: linear-gradient(0deg, #f2c14e, var(--cc-danger)); }
 
@@ -90,6 +108,7 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   font-size: 12px; padding: 5px 10px; border-radius: 99px; background: rgba(20,38,28,0.72); color: var(--cc-cream); display: none; max-width: 60vw; text-align: right;
 }
 .cct-hint.is-on { display: block; }
+.cct-hint__s { display: none; }
 
 .cct-coach {
   position: absolute; left: 50%; top: calc(var(--cc-safe-top) + 12px); transform: translateX(-50%);
@@ -99,7 +118,10 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
 }
 .cct-coach b { color: var(--cc-clay); margin-right: 4px; }
 .cct-coach.is-on { opacity: 1; }
-@media (max-width: 560px) { .cct-coach { top: auto; bottom: calc(var(--cc-safe-bottom) + 176px); max-width: calc(100vw - 32px); } }
+@media (max-width: 560px) { .cct-coach { top: calc(var(--cc-safe-top) + 132px); max-width: calc(100vw - 32px); } } /* under the scoreboard: the sky, not the court */
+@media (max-height: 520px) and (min-width: 561px) {
+  .cct-coach { left: auto; right: calc(var(--cc-safe-right) + 12px); transform: none; top: calc(var(--cc-safe-top) + 62px); max-width: min(380px, calc(100vw - 360px)); }
+}
 .cct-pops { position: absolute; left: 0; right: 0; top: 24%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .cct-pop {
   font-family: var(--cc-font-display); font-weight: 700; font-size: 30px; color: #fff; opacity: 0;
@@ -159,11 +181,17 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   .cct-stats { grid-template-columns: 1fr 1fr; }
   .cct-swing { width: 96px; height: 96px; }
   .cct-shot { min-width: 48px; }
+  /* Narrow phones: the shot row clears the joystick; the serve hint sits above it */
+  .cct-shots { bottom: calc(var(--cc-safe-bottom) + 164px); }
+  .cct-hint { bottom: calc(var(--cc-safe-bottom) + 216px); white-space: nowrap; }
+  .cct-hint__l { display: none; }
+  .cct-hint__s { display: inline; }
 }
 @media (max-height: 520px) {
   .cct-shots { bottom: calc(var(--cc-safe-bottom) + 24px); right: calc(var(--cc-safe-right) + 160px); flex-direction: column; }
-  .cct-meter { right: calc(var(--cc-safe-right) + 220px); }
-  .cct-hint { bottom: calc(var(--cc-safe-bottom) + 136px); }
+  .cct-meter { right: calc(var(--cc-safe-right) + 244px); }
+  /* the serve hint goes under the scoreboard (the shot column fills the right side) */
+  .cct-hint { bottom: auto; top: calc(var(--cc-safe-top) + 132px); right: auto; left: calc(var(--cc-safe-left) + 10px); text-align: left; max-width: 44vw; }
   .cct-pops { top: 16%; }
 }
 @media (prefers-reduced-motion: reduce) { .cct-pop.is-go { animation-duration: 0.01s; opacity: 1; } .cct-modal.is-on { animation: none; } }
@@ -179,7 +207,8 @@ function injectCSS() {
   document.head.appendChild(s);
 }
 
-const SHOT_NAMES = [['Flat', '1'], ['Topspin', '2'], ['Slice', '3'], ['Lob', '4']];
+const SHOT_NAMES = [['Flat', '1'], ['Topspin', '2'], ['Slice', '3'], ['Lob', '4'], ['Drop', '5']];
+const METER_MAX = 1.3, METER_ZONE = [0.9, 1.06]; // serve meter: 1 = the ideal release
 const RING_R = 55, RING_C = 2 * Math.PI * RING_R;
 
 function el(tag, cls, parent, text) {
@@ -205,7 +234,7 @@ export class TennisHUD {
     this._buildPlay();
     this._buildMenu();
     this._buildResults();
-    this._cache = { stam: -1, low: null, ring: -2, now: null, meter: -2, info: '', score: '' };
+    this._cache = { stam: -1, low: null, ring: -2, now: null, meter: -2, info: '', score: '', pow: -2, full: null, mom: -9, zone: null };
   }
 
   // ─────────────────────────── play UI ───────────────────────────
@@ -224,10 +253,16 @@ export class TennisHUD {
       this.rows.push({ dot, name, cells });
     }
     this.drillEl = el('div', 'cct-drill', board);
+    this.rallyEl = el('div', 'cct-rally', board);
     const st = el('div', 'cct-stam', board);
     el('span', '', st, 'Stamina');
     this.stamBar = el('span', 'cct-stam__bar', st);
     this.stamFill = el('i', '', this.stamBar);
+    this.momRow = el('div', 'cct-mom', board);
+    el('span', '', this.momRow, 'Momentum');
+    this.momBar = el('span', 'cct-mom__bar', this.momRow);
+    this.momFill = el('i', '', this.momBar);
+    this.momRow.title = 'Momentum: gold = yours, clay = Rafa\'s';
 
     const menuBtn = el('button', 'cct-menu-btn', play, 'Menu');
     menuBtn.type = 'button';
@@ -249,6 +284,8 @@ export class TennisHUD {
     this.setShot(1);
 
     this.hintEl = el('div', 'cct-hint', play);
+    this.hintLong = el('span', 'cct-hint__l', this.hintEl);
+    this.hintShort = el('span', 'cct-hint__s', this.hintEl);
 
     // Serve meter
     this.meter = el('div', 'cct-meter', play);
@@ -258,9 +295,10 @@ export class TennisHUD {
     // SWING
     const sw = el('button', 'cct-swing', play);
     sw.type = 'button';
-    sw.setAttribute('aria-label', 'Swing (hold to serve)');
-    sw.innerHTML = `<svg class="cct-ring" viewBox="0 0 122 122"><circle class="bg" cx="61" cy="61" r="${RING_R}"/><circle class="fg" cx="61" cy="61" r="${RING_R}" stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${RING_C.toFixed(1)}"/></svg><b>SWING</b><small>Space · J</small>`;
+    sw.setAttribute('aria-label', 'Swing: hold to load power, release to hit');
+    sw.innerHTML = `<span class="cct-pow"><i></i></span><svg class="cct-ring" viewBox="0 0 122 122"><circle class="bg" cx="61" cy="61" r="${RING_R}"/><circle class="fg" cx="61" cy="61" r="${RING_R}" stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${RING_C.toFixed(1)}"/></svg><b>SWING</b><small>hold · release</small>`;
     this.swingBtn = sw;
+    this.powFill = sw.querySelector('.cct-pow i');
     this.ring = sw.querySelector('.cct-ring');
     this.ringFg = sw.querySelector('.fg');
     let pid = null;
@@ -312,8 +350,10 @@ export class TennisHUD {
       const match = mode === 'match';
       this.rowsEl.style.display = match ? '' : 'none';
       this.drillEl.style.display = match ? 'none' : '';
+      this.momRow.classList.toggle('is-on', match);
+      if (match) this.setMomentum(0, 0);
     }
-    if (!on) { this.timing(-1); this.setMeter(-1); this.setServeHint(false); }
+    if (!on) { this.timing(-1); this.setMeter(-1); this.setPower(-1); this.setServeHint(false); this.setRally(0); }
   }
 
   setInfo(text) {
@@ -342,6 +382,17 @@ export class TennisHUD {
 
   setDrill(rep, total, score) {
     this.drillEl.textContent = `Ball ${Math.min(rep + 1, total)} / ${total}  ·  ${score} pts`;
+  }
+
+  setDrillLine(text) { this.drillEl.textContent = text; }
+
+  /** Live rally length badge on the scoreboard (from 5 shots; 0 hides it). */
+  setRally(n) {
+    const v = n >= 5 ? n : 0;
+    if (v === this._cache.rally) return;
+    this._cache.rally = v;
+    if (v) this.rallyEl.textContent = `Rally ${v}`;
+    this.rallyEl.classList.toggle('is-on', v > 0);
   }
 
   setStamina(v) {
@@ -377,7 +428,10 @@ export class TennisHUD {
     if (now !== c.now) { c.now = now; this.ring.classList.toggle('is-now', now); }
   }
 
-  /** Serve power meter: v < 0 hidden, else 0..1.25 (green zone 0.72–0.93). */
+  /**
+   * Serve toss meter: v < 0 hidden, else hold time / ideal hold (0 … 1.3). It rises while SWING
+   * is held (more power); the green zone is the ideal release (the ball at racket height).
+   */
   setMeter(v) {
     const c = this._cache;
     if (v < 0) {
@@ -388,13 +442,43 @@ export class TennisHUD {
     if (q === c.meter) return;
     if (c.meter < 0) this.meter.classList.add('is-on');
     c.meter = q;
-    this.meterFill.style.height = `calc(${Math.min(100, q / 1.25 * 100).toFixed(1)}% - 6px)`;
-    this.meterFill.classList.toggle('is-over', q > 0.93);
+    this.meterFill.style.height = `calc(${Math.min(100, q / METER_MAX * 100).toFixed(1)}% - 6px)`;
+    this.meterFill.classList.toggle('is-over', q > METER_ZONE[1]);
+  }
+
+  /** Stroke power inside the SWING button: v < 0 empty, else 0..1 (full = glowing). */
+  setPower(v) {
+    const c = this._cache;
+    const q = v < 0 ? -1 : Math.round(Math.min(1, v) * 40) / 40;
+    if (q === c.pow) return;
+    c.pow = q;
+    this.powFill.style.transform = `scaleY(${Math.max(0, q)})`;
+    const full = q >= 0.98;
+    if (full !== c.full) { c.full = full; this.swingBtn.classList.toggle('is-full', full); }
+  }
+
+  /** Momentum bar: yours minus Rafa's (−1 … 1); gold to the right, clay to the left. */
+  setMomentum(mine, rafa) {
+    const c = this._cache;
+    const d = Math.round(Math.max(-1, Math.min(1, (mine - rafa) / 1.4)) * 30) / 30;
+    if (d !== c.mom) {
+      c.mom = d;
+      this.momFill.classList.toggle('is-neg', d < 0);
+      this.momFill.style.transform = `scaleX(${Math.abs(d).toFixed(3)})`;
+    }
+    const zone = mine >= 0.7;
+    if (zone !== c.zone) { c.zone = zone; this.momBar.classList.toggle('is-zone', zone); }
   }
 
   setServeHint(on, second = false) {
     this.hintEl.classList.toggle('is-on', !!on);
-    if (on) this.hintEl.textContent = second ? 'Second serve: hold SWING, release in the green' : 'Your serve: hold SWING, release in the green · stick aims';
+    if (on) {
+      // Full line, and a one-line version for narrow phones (CSS picks)
+      this.hintLong.textContent = second
+        ? 'Second serve: hold SWING to toss, let go in the green · 2 = safe kick'
+        : 'Your serve: hold SWING to toss, let go in the green · 1 flat · 2 kick · 3 slice · stick aims';
+      this.hintShort.textContent = second ? '2nd serve: hold, let go in the green' : 'Hold SWING, let go in the green';
+    }
   }
 
   coach(text, sec = 2.8) {
@@ -423,7 +507,7 @@ export class TennisHUD {
     m.setAttribute('aria-label', 'After-hours tennis');
     const card = el('div', 'cc-panel cct-card', m);
     card.innerHTML = `
-      <div><div class="cc-label" style="color:var(--cc-gold)">Court 1 · under the lights</div>
+      <div><div class="cc-label" style="color:var(--cc-gold)">Court 1 · into the sunset, then under the lights</div>
       <h2 class="cc-title">Evening hit with Coach Rafa</h2>
       <div class="cct-sub">No clock, no members. Just you, Rafa and a basket of balls.</div></div>
       <div class="cct-sec"><div class="cc-label">Your game</div><div class="cct-stats" data-m="stats"></div><div class="cct-record" data-m="record"></div></div>
@@ -433,6 +517,7 @@ export class TennisHUD {
           <button type="button" class="cc-btn cct-big" data-drill="bh">Backhands</button>
           <button type="button" class="cc-btn cct-big" data-drill="volley">Volleys</button>
           <button type="button" class="cc-btn cct-big" data-drill="serve">Serves</button>
+          <button type="button" class="cc-btn cct-big" data-drill="rally" style="grid-column: 1 / -1">Rally challenge (keep it going)</button>
         </div></div>
       <div class="cct-sec"><div class="cc-label">Practice match vs Rafa</div>
         <div class="cct-seg" data-m="format">
@@ -451,9 +536,11 @@ export class TennisHUD {
         <div class="cct-opts">
           <button type="button" class="cc-btn cct-opt" data-o="assist">Auto-move assist</button>
           <button type="button" class="cc-btn cct-opt" data-o="marker">Landing marker</button>
+          <button type="button" class="cc-btn cct-opt" data-o="aim">Aim guide</button>
+          <button type="button" class="cc-btn cct-opt" data-o="tips">Coach tips</button>
           <button type="button" class="cc-btn cct-opt" data-o="changeEnds">Change ends</button>
         </div>
-        <div class="cct-keys">Move: joystick / WASD · Swing: SWING / Space / J (time it with the ring; hold and release to serve) · Shots: buttons or 1–4 · Aim: stick direction at contact (left / right, up = deep, down = short).</div>
+        <div class="cct-keys">Move: joystick / WASD · Swing: hold SWING / Space / J as the ball comes to load power, let go when the ring turns green (the longer the hold, the harder the hit, the riskier) · Serve: hold to toss, let go in the green · Shots: buttons or 1–5 (Drop = touch shot, best from the net) · Aim: stick direction at contact (left / right, up = deep, down = short; short + wide = angle).</div>
       </div>
       <button type="button" class="cc-btn" data-m="leave" style="min-height:48px">Call it a night ▸ next day</button>`;
     this.menu = m;

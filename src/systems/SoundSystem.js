@@ -641,7 +641,7 @@ export class SoundSystem {
 
   _playBirdChirp() {
     // Skip while paused/muted so chirps don't queue up on a suspended context
-    if (!this.initialized || this.paused || this.muted) return;
+    if (!this.initialized || this.paused || this.muted || this.ambientHold) return; // ambientHold: evening tennis (no birds at night)
     try {
       const now = this.ctx.currentTime;
 
@@ -720,4 +720,211 @@ export class SoundSystem {
       osc.start(now); osc.stop(now + len);
     } catch (e) { /* ignore audio errors */ }
   }
+
+  // ───────────── Crowd: a few staff courtside (after-hours tennis, TennisCrowd) ─────────────
+  //
+  // Applause and voices are synthesised once in JS into small mono buffers (22.05 kHz, cached per
+  // size tier / variant, about 2 MB when every one has been used) and replayed through one
+  // BufferSource + one gain each, with a little rate jitter so repeats don't sound identical.
+  // Nothing runs continuously: every source is started and stopped on a schedule.
+
+  /**
+   * Applause from a few people. intensity 0..1: how many clap (2..5), how long (~1–2.8 s) and
+   * how hard; volume 0..1: the caller's distance attenuation. A new round fades out the last.
+   */
+  playApplause(intensity = 0.5, volume = 1) {
+    if (!this.initialized || this.paused || this.muted || !(volume > 0.01)) return;
+    try {
+      const k = Math.max(0, Math.min(1, Number(intensity) || 0));
+      const tier = k < 0.34 ? 0 : k < 0.7 ? 1 : 2;
+      const buf = this._crowdBuf(`clap${tier}`, 2, () => this._renderApplause(tier));
+      if (this._applause && this._applause.end > this.ctx.currentTime) {
+        try {
+          const g = this._applause.gain.gain;
+          g.cancelScheduledValues(this.ctx.currentTime);
+          g.setTargetAtTime(0, this.ctx.currentTime, 0.06);
+        } catch (e) { /* ignore */ }
+      }
+      this._applause = this._playCrowdBuf(buf, Math.min(1, volume) * (0.3 + 0.28 * k), 0.95 + Math.random() * 0.1);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Crowd "ooooh" (a great get, a long rally, a big hit). intensity 0..1, volume 0..1. */
+  playCrowdOoh(intensity = 0.5, volume = 1) { this.playCrowdVoice('ooh', intensity, volume); }
+
+  /** Short cheer: whoops and "yeah!"s. intensity 0..1, volume 0..1. */
+  playCheer(intensity = 0.6, volume = 1) { this.playCrowdVoice('whoop', intensity, volume); }
+
+  /**
+   * A few voices at once. kind: 'whoop' (rising "whoo!" / "yeah!"), 'ooh' (held, falling),
+   * 'aww' (a groan for an error) or 'gasp' (short intake, "hah!"). intensity 0..1 picks two or
+   * four voices and the level; volume 0..1 is the caller's distance attenuation.
+   */
+  playCrowdVoice(kind = 'whoop', intensity = 0.6, volume = 1) {
+    if (!this.initialized || this.paused || this.muted || !(volume > 0.01)) return;
+    try {
+      const shape = CROWD_VOICES[kind] ? kind : 'whoop';
+      const k = Math.max(0, Math.min(1, Number(intensity) || 0));
+      const big = k >= 0.55;
+      const buf = this._crowdBuf(`${shape}${big ? 1 : 0}`, 1, () => this._renderVoices(shape, big ? 4 : 2));
+      this._playCrowdBuf(buf, Math.min(1, volume) * (0.26 + 0.24 * k), 0.95 + Math.random() * 0.1);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Render the crowd buffers ahead of time (e.g. when the spectators arrive), once. */
+  prewarmCrowd() {
+    if (!this.initialized || this._crowdWarm) return;
+    this._crowdWarm = true;
+    try {
+      for (let v = 0; v < 2; v++) {
+        for (let t = 0; t < 3; t++) this._crowdBuf(`clap${t}`, 2, () => this._renderApplause(t));
+        for (const s of ['whoop', 'ooh', 'aww', 'gasp']) for (const b of [0, 1]) this._crowdBuf(`${s}${b}`, 1, () => this._renderVoices(s, b ? 4 : 2));
+      }
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  /** Cached buffer: one of `variants` renders for `key` (rendered lazily, then reused). */
+  _crowdBuf(key, variants, render) {
+    if (!this._crowdCache) this._crowdCache = new Map();
+    let list = this._crowdCache.get(key);
+    if (!list) { list = []; this._crowdCache.set(key, list); }
+    if (list.length < variants) { const b = render(); list.push(b); return b; }
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  _playCrowdBuf(buf, level, rate) {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(level, now);
+    src.connect(g);
+    g.connect(this.masterGain);
+    const end = now + buf.duration / rate + 0.02;
+    src.start(now);
+    src.stop(end);
+    return { gain: g, end };
+  }
+
+  /** Mono crowd buffer at CROWD_RATE (the context resamples); normalised to `peak`. */
+  _crowdBuffer(seconds) {
+    return this.ctx.createBuffer(1, Math.max(1, Math.ceil(seconds * CROWD_RATE)), CROWD_RATE);
+  }
+
+  _normalize(d, peak) {
+    let m = 0;
+    for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > m) m = a; }
+    if (m > 1e-6) { const s = peak / m; for (let i = 0; i < d.length; i++) d[i] *= s; }
+  }
+
+  /**
+   * Hand claps: each person has their own hand resonance (a band-pass biquad run over a short
+   * noise burst), tempo, reaction time and stamina; the round swells in and tails off.
+   */
+  _renderApplause(tier) {
+    const people = [2, 3, 4 + (Math.random() < 0.5 ? 1 : 0)][tier];
+    const dur = [1.05, 1.8, 2.7][tier] * (0.9 + Math.random() * 0.2);
+    const sr = CROWD_RATE;
+    const buf = this._crowdBuffer(dur + 0.12);
+    const d = buf.getChannelData(0);
+    const L = Math.floor(0.045 * sr);
+    if (!this._clapEnv || this._clapEnv.length !== L) {
+      this._clapEnv = new Float32Array(L);
+      for (let j = 0; j < L; j++) this._clapEnv[j] = Math.min(1, j / 6) * Math.exp(-j / (L * 0.16));
+    }
+    const env = this._clapEnv;
+    for (let p = 0; p < people; p++) {
+      const f = 850 + Math.random() * 1500, Q = 1.1 + Math.random() * 1.1;
+      const w = 2 * Math.PI * f / sr, alpha = Math.sin(w) / (2 * Q), a0 = 1 + alpha;
+      const b0 = alpha / a0, b2 = -alpha / a0, a1 = -2 * Math.cos(w) / a0, a2 = (1 - alpha) / a0;
+      const period = 1 / (3.4 + Math.random() * 2.3);
+      const amp = 0.6 + Math.random() * 0.4;
+      const tEnd = dur * (0.62 + Math.random() * 0.38);
+      for (let t = 0.02 + Math.random() * 0.2; t < tEnd; t += period * (0.86 + Math.random() * 0.28)) {
+        const u = t / dur;
+        const a = amp * Math.min(1, 0.5 + u * 3) * (1 - 0.65 * u * u) * (0.7 + Math.random() * 0.6);
+        const i0 = Math.floor(t * sr);
+        let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        for (let j = 0; j < L && i0 + j < d.length; j++) {
+          const x = (Math.random() * 2 - 1) * env[j];
+          const y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2;
+          x2 = x1; x1 = x; y2 = y1; y1 = y;
+          d[i0 + j] += (y * 0.6 + x * 0.25) * a; // resonance plus a little of the raw slap
+        }
+      }
+    }
+    this._normalize(d, 0.9);
+    return buf;
+  }
+
+  /**
+   * Voices: each a vibrato buzz (sawtooth, lightly smoothed) with breath noise, through two
+   * vowel formants that glide (band-pass biquads, coefficients updated every 32 samples).
+   */
+  _renderVoices(kind, count) {
+    const sr = CROWD_RATE;
+    const base = CROWD_VOICES[kind] || CROWD_VOICES.whoop;
+    const lenMax = base.len * 1.25 + 0.16;
+    const buf = this._crowdBuffer(lenMax + 0.05);
+    const d = buf.getChannelData(0);
+    const bq = [{ x1: 0, x2: 0, y1: 0, y2: 0, b0: 0, b2: 0, a1: 0, a2: 0 }, { x1: 0, x2: 0, y1: 0, y2: 0, b0: 0, b2: 0, a1: 0, a2: 0 }];
+    const setBp = (s, f, Q) => {
+      const w = 2 * Math.PI * Math.min(f, sr * 0.45) / sr, alpha = Math.sin(w) / (2 * Q), a0 = 1 + alpha;
+      s.b0 = alpha / a0; s.b2 = -alpha / a0; s.a1 = -2 * Math.cos(w) / a0; s.a2 = (1 - alpha) / a0;
+    };
+    const run = (s, x) => {
+      const y = s.b0 * x + s.b2 * s.x2 - s.a1 * s.y1 - s.a2 * s.y2;
+      s.x2 = s.x1; s.x1 = x; s.y2 = s.y1; s.y1 = y;
+      return y;
+    };
+    for (let v = 0; v < count; v++) {
+      const V = kind === 'whoop' && Math.random() < 0.45 ? CROWD_VOICES.yeah : base;
+      const high = Math.random() < 0.45;              // higher voice, shorter vocal tract
+      const f0 = high ? 195 + Math.random() * 70 : 102 + Math.random() * 45;
+      const fs = high ? 1.13 : 1;
+      const t0 = Math.random() * 0.12;
+      const len = Math.min(V.len * (0.85 + Math.random() * 0.3), lenMax - t0 - 0.02);
+      const vib = 5 + Math.random() * 2, vibAmt = 0.025 + Math.random() * 0.015;
+      const i0 = Math.floor(t0 * sr), n = Math.floor(len * sr);
+      for (const s of bq) { s.x1 = s.x2 = s.y1 = s.y2 = 0; }
+      let phase = Math.random(), smooth = 0;
+      for (let j = 0; j < n && i0 + j < d.length; j++) {
+        const u = j / n;
+        if ((j & 31) === 0) {
+          const k = Math.min(1, u / 0.7);
+          setBp(bq[0], (V.f[0][0] + (V.f[0][1] - V.f[0][0]) * k) * fs, 6);
+          setBp(bq[1], (V.f[1][0] + (V.f[1][1] - V.f[1][0]) * k) * fs, 9);
+        }
+        // pitch contour: p0 → p1 (at pAt) → p2
+        const p = u < V.pAt ? V.p0 + (V.p1 - V.p0) * (u / V.pAt) : V.p1 + (V.p2 - V.p1) * ((u - V.pAt) / (1 - V.pAt));
+        const f = f0 * p * (1 + vibAmt * Math.sin(2 * Math.PI * vib * (j / sr)));
+        phase += f / sr;
+        if (phase >= 1) phase -= 1;
+        smooth += ((2 * phase - 1) - smooth) * 0.5;   // soften the buzz a touch
+        const src = smooth + (Math.random() * 2 - 1) * V.breath;
+        const a = u < V.attack ? u / V.attack : u < 0.6 ? 1 - 0.25 * (u - V.attack) / (0.6 - V.attack) : 0.75 * Math.pow(1 - (u - 0.6) / 0.4, 1.6);
+        d[i0 + j] += (run(bq[0], src) + 0.55 * run(bq[1], src)) * a;
+      }
+    }
+    this._normalize(d, 0.85);
+    return buf;
+  }
 }
+
+/** Sample rate of the synthesised crowd buffers (the AudioContext resamples on playback). */
+const CROWD_RATE = 22050;
+
+/**
+ * Crowd voice shapes: pitch contour (× the voice's f0 at start / peak / end, peak at `pAt` of
+ * the length), two formant glides [from, to] in Hz, length (s), attack (fraction of the
+ * length) and breath noise.
+ */
+const CROWD_VOICES = {
+  whoop: { p0: 1.0, p1: 1.75, p2: 1.35, pAt: 0.35, f: [[330, 680], [780, 1150]], len: 0.7, attack: 0.14, breath: 0.12 }, // "whoo-ah!"
+  yeah: { p0: 1.2, p1: 1.5, p2: 1.05, pAt: 0.3, f: [[480, 760], [1900, 1250]], len: 0.6, attack: 0.1, breath: 0.12 },    // "ye-ah!"
+  ooh: { p0: 1.25, p1: 1.35, p2: 0.85, pAt: 0.25, f: [[320, 360], [760, 700]], len: 1.0, attack: 0.2, breath: 0.1 },    // "ooooh"
+  aww: { p0: 1.15, p1: 1.05, p2: 0.72, pAt: 0.3, f: [[700, 560], [1100, 880]], len: 0.9, attack: 0.16, breath: 0.12 },  // "awww"
+  gasp: { p0: 1.3, p1: 1.55, p2: 1.2, pAt: 0.3, f: [[620, 520], [1350, 1150]], len: 0.36, attack: 0.08, breath: 0.45 }, // "hah!"
+};
