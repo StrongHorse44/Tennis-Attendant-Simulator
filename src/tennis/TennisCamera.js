@@ -4,8 +4,9 @@ import { HALF_L } from './TennisBallSim.js';
 /**
  * TennisCamera — the broadcast-style view from behind the player's baseline: high enough
  * to see the far baseline and Rafa, following the player sideways a little and leaning
- * toward the ball. Portrait phones get a higher, further view so the whole court width
- * fits the narrow frame. After a change of ends it swings round to the other end.
+ * toward the ball, and moving in part of the way when the player comes to the net. Portrait
+ * phones get a higher, further view so the whole court width fits the narrow frame. After a
+ * change of ends it swings round to the other end.
  */
 
 const _pos = new THREE.Vector3();
@@ -31,9 +32,11 @@ export class TennisCamera {
     const b = s.ball;
     if (b && b.active && b.shown) pu = pu * 0.75 + f.lu(b.pos.x, b.pos.z) * 0.25;
     const cu = THREE.MathUtils.clamp(pu * follow, -3.5, 3.5);
-    const cv = side * (HALF_L + back);
-    outPos.set(f.wx(cu, cv), up, f.wz(cu, cv));
-    const lv = side * (portrait ? -1.5 : 0.5);
+    // Follow the player in toward the net (at most ~4 m, never past the back fence)
+    const fwd = Math.min(4, Math.max(0, HALF_L - Math.abs(s.pl.v)) * 0.36);
+    const cv = side * (HALF_L + back - fwd);
+    outPos.set(f.wx(cu, cv), up - fwd * 0.2, f.wz(cu, cv));
+    const lv = side * ((portrait ? -1.5 : 0.5) - fwd * 0.4);
     outLook.set(f.wx(cu * 0.55, lv), portrait ? 0.2 : 0.7, f.wz(cu * 0.55, lv));
   }
 

@@ -113,7 +113,10 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
 }
 .cct-coach b { color: var(--cc-clay); margin-right: 4px; }
 .cct-coach.is-on { opacity: 1; }
-@media (max-width: 560px) { .cct-coach { top: auto; bottom: calc(var(--cc-safe-bottom) + 176px); max-width: calc(100vw - 32px); } }
+@media (max-width: 560px) { .cct-coach { top: auto; bottom: calc(var(--cc-safe-bottom) + 232px); max-width: calc(100vw - 32px); } }
+@media (max-height: 520px) and (min-width: 561px) {
+  .cct-coach { left: auto; right: calc(var(--cc-safe-right) + 12px); transform: none; top: calc(var(--cc-safe-top) + 62px); max-width: min(380px, calc(100vw - 360px)); }
+}
 .cct-pops { position: absolute; left: 0; right: 0; top: 24%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .cct-pop {
   font-family: var(--cc-font-display); font-weight: 700; font-size: 30px; color: #fff; opacity: 0;

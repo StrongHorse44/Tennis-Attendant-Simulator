@@ -427,7 +427,7 @@ export class TennisSession {
     this.hud.setPlayUi(true, 'drill');
     this._drillTargets();
     this._coach('reset', 'drill', { type });
-    this._say(type === 'serve' ? 'Serves. Hold, release in the green.' : type === 'volley' ? 'At the net. Short, firm punch.' : 'I feed, you hit the targets. Vamos.', 2.4);
+    this._say(type === 'serve' ? 'Serves. Hold SWING to toss, let go in the green.' : type === 'volley' ? 'At the net. Short, firm punch. A tap is enough.' : 'I feed, you hit the targets. Hold to load, let go on the ring.', 2.6);
     this._drillSetup(true);
   }
 
@@ -772,7 +772,8 @@ export class TennisSession {
     p.mesh.rotation.y = pl.yaw;
     p.mesh.updateMatrixWorld(true);
     const pred = this.pred.from(this.ball);
-    let best = -1, bestS = INF, bestT = 0, bestDc = INF;
+    let best = pref >= 0 && pref < N_STROKES ? pref : 0, bestS = INF, bestT = tc, bestDc = INF;
+    sw.dmin = INF;
     for (let ci = 0; ci < N_STROKES; ci++) {
       const Rv = _R[ci];
       ch.getContactPointWorld(STROKES[ci], Rv);
@@ -820,7 +821,7 @@ export class TennisSession {
     sw.volley = volley;
     if (!(bestDc < REACH)) {
       // Whiff
-      sw.q = 0;
+      sw.q = 0; sw.stretch = 1;
       sw.label = bestT > tc + 0.1 ? 'Too early' : bestT < tc - 0.1 ? 'Too late' : 'Too far';
       this._miss = sw.label;
       this.hud.pop(sw.label, 'bad');
@@ -1325,8 +1326,8 @@ export class TennisSession {
   _feedShot() {
     const plan = this.ai.feedPlan, b = this.ball;
     if (!plan) return;
+    this.phase = 'rally'; // before the launch: the player's flight handlers (held SWING, split step) need it
     this._launchShot(1, 'rally', plan.spin, b.pos, plan.u, plan.v, plan.pace, plan.margin, 0);
-    this.phase = 'rally';
     this.ai.feedPlan = null;
   }
 
