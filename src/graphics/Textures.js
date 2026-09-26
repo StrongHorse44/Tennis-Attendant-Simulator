@@ -216,6 +216,7 @@ const _O8 = { octaves: 3, seed: 71, period: 24 };
 const _O9 = { octaves: 2, seed: 72, period: 4 };
 const _O10 = { octaves: 2, seed: 81, period: 30 };
 const _O11 = { octaves: 4, seed: 91, period: 12 };
+const _O12 = { octaves: 4, seed: 111, period: 6 };
 
 // ───────────────────────────── Ready-made textures ─────────────────────────────
 
@@ -290,6 +291,49 @@ export const Textures = {
       });
       speckle(ctx, s, s, rand, s * 40, ['#ffffff', '#d0d0d0', '#e8e8e8'], 0.5, 1.2, 0.5);
     }, { key: 'acrylic', repeat });
+  },
+
+  /**
+   * Manicured court lawn (the grass tennis court): fine, short, low-contrast blades around
+   * `tone`. The court shader adds the mow stripes, the wear and the lines; this tile only
+   * carries the grain. Seamless (tiling noise, blades wrapped across the edges).
+   */
+  grassCourt({ repeat = [1, 1], tone = 0x5f9a3e } = {}) {
+    return createCanvasTexture(512, (ctx, s, rand) => {
+      const c = hexToRgb(tone);
+      const lo = [c[0] * 0.86, c[1] * 0.88, c[2] * 0.84], hi = [c[0] * 1.1, c[1] * 1.08, c[2] * 1.02];
+      fillPixelsScaled(ctx, s, s, 2, 2, (u, v, out) => {
+        const n = fbm2(u * 6, v * 6, _O12);
+        const fine = valueNoise2(u * 128, v * 128, 17, 128);
+        mixRgb(out, lo, hi, Math.min(1, Math.max(0, n * 1.2 - 0.1 + (fine - 0.5) * 0.35)));
+      });
+      // blades: short strokes batched per shade (dark roots, lit blades, pale tips)
+      const rgba = (k, a) => `rgba(${Math.min(255, c[0] * k) | 0},${Math.min(255, c[1] * k) | 0},${Math.min(255, c[2] * k * 0.92) | 0},${a})`;
+      const px = s / 512;
+      ctx.lineWidth = Math.max(1, px);
+      ctx.lineCap = 'round';
+      for (const [k, a, n] of [[0.62, 0.42, s * 26], [1.32, 0.34, s * 22], [1.55, 0.22, s * 8]]) {
+        ctx.strokeStyle = rgba(k, a);
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) {
+          const x = rand() * s, y = rand() * s;
+          const ang = rand() * Math.PI * 2, l = (1.2 + rand() * 2.6) * px;
+          const dx = Math.cos(ang) * l, dy = Math.sin(ang) * l;
+          // wrapped copies near the edges keep the tile seamless
+          for (let ox = -1; ox <= 1; ox++) {
+            const bx = x + ox * s;
+            if (bx + 5 < 0 || bx - 5 > s) continue;
+            for (let oy = -1; oy <= 1; oy++) {
+              const by = y + oy * s;
+              if (by + 5 < 0 || by - 5 > s) continue;
+              ctx.moveTo(bx, by);
+              ctx.lineTo(bx + dx, by + dy);
+            }
+          }
+        }
+        ctx.stroke();
+      }
+    }, { key: `grassCourt-${tone.toString(16)}`, repeat });
   },
 
   /** Dark asphalt with aggregate. */

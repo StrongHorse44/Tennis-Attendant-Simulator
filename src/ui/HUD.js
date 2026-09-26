@@ -1861,6 +1861,14 @@ export class HUD {
         ctx.strokeStyle = 'rgba(255, 244, 225, 0.75)';
         ctx.lineWidth = 0.8;
         ctx.strokeRect(-W * 0.34 * s, -D * 0.4 * s, W * 0.68 * s, D * 0.8 * s);
+      } else if (c.type === 'grass') {
+        // lawn with mow stripes across the court, chalk lines
+        box(W, D, '#5d9a42');
+        ctx.fillStyle = 'rgba(20, 60, 20, 0.22)';
+        for (let k = 0; k < 8; k += 2) ctx.fillRect(-W * s / 2, (-D / 2 + (k * D) / 8) * s, W * s, (D / 8) * s);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-W * 0.35 * s, -D * 0.4 * s, W * 0.7 * s, D * 0.8 * s);
       } else {
         box(W, D, '#3f7d55');
         box(W * 0.7, D * 0.8, '#2f6db3');

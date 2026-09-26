@@ -25,7 +25,7 @@
  *     related: role, rel: [types], matchPlayer: role, not: [roles] }
  *   { item: [ids] | 'any', ownedBy: staffRole (templates.staffItems), stockedAt: areaRole (itemSources) }
  *   { area: [ids] | 'itemSource' | 'itemHome' | 'npcArea' | 'staffArea' | 'court' | 'upcomingMatch',
- *     of: role, surface: 'hard'|'clay', within: [h0, h1], not: [roles] }
+ *     of: role, surface: 'hard'|'clay'|'grass' (map.json court type), within: [h0, h1], not: [roles] }
  *   { text: [strings] }
  *
  * Text fills: {role} (npc name / item phrase / place phrase / text), {role.first},
@@ -37,6 +37,8 @@
 import { missionErrors, parseHour } from './MissionValidation.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+/** Playing surfaces a court role can ask for (map.json court `type`). */
+export const COURT_SURFACES = ['hard', 'clay', 'grass'];
 const asArr = (v) => (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]);
 
 /** Default place phrases (templates.areaNames overrides). Courts use "Court N". */
@@ -556,8 +558,9 @@ export class MissionGenerator {
         else if (/\bfrom\b/i.test(text.slice(Math.max(0, p.at - 10), p.at)) || taken || (sources.includes(p.id) && !dest(p))) { from = p.id; }
         else to = p.id;
       } else if (fromCourts) {
-        const hard = this.courts.filter(c => c.type !== 'clay').map(c => c.id).filter(id => this._isArea(id));
-        from = hard.length ? hard[Math.floor(rand() * hard.length)] : null;
+        // hard / grass courts (the clay ones are raked, not littered with balls)
+        const open = this.courts.filter(c => c.type !== 'clay').map(c => c.id).filter(id => this._isArea(id));
+        from = open.length ? open[Math.floor(rand() * open.length)] : null;
       } else if (taken) {
         from = homeArea;
       } else if (staff && /\bout\b/i.test(text)) {
@@ -675,6 +678,7 @@ export function validateTemplatesShape(t, { taskTypes, sources = ['taskBoard', '
       for (const ref of [s && s.of, s && s.related, s && s.matchPlayer, s && s.ownedBy, s && s.stockedAt, ...asArr(s && s.not)]) {
         if (ref && !names.slice(0, k).includes(ref)) err(`${at}: role "${name}" refers to "${ref}", which must be an earlier role`);
       }
+      if (s && s.surface !== undefined && !COURT_SURFACES.includes(s.surface)) err(`${at}: role "${name}" surface must be one of ${COURT_SURFACES.join(' / ')}`);
     });
     if (asArr(x.sources).includes('random') && Array.isArray(x.steps) && !(isObj(x.steps[0]) && x.steps[0].action === 'dialogue' && x.steps[0].npc === x.trigger)) {
       err(`${at}: a random template must open with a dialogue step by its trigger ("${x.trigger}")`);

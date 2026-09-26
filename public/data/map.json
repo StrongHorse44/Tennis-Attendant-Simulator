@@ -41,7 +41,7 @@
       {
         "id": "court2",
         "label": "Court 2",
-        "type": "hard",
+        "type": "grass",
         "center": { "x": 25, "y": 0, "z": 5 },
         "rotation": 0,
         "sharedPadLeft": true

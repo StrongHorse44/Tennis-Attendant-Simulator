@@ -10,7 +10,8 @@
  * per match, format ranges (validateSchedule). missions.json → templates: shape
  * (validateTemplatesShape) plus sampled fills from every template through MissionGenerator,
  * each checked with validateMission. events.json: schema, boosts that name real templates /
- * missions, each event's merged schedule (validateEvents). shop.json: validateShop (ShopSystem.js). Exits 1 on
+ * missions, each event's merged schedule (validateEvents). shop.json: validateShop (ShopSystem.js).
+ * map.json courts: unique ids, `type` hard / clay / grass, shared-surround flags. Exits 1 on
  * any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { buildWorldFacts, validateMission, validateSchedule, hasMarkerPoint } from '../src/systems/MissionValidation.js';
 import { ITEMS } from '../src/systems/InventorySystem.js';
-import { MissionGenerator, validateTemplatesShape } from '../src/systems/MissionGenerator.js';
+import { MissionGenerator, validateTemplatesShape, COURT_SURFACES } from '../src/systems/MissionGenerator.js';
 import { validateEvents } from '../src/systems/EventSystem.js';
 import { validateShop } from '../src/systems/ShopSystem.js';
 
@@ -140,6 +141,26 @@ const npcs = load('npcs.json');
 const missions = load('missions.json');
 const schedule = load('schedule.json');
 const events = load('events.json');
+
+// map.json courts: ids, playing surfaces (Court.js: hard / clay / grass), shared surrounds
+if (map) {
+  const courts = map.areas && Array.isArray(map.areas.courts) ? map.areas.courts : [];
+  const seen = new Set();
+  for (const [i, c] of courts.entries()) {
+    const at = `map.json courts[${i}]${c && c.id ? ` (${c.id})` : ''}`;
+    if (!c || typeof c.id !== 'string' || !c.id) { errors.push(`${at}: needs a string "id"`); continue; }
+    if (seen.has(c.id)) errors.push(`${at}: duplicate court id`);
+    seen.add(c.id);
+    if (c.type === undefined) warnings.push(`${at}: no "type" (built as a hard court)`);
+    else if (!COURT_SURFACES.includes(c.type)) errors.push(`${at}: "type" must be one of ${COURT_SURFACES.join(' / ')}`);
+    // sharedPadLeft / Right: a neighbour on the same row flagged the other way (only merged when the surfaces match)
+    for (const [flag, other, dir] of [['sharedPadLeft', 'sharedPadRight', -1], ['sharedPadRight', 'sharedPadLeft', 1]]) {
+      if (!c[flag]) continue;
+      const n = courts.find(o => o && o !== c && o[other] && Math.abs((o.center?.z ?? 0) - (c.center?.z ?? 0)) < 0.5 && ((o.center?.x ?? 0) - (c.center?.x ?? 0)) * dir > 0);
+      if (!n) warnings.push(`${at}: ${flag} but no court on that side has ${other}`);
+    }
+  }
+}
 
 if (map && npcs && missions) {
   const facts = buildWorldFacts({ map, npcs, missions, items: ITEMS });

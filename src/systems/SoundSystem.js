@@ -5,6 +5,17 @@
 /** Master gain at 100% volume (the original fixed level was 0.25). */
 const BASE_MASTER_GAIN = 0.3;
 
+/**
+ * Ball bounce voices per court surface (playBallHit(volume, 'bounce', surface)): contact noise
+ * band (bp Hz, q), noise playback rate, optional lowpass (lp Hz), ball-body tone (f0 Hz, wave,
+ * pitch drop, body level), length (s), level (v) and clay grit (sparse crackle level).
+ */
+const BOUNCE_VOICES = {
+  hard: { bp: 620, q: 1.6, rate: 1, lp: 0, f0: 300, wave: 'triangle', drop: 0.6, body: 0.7, len: 0.05, v: 0.22, grit: 0 },
+  clay: { bp: 440, q: 1.1, rate: 0.9, lp: 2600, f0: 230, wave: 'triangle', drop: 0.62, body: 0.55, len: 0.062, v: 0.18, grit: 0.5 },
+  grass: { bp: 250, q: 0.9, rate: 0.7, lp: 750, f0: 150, wave: 'sine', drop: 0.58, body: 1.0, len: 0.075, v: 0.2, grit: 0 },
+};
+
 export class SoundSystem {
   constructor() {
     this.ctx = null;
@@ -676,10 +687,13 @@ export class SoundSystem {
   }
 
   /**
-   * Tennis ball "pock" (MatchSystem). volume 0..1 is the caller's distance attenuation;
-   * kind 'hit' = racket strike (bright), 'bounce' = court bounce (dull, softer).
+   * Tennis ball "pock" (MatchSystem, TennisAudio): playBallHit(volume, kind, surface).
+   * volume 0..1 is the caller's distance attenuation; kind 'hit' = racket strike (bright),
+   * 'bounce' = court bounce. surface (bounces only; court.surface / map.json court type):
+   * 'hard' (default: the crisp acrylic pock), 'clay' (softer and duller, with a little
+   * grit), 'grass' (a low, soft thud with almost no high end). Unknown values sound hard.
    */
-  playBallHit(volume = 1, kind = 'hit') {
+  playBallHit(volume = 1, kind = 'hit', surface = 'hard') {
     if (!this.initialized || this.paused || this.muted || !(volume > 0.01)) return;
     try {
       const ctx = this.ctx;
@@ -691,33 +705,68 @@ export class SoundSystem {
         for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * 0.12));
       }
       const hit = kind !== 'bounce';
-      const v = Math.min(1, volume) * (hit ? 0.5 : 0.22);
-      const len = hit ? 0.06 : 0.05;
+      const bv = hit ? null : (BOUNCE_VOICES[surface] || BOUNCE_VOICES.hard);
+      const v = Math.min(1, volume) * (hit ? 0.5 : bv.v);
+      const len = hit ? 0.06 : bv.len;
 
       const src = ctx.createBufferSource();
       src.buffer = this._ballNoise;
-      src.playbackRate.value = 0.9 + Math.random() * 0.2;
+      src.playbackRate.value = (hit ? 1 : bv.rate) * (0.9 + Math.random() * 0.2);
       const bp = ctx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.value = (hit ? 1350 : 620) * (0.92 + Math.random() * 0.16);
-      bp.Q.value = hit ? 2.2 : 1.6;
+      bp.frequency.value = (hit ? 1350 : bv.bp) * (0.92 + Math.random() * 0.16);
+      bp.Q.value = hit ? 2.2 : bv.q;
       const ng = ctx.createGain();
       ng.gain.setValueAtTime(v, now);
       ng.gain.exponentialRampToValueAtTime(0.001, now + len);
-      src.connect(bp); bp.connect(ng); ng.connect(this.masterGain);
+      src.connect(bp);
+      if (bv && bv.lp) {
+        // soft surfaces swallow the high end of the contact noise
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = bv.lp;
+        lp.Q.value = 0.5;
+        bp.connect(lp); lp.connect(ng);
+      } else {
+        bp.connect(ng);
+      }
+      ng.connect(this.masterGain);
       src.start(now); src.stop(now + len);
 
       // hollow body of the ball
       const osc = ctx.createOscillator();
-      osc.type = 'triangle';
-      const f0 = (hit ? 640 : 300) * (0.95 + Math.random() * 0.1);
+      osc.type = hit ? 'triangle' : bv.wave;
+      const f0 = (hit ? 640 : bv.f0) * (0.95 + Math.random() * 0.1);
       osc.frequency.setValueAtTime(f0, now);
-      osc.frequency.exponentialRampToValueAtTime(f0 * 0.6, now + len);
+      osc.frequency.exponentialRampToValueAtTime(f0 * (hit ? 0.6 : bv.drop), now + len);
       const og = ctx.createGain();
-      og.gain.setValueAtTime(v * 0.7, now);
+      og.gain.setValueAtTime(v * (hit ? 0.7 : bv.body), now);
       og.gain.exponentialRampToValueAtTime(0.001, now + len * 0.9);
       osc.connect(og); og.connect(this.masterGain);
       osc.start(now); osc.stop(now + len);
+
+      // clay: a few grains of loose top dressing kicked up by the bounce
+      if (bv && bv.grit > 0) {
+        if (!this._ballGrit) {
+          const n = Math.floor(ctx.sampleRate * 0.09);
+          this._ballGrit = ctx.createBuffer(1, n, ctx.sampleRate);
+          const d = this._ballGrit.getChannelData(0);
+          for (let i = 0; i < n; i++) d[i] = Math.random() < 0.07 ? (Math.random() * 2 - 1) * Math.exp(-i / (n * 0.3)) : 0;
+        }
+        const gs = ctx.createBufferSource();
+        gs.buffer = this._ballGrit;
+        gs.playbackRate.value = 0.85 + Math.random() * 0.3;
+        const gf = ctx.createBiquadFilter();
+        gf.type = 'bandpass';
+        gf.frequency.value = 3200 * (0.9 + Math.random() * 0.2);
+        gf.Q.value = 0.7;
+        const gg = ctx.createGain();
+        const gl = 0.09;
+        gg.gain.setValueAtTime(v * bv.grit, now);
+        gg.gain.exponentialRampToValueAtTime(0.001, now + gl);
+        gs.connect(gf); gf.connect(gg); gg.connect(this.masterGain);
+        gs.start(now + 0.004); gs.stop(now + gl);
+      }
     } catch (e) { /* ignore audio errors */ }
   }
 

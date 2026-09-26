@@ -539,12 +539,13 @@
           "Frank handed me a memo about a divot on Court 4. Hand-written. Two pages.",
           "Gloria and I have coffee on the Court 5 bench at six. Every day. Ten years.",
           "You brush the lines last, kid. Always last.",
-          "Chad slid into the net post again. The post's fine. Chad's fine. Mostly the post."
+          "Chad slid into the net post again. The post's fine. Chad's fine. Mostly the post.",
+          "Court 2 is proper grass now. Eight millimetres, stripes across the net, and nobody walks on it in the wet."
         ],
         "morning": ["Dew's still on the clay. Best time to read a court.", "Early start. Clay likes an early start."],
         "afternoon": ["Afternoon heat dries the clay fast. Keep an eye on it.", "Busy courts, tired clay."],
         "evening": ["Courts get a rest at night. So should you. After closing.", "Lights on. Last sweep before lock-up."],
-        "rainy": ["Rain's the clay's best friend and my worst enemy.", "No grooming in this. We wait it out."],
+        "rainy": ["Rain's the clay's best friend and my worst enemy.", "No grooming in this. We wait it out.", "Covers go on the grass court the minute it spits. A lawn drowns faster than clay."],
         "windy": ["Wind's lifting the top dressing. Keep that brush low.", "Windy days, the clay ends up in the parking lot."],
         "cloudy": ["Cloudy's good. Clay holds its moisture.", "Nice gray day. Courts'll play true."],
         "sunny": ["Hot sun bakes the clay. We'll need water later.", "Beautiful day. Clay'll dry fast. Stay on it."]
@@ -1365,7 +1366,7 @@
         "cloudy": ["Cloudy. Perfect outdoor run weather. Nobody overheats.", "Gray sky, green light. Let's move."],
         "sunny": ["Sunny! Hydrate, champ. Water first, then glory.", "Beautiful out. Take the stairs. There are no stairs. Find some."],
         "tips": [
-          "Trainer tip: the fitness centre's by the north perimeter path, past the hard courts. The juice bar has the water cooler.",
+          "Trainer tip: the fitness centre's by the north perimeter path, past Courts 1 and 2. The juice bar has the water cooler.",
           "Members come back from matches thirsty. If you carry water toward the courts after a match, tips go up. Science.",
           "Carrying heavy stuff? Take the cart. Lift with your legs, drive with your hands.",
           "Frank's here at seven sharp, Nate at eight, Leo whenever he's angry. You can set a clock by 'em."

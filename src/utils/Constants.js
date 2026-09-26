@@ -27,6 +27,11 @@ export const COLORS = {
   courtBenchWood: 0x9c6b3c,
   courtLampGlow: 0xfff1d6,
   tennisBall: 0xd4e157,
+  // Grass court (Court.js COURT_GRASS + Textures.grassCourt)
+  courtGrass: 0x568f3d,       // manicured court lawn (mid tone; the shader adds the mow stripes)
+  courtGrassWorn: 0x9c9c55,   // thinning, yellowed grass at the edge of the baseline wear
+  courtGrassEarth: 0xa6946c,  // bare, dry earth behind the baselines
+  courtGrassCurb: 0x2c5a40,   // painted edging around the lawn pad (same as the hard-court curb)
 
   // Buildings
   proShopWall: 0xF5E6CA,
