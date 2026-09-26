@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES } from '../utils/Constants.js';
-import { Court } from './Court.js';
+import { Court, sharedPadSides } from './Court.js';
 import { Building } from './Building.js';
 import { Clubhouse, FitnessCenter, PoolHouse } from './ClubBuildings.js';
 import { CameraTracker } from '../entities/CharacterModel.js';
@@ -570,15 +570,17 @@ export class World {
   // ───────────────────────────── courts & buildings (other modules) ─────────────────────────────
 
   _buildCourts() {
-    for (const courtConfig of this.mapData.areas.courts) {
-      const court = new Court(this.scene, this.physicsWorld, courtConfig);
+    const configs = this.mapData.areas.courts;
+    for (const courtConfig of configs) {
+      // neighbouring surrounds merge only between courts of the same surface
+      const court = new Court(this.scene, this.physicsWorld, courtConfig, { sharedPad: sharedPadSides(courtConfig, configs) });
       this.courts.push(court);
     }
     this._mergeCourtSlabs();
   }
 
   /**
-   * Replace the slab bodies of side-by-side courts (clay 3-5, hard 1-2) with one
+   * Replace the slab bodies of side-by-side courts (clay 3-5, courts 1-2) with one
    * body per contiguous run, so walking across a seam never touches two
    * coplanar boxes (double contacts = double friction).
    */

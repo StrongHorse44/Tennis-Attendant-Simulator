@@ -38,6 +38,9 @@ const FENCE_V = 14.2;                   // ball stops at the back fence
 const BASE_V = 12.9;                    // baseline stand
 const MAX_STAND_V = 13.8;               // deepest stand (fence at 14.5)
 const RUN_SPEED = 5.4;
+// Bounce per court surface (Court.surface): vertical restitution e, horizontal speed kept kh.
+// Clay grips and sits the ball up a little slower; grass keeps it low and skidding.
+const BOUNCE = { hard: { e: 0.74, kh: 0.74 }, clay: { e: 0.7, kh: 0.64 }, grass: { e: 0.66, kh: 0.8 } };
 const SWING_T = 0.52;                   // forehand / backhand contact time
 const SERVE_RELEASE = 0.62, SERVE_CONTACT = 1.22;
 const WALK_SPEED = 1.75;
@@ -72,7 +75,7 @@ export class MatchSystem {
    * @param {WeatherSystem} o.weather   timeOfDay / day / getWeather()
    * @param {MissionSystem} [o.missions] busy-NPC check (current step NPCs)
    * @param {CourtMaintenanceSystem} [o.maintenance] clay courts being groomed are unavailable
-   * @param {SoundSystem} [o.sound]     playBallHit(volume, kind)
+   * @param {SoundSystem} [o.sound]     playBallHit(volume, kind, surface)
    * @param {THREE.Camera} [o.camera]   frustum LOD on the low tier
    * @param {object} [o.waypoints]      map.json waypoints (rain fallback spots)
    */
@@ -152,13 +155,15 @@ export class MatchSystem {
     const cfg = court.config || {};
     const r = Number(cfg.rotation) || 0;
     const clay = !!court.isClay;
+    const surface = BOUNCE[court.surface] ? court.surface : (clay ? 'clay' : 'hard');
     const buf = clay ? (SIZES.clayCourtBuffer || 0) : 2;
     return {
-      court, id: court.id, isClay: clay,
+      court, id: court.id, isClay: clay, surface,
+      bounceE: BOUNCE[surface].e, bounceKh: BOUNCE[surface].kh,
       cx: cfg.center?.x ?? 0, cz: cfg.center?.z ?? 0, r, c: Math.cos(r), s: Math.sin(r),
       halfPadL: SIZES.courtWidth / 2 + (cfg.adjacentLeft ? 0 : buf),
       halfPadR: SIZES.courtWidth / 2 + (cfg.adjacentRight ? 0 : buf),
-      wear: typeof court.wearAt === 'function',
+      wear: clay && typeof court.wearAt === 'function',   // footwork / bounce marks: clay only
     };
   }
   _wx(f, u, v) { return f.cx + u * f.c + v * f.s; }
@@ -804,7 +809,7 @@ export class MatchSystem {
       }
       case 'bounce': {
         m.bounces++;
-        this._pock(pos, 'bounce');
+        this._pock(pos, 'bounce', f.surface);
         if (f.wear) this._queueWear(m, pos.x, pos.z, 0.3, 0.035);
         const vx = b.v0.x, vy = b.vyAt(t), vz = b.v0.z;
         if (m.bounces === 1 && sh.returnable && !sh.missed && t < sh.tContact) {
@@ -851,7 +856,7 @@ export class MatchSystem {
 
   _physicalBounce(m, t, vx, vy, vz) {
     const b = m.ball, f = m.frame;
-    const e = f.isClay ? 0.7 : 0.74, kh = f.isClay ? 0.64 : 0.74;
+    const e = f.bounceE, kh = f.bounceKh;
     const nvx = vx * kh, nvz = vz * kh, nvy = -vy * e;
     const pos = b.pos;
     if (nvy < 0.9) {
@@ -985,7 +990,7 @@ export class MatchSystem {
       }
       const vx = (Bx - C.x) / T1, vz = (Bz - C.z) / T1;
       const vyB = vy0 - G * T1;
-      const e = f.isClay ? 0.7 : 0.74, kh = f.isClay ? 0.64 : 0.74;
+      const e = f.bounceE, kh = f.bounceKh;
       const plan = { Bx, Bz, T1, vx, vy0, vz, rt: null };
       if (outcome === 'in' || outcome === 'winner') {
         plan.rt = this._evalReturn(m, rcv, Bx, Bz, vx * kh, vz * kh, -vyB * e, t0 + T1);
@@ -1200,14 +1205,14 @@ export class MatchSystem {
 
   // ───────────────────────────── audio / wear ─────────────────────────────
 
-  _pock(pos, kind) {
+  _pock(pos, kind, surface) {
     const s = this.sound;
     if (!s || typeof s.playBallHit !== 'function' || !CameraTracker.valid) return;
     const c = CameraTracker.position;
     const d = Math.sqrt((c.x - pos.x) ** 2 + (c.y - pos.y) ** 2 + (c.z - pos.z) ** 2);
     const k = 1 - d / 55;
     if (k <= 0) return;
-    s.playBallHit(Math.pow(k, 1.6), kind);
+    s.playBallHit(Math.pow(k, 1.6), kind, surface);
   }
 
   _queueWear(m, x, z, r, a) {

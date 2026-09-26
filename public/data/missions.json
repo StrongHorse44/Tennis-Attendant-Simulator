@@ -833,30 +833,130 @@
         "id": "rain_squeegee",
         "type": "weather",
         "sources": ["taskBoard", "radio"],
-        "weight": 4,
+        "weight": 3,
         "cooldownDays": 0,
         "afterRain": true,
         "roles": {
           "boss": { "npc": "staff", "ids": ["hank_morris"] },
-          "c1": { "area": "court", "surface": "hard" },
-          "c2": { "area": "court", "surface": "hard", "not": ["c1"] }
+          "c1": { "area": "court", "surface": "hard" }
         },
         "key": ["c1"],
-        "title": ["Squeegee the hard courts", "Dry out {c1.label} and {c2.label}"],
-        "description": ["The rain left puddles on the hard courts. Grab the squeegee and dry {c1} and {c2}."],
+        "title": ["Squeegee the hard court", "Dry out {c1.label}"],
+        "description": ["The rain left puddles all over {c1}. Grab the squeegee and push them off the court before anyone slips."],
         "steps": [
           {
             "action": "goTo",
             "target": "equipmentShed",
             "prompt": "Grab the squeegee from the equipment shed."
           },
-          { "action": "goTo", "target": "c1", "prompt": "Squeegee {c1}." },
-          { "action": "goTo", "target": "c2", "prompt": "Squeegee {c2}." },
+          { "action": "goTo", "target": "c1", "prompt": "Squeegee the puddles off {c1}." },
           {
             "action": "dialogue",
             "npc": "boss",
-            "prompt": "Tell Hank the hard courts are dry.",
+            "prompt": "Tell Hank {c1.label} is dry.",
             "lines": [{ "*": "Dry already? Rain is just the sky watering the crops. You are the harvest. Good work." }]
+          }
+        ]
+      },
+      {
+        "id": "rain_grass_covers",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "weather": ["rainy"],
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "court": { "area": "court", "surface": "grass" }
+        },
+        "key": ["court"],
+        "title": ["Covers on the grass", "Save the lawn on {court.label}"],
+        "description": ["Rain is soaking the grass on {court}. Get the rolled covers out of the equipment shed and pull them over the lawn before the baselines turn to mud."],
+        "steps": [
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Load the rolled court covers at the equipment shed."
+          },
+          { "action": "goTo", "target": "court", "prompt": "Pull the covers over {court}." },
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Tell Hank the grass is covered.",
+            "lines": [{ "*": "Covered? Good. A wet lawn under tennis shoes is a lawn you re-seed in August. The grass thanks you. So do my knees." }]
+          }
+        ]
+      },
+      {
+        "id": "grass_covers_off",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 2.5,
+        "cooldownDays": 0,
+        "afterRain": true,
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "court": { "area": "court", "surface": "grass" },
+          "member": { "npc": "member" }
+        },
+        "client": "member",
+        "key": ["court"],
+        "title": ["Covers off {court.label}", "Dry grass for {member.first}"],
+        "description": ["The rain has passed and {member} is itching to play on the grass. Roll the covers off {court}, brush the water off the lawn and stow the covers."],
+        "steps": [
+          { "action": "goTo", "target": "court", "prompt": "Roll the covers off {court} and brush the water off the lawn." },
+          { "action": "goTo", "target": "equipmentShed", "prompt": "Hang the wet covers up in the equipment shed." },
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Tell {member.first} the grass is playable.",
+            "lines": [
+              {
+                "entitled": "Dry grass, at last. I was not about to slide around like a seal.",
+                "competitive": "Grass after rain plays fast and low. Perfect. Thank you.",
+                "junior": "Grass court! Grass court! Thank you!",
+                "*": "The covers are off? Lovely. Nothing smells like a lawn after the rain."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "grass_prep_match",
+        "type": "prep",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.2,
+        "cooldownDays": 1,
+        "hours": [7, 17],
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "court": { "area": "upcomingMatch", "surface": "grass", "within": [0.5, 3] },
+          "player": { "matchPlayer": "court" }
+        },
+        "client": "player",
+        "key": ["court"],
+        "title": ["Fresh lines on the grass", "Mark {court.label} for {player.first}"],
+        "description": ["{player} plays on the grass on {court} at {court.time}. The lines have worn thin: wheel the marker out and re-chalk them before they arrive."],
+        "steps": [
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Fill the line marker with chalk at the equipment shed."
+          },
+          { "action": "goTo", "target": "court", "prompt": "Re-mark the lines on {court}." },
+          {
+            "action": "dialogue",
+            "npc": "player",
+            "prompt": "Let {player.first} know the grass is marked.",
+            "lines": [
+              {
+                "entitled": "Crisp white lines on green. Now it looks like a proper club.",
+                "competitive": "Fresh lines. No more arguments about the baseline. Probably.",
+                "*": "Oh, it looks like Wimbledon out there. Thank you!"
+              }
+            ],
+            "thanks": true
           }
         ]
       },
