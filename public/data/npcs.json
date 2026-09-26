@@ -549,7 +549,19 @@
         "cloudy": ["Cloudy's good. Clay holds its moisture.", "Nice gray day. Courts'll play true."],
         "sunny": ["Hot sun bakes the clay. We'll need water later.", "Beautiful day. Clay'll dry fast. Stay on it."]
       },
-      "matchLines": { "win": ["Not bad for grounds!", "Ha! Still got it."], "lose": ["Back to the rake.", "Good game."] }
+      "matchLines": { "win": ["Not bad for grounds!", "Ha! Still got it."], "lose": ["Back to the rake.", "Good game."] },
+      "courtside": {
+        "arrive": ["Evening. Nice lights.", "Came to watch, kid.", "Mind my baselines."],
+        "winner": ["Clean as fresh clay.", "Planted that one.", "Right on the line.", "Good. Real good."],
+        "ace": ["Hah! Untouched.", "Now that's a serve.", "Clean harvest."],
+        "rally": ["Long row to hoe.", "Now that's work.", "Honest rally."],
+        "rafa": ["Rafa's still got it.", "Well. That's Rafa.", "Old dog, new trick."],
+        "error": ["Shake it off.", "Weeds happen.", "Next row, kid."],
+        "game": ["That's a game.", "Keep digging.", "One more row."],
+        "matchWin": ["Proud of ya, kid.", "Bumper crop!", "Knew it. Good work."],
+        "matchLose": ["Close. Real close.", "Rafa's had practice.", "Good season anyway."],
+        "drill": ["Right on the spot.", "Good. Again.", "Straight furrow."]
+      }
     },
     {
       "id": "rafa_ibarra",
@@ -654,7 +666,19 @@
         "cloudy": ["Cloudy. Nobody's buying sunscreen. Weird.", "Gray. My favorite color."],
         "sunny": ["Sunny. We're out of visors. Again.", "Great weather for staying indoors and stringing."]
       },
-      "matchLines": { "win": ["Called it.", "Exactly 52 pounds."], "lose": ["Fair.", "Good hands. Noted."] }
+      "matchLines": { "win": ["Called it.", "Exactly 52 pounds."], "lose": ["Fair.", "Good hands. Noted."] },
+      "courtside": {
+        "arrive": ["Evening. Shop's shut.", "Staying for this.", "Front row. Noted."],
+        "winner": ["Acceptable.", "That was clean.", "Good string bed.", "Noted. Impressive."],
+        "ace": ["Ace. Obviously.", "Untouched. Nice.", "Zero return. Good."],
+        "rally": ["My pulse moved.", "Long. Fine. Good.", "That was a lot."],
+        "rafa": ["Show-off.", "He does that.", "Rafa. Honestly."],
+        "error": ["Happens. Reset.", "Statistically fine.", "Next point."],
+        "game": ["Game. As predicted.", "Called it.", "One game closer."],
+        "matchWin": ["You beat Rafa. Wow.", "Called it. Mostly.", "Free restring. Once."],
+        "matchLose": ["Good hands. Noted.", "Respectable.", "Rafa cheats. Maybe."],
+        "drill": ["Target hit. Noted.", "Consistent. Good.", "Precise. I like it."]
+      }
     },
     {
       "id": "theo_wellington",
@@ -1269,7 +1293,19 @@
           "You want {name}? They're {place}. Tell 'em Gus says hi."
         ]
       },
-      "matchLines": { "win": ["Order up!", "Golden!"], "lose": ["Eh, burnt.", "Next batch!"] }
+      "matchLines": { "win": ["Order up!", "Golden!"], "lose": ["Eh, burnt.", "Next batch!"] },
+      "courtside": {
+        "arrive": ["Evening, boss!", "Brought lemonade!", "Front row, boss!"],
+        "winner": ["Opa! Beautiful!", "Cooked, boss!", "Order up!", "Golden, boss!"],
+        "ace": ["Opa! Too hot!", "Served hot, boss!", "Fresh off the grill!"],
+        "rally": ["Long simmer, boss!", "What a rally!", "Ooh, slow cooked!"],
+        "rafa": ["Ay, Rafa!", "Show-off chef!", "Eh, lucky, Rafa!"],
+        "error": ["Next batch, boss!", "A little burnt. Fine!", "Keep stirring!"],
+        "game": ["Game, boss! Opa!", "That's the special!", "Serve it up!"],
+        "matchWin": ["Drinks on Gus!", "Champion, boss!", "Golden! Golden!"],
+        "matchLose": ["Next time, boss!", "Good fight, boss!", "Still tasty, boss!"],
+        "drill": ["Bullseye, boss!", "Nice aim, boss!", "Right in the pot!"]
+      }
     },
     {
       "id": "marcus_bell",
@@ -1340,7 +1376,19 @@
           "{name} is {place}, champ. Go get 'em. That's your next rep."
         ]
       },
-      "matchLines": { "win": ["Let's go, champ!", "Personal best!"], "lose": ["Not yet!", "Good legs, champ!"] }
+      "matchLines": { "win": ["Let's go, champ!", "Personal best!"], "lose": ["Not yet!", "Good legs, champ!"] },
+      "courtside": {
+        "arrive": ["Champ! Let's go!", "Front row, champ!", "Warm up those legs!"],
+        "winner": ["Let's GO, champ!", "That's the rep!", "Beautiful form!"],
+        "ace": ["ACE! Let's go!", "Unreal, champ!", "Personal best!"],
+        "rally": ["Look at that cardio!", "Endurance, champ!", "Keep those legs!"],
+        "rafa": ["Respect, Coach!", "Okay, Coach Rafa!", "Big rep, Coach!"],
+        "error": ["Not yet, champ!", "Reset. Breathe.", "Next rep, champ!"],
+        "game": ["Game, champ!", "One more rep!", "Let's GO!"],
+        "matchWin": ["CHAMP! Let's go!", "Personal record!", "What a workout!"],
+        "matchLose": ["Not yet! Soon!", "Great legs, champ!", "Good work, champ!"],
+        "drill": ["Nice rep!", "Form looks great!", "Again! Again!"]
+      }
     },
     {
       "id": "otis_grant",

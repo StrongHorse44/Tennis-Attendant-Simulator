@@ -637,7 +637,7 @@ export class MissionSystem {
       if (!this._isOfferable(mission, 'random') || !mission.triggerNpc) continue;
       if (this.pendingEncounters.has(mission.triggerNpc)) continue;
       const npc = this.npcsMap.get(mission.triggerNpc);
-      if (npc && !npc.hasRequest && npc.distanceTo(playerPos) < GAME.interactionRange * 3) {
+      if (npc && !npc.away && !npc.hasRequest && npc.distanceTo(playerPos) < GAME.interactionRange * 3) {
         if (Math.random() < p) {
           this.offerEncounter(mission.triggerNpc);
           this.randomEncounterCooldown = 30;
@@ -659,7 +659,7 @@ export class MissionSystem {
     const range = GAME.interactionRange * 3;
     const near = [];
     for (const npc of this.npcsMap.values()) {
-      if (npc.hasRequest || this.pendingEncounters.has(npc.id) || npc.playing) continue;
+      if (npc.away || npc.hasRequest || this.pendingEncounters.has(npc.id) || npc.playing) continue;
       if (typeof npc.distanceTo === 'function' && npc.distanceTo(playerPos) < range) near.push(npc);
     }
     if (!near.length) return;
@@ -935,7 +935,7 @@ export class MissionSystem {
   _whereabouts(speaker) {
     if (typeof this.describePlace !== 'function') return null;
     const place = (n) => {
-      if (!n || n === speaker || !n.body) return null;
+      if (!n || n === speaker || !n.body || n.away) return null;
       try { return this.describePlace(n); } catch (e) { return null; }
     };
     for (const mission of this.activeMissions) {

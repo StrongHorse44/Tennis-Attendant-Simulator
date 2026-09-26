@@ -1599,7 +1599,7 @@ export class HUD {
     if (npcs) {
       for (let i = 0; i < npcs.length; i++) {
         const npc = npcs[i];
-        if (!npc || !npc.mesh) continue;
+        if (!npc || !npc.mesh || npc.away) continue;
         if (npc.id === HANK_ID) { hank = npc; continue; }
         const pos = npc.mesh.position;
         const nx = mx(pos.x);
