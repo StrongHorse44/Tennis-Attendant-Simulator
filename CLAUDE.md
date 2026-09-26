@@ -21,7 +21,7 @@ Court Call is a 3D browser-based sandbox game where the player works as a tennis
 - `npm run dev` — start Vite dev server on port 3000 (open `http://localhost:3000/Tennis-Attendant-Simulator/`)
 - `npm run build` — production build to `dist/`
 - `npm run preview` — preview production build
-- `npm run validate` — check `public/data/*.json` (`scripts/validate-data.mjs`): every mission step resolves (actions, targets, NPCs, dialogue keys, items, pickup-before-deliver, minimap pins), the shift section and ranks, and `schedule.json` (court / NPC ids, start < end, two players per match). Exits 1 on any error; warnings don't fail.
+- `npm run validate` — check `public/data/*.json` (`scripts/validate-data.mjs`): every mission step resolves (actions, targets, NPCs, dialogue keys, items, pickup-before-deliver, minimap pins), the shift section and ranks, `schedule.json` (court / NPC ids, start < end, two players per match), the mission `templates` (shape + ~350 sampled generated missions, each validated) and `events.json` (schema, boosts, each event's merged schedule). Exits 1 on any error; warnings don't fail.
 
 There are no unit tests, linters or formatters. The deploy workflow runs `npm run validate` before `npm run build`; the Playwright suites used during development live outside the repo.
 
@@ -45,6 +45,7 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── InteriorArt.js  # Shared interior furnishing builders (merged by material)
 │   │   ├── NavRooms.js     # Room/door nav graph so NPCs route through doorways
 │   │   ├── ItemProps.js    # Visible errand items: waiting at pickup spots, carried (hand bones / cart), set down on delivery
+│   │   ├── ClubUpgrades.js # Club projects in the world (koi, trophy, planters, scoreboard, patio heaters, hitting wall), shown when funded
 │   │   ├── Garden.js       # Paver walks, hedges, flower beds, animated fountain
 │   │   └── Scenery.js      # Instanced trees/grass/flowers/benches/lamps/blob shadows + wind sway
 │   ├── entities/
@@ -62,9 +63,12 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── DialogueSystem.js# Dialogue queue, branching choices, NPC conversation flow
 │   │   ├── MissionSystem.js# Task board, radio dispatch (On it / Busy), random encounters, shift routines, step logic, goTo arrival
 │   │   ├── MissionValidation.js # Pure "can this mission be completed?" + schedule checks (runtime + `npm run validate`), parseHour
+│   │   ├── MissionGenerator.js # Procedural missions from missions.json → templates (roles filled from the live world), request classifier
+│   │   ├── EventSystem.js  # Daily events calendar (events.json): weekly rotation, dispatch / tip / groom-bonus modifiers, schedule merge
 │   │   ├── MissionMarkers.js # Floating gold objective markers for place-based steps (pooled)
 │   │   ├── SmallTalk.js    # Per-member small-talk selector (greeting, personality, time-of-day, weather, mood lines)
 │   │   ├── ShiftSystem.js  # Daily loop: clock-in, checklist, rush windows, closing, report; wallet, tips, rank + perks
+│   │   ├── ShopSystem.js   # Club shop + services: buy / equip gear, cosmetics, cart upgrades; lessons; club projects; horn; validateShop
 │   │   ├── MatchSystem.js  # Scheduled member tennis matches (schedule.json): walk-in, rallies, scoring, rain, clay wear
 │   │   ├── RoutePlanner.js # A* over static physics boxes for scripted NPC walks (match walk-in / walk-off / rain shelter)
 │   │   ├── InventorySystem.js # Carry up to 3 items for errands
@@ -80,13 +84,15 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── GeometryUtils.js# Cached geometries (rounded boxes), mergeStaticMeshes, createInstanced
 │   │   ├── Sky.js          # Sky dome, stars, clouds, horizon hills + backdrop treeline
 │   │   └── PostFX.js       # Composer: MSAA, grade/vignette (medium), GTAO + bloom (high)
+│   ├── tennis/             # After-hours tennis with Coach Rafa: session, spin ball sim, AI, scoring, HUD, camera, FX, audio
 │   ├── ui/
 │   │   ├── theme.js        # Shared UI tokens (CSS custom properties --cc-*) + base classes (.cc-panel, .cc-btn…)
 │   │   ├── Joystick.js     # Virtual joystick (touch + mouse fallback)
 │   │   ├── DialogueBox.js  # Bottom-center dialogue overlay with choices (typewriter)
-│   │   ├── PauseMenu.js    # Pause button + menu: Resume, Settings (volume, graphics, camera), Save, Reset
+│   │   ├── PauseMenu.js    # Pause button + menu: Resume, Settings (volume, graphics, camera), Save, Locker, Reset
 │   │   ├── HUD.js          # Mini-map, task list, clock/weather, wallet, radio dispatch card, inventory, action button, toasts, grooming overlay (+ groom camera button)
 │   │   ├── GroomSummary.js # End-of-groom card with the paint-mask heatmap (auto-hides in game time)
+│   │   ├── ShopUI.js       # Shop / lessons / Locker overlay (tabs, item cards with stat deltas, project progress)
 │   │   └── ShiftReport.js  # End-of-shift report card (pay, tips, happiness, court quality, rank) + Next day
 │   └── utils/
 │       ├── Constants.js    # Colors, sizes, game tuning values, area enums
@@ -96,7 +102,9 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
     │   ├── map.json        # Club layout: areas, courts, paths, waypoints
     │   ├── npcs.json       # NPC definitions: names, archetypes (tipChance / tipRange), dialogue pools
     │   ├── missions.json   # Mission templates, dialogue scripts, branching choices, taskTypes pay, "shift" (wage, rush, ranks)
-    │   └── schedule.json   # Court reservations for member matches (MatchSystem)
+    │   ├── shop.json       # Shop catalog: slots, items (stats / looks / cart looks), lessons, club projects, vendors
+    │   ├── schedule.json   # Court reservations for member matches (MatchSystem)
+    │   └── events.json     # Daily events calendar (EventSystem): week rotation, event modifiers, extra matches
     └── assets/             # Future: models, textures, audio files
 ```
 
@@ -142,13 +150,32 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 - **Enterable buildings**: every building except the equipment shed (a drive-in bay for the cart) can be entered on foot. Walls are merged with the upper band after the lower band in the same mesh, so the indoor cutaway draws fewer indices instead of adding draw calls. Interiors are hidden beyond 32 m from the camera. Indoor areas (`clubhouseLobby`, `memberLounge`, `cafe`, `lockerRoom`, `fitnessCenter`, `poolHouse`) and `pool` are detected before the patio in `Game._detectCurrentArea` and are valid mission targets (`INDOOR_AREAS` / `OUTDOOR_EXTRA_AREAS` in `MissionValidation.js`). NPCs route through doors via `NavRooms.js`.
 - **Errand props**: `ItemProps` shows each pickup item at its spot while the step is current, attaches carried items to the player's hand bones (or the cart's bag rack/seat), and sets items down at the delivery spot for 20 s. Resting spots are data in `map.json` → `itemSpots`, keyed `<area>_<pickup|deliver>[_<itemId>]` with `x, y, z, rot`. If you move a counter, table or bench, move its spot too.
 
+### Mission variety and events (`systems/MissionGenerator.js`, `systems/EventSystem.js`)
+
+- **Generated missions**: `missions.json → templates.list` holds ~30 parameterised templates (errands, staff runs, rival disputes / friend favours / family / couples from `npcs.json` relationships, lost & found, court prep for upcoming `schedule.json` matches, rain / wind / heat jobs, VIP escort, tournament director, member requests). `roles` are resolved in order (`npc`, `related` + `rel`, `matchPlayer`, `item` + `ownedBy` / `stockedAt`, `area`: list / `itemSource` / `npcArea` / `staffArea` / `court` / `upcomingMatch`, `text`) and fill `{role}`, `{role.first}`, `{role.label}`, `{Role}`, `{court.time}`. Dialogue text can be keyed by npc id or archetype (`'*'` default); `greet` / `idle` / `thanks` pull the speaker's own npcs.json lines. `builder: "request"` turns a member's `requests` line into steps (item errand, message relay, place check or groom). Items come from InventorySystem `ITEMS` live (unknown ones use `itemSources["*"]`). Every generated mission passes `missionErrors` before it is offered; generated dialogue steps carry `lines` ([{ speaker, text }]). Gates: `minDay`, `minRank`, `hours`, `weather`, `afterRain`, `events`.
+- **Where they appear**: `_refreshTaskBoard` mixes authored and generated missions by weight (2–4 options, event `boardSize`; at most two daily repeatables and one maintenance job per board), `_topUpBoard` keeps ≥ 2 after a pick, `_dispatchRadio` always finds something, and `_checkGeneratedEncounter` gives a nearby free member a generated request now and then (one at a time, `GEN_ENCOUNTER_*`).
+- **Anti-repetition** (`MissionSystem.history`, saved): accepted / completed missions by `sig` (template + key roles) with cooldowns (`cooldownDays`, default 2), members helped recently weigh less (`npcWeight`), templates rotate within a day, yesterday's offers are damped. Generated mission ids are unique (`g<day>-<seq>-<template>`) and are saved with their full definition.
+- **Storylines**: authored chapters use `requires` + `hours` + `minDay` / `minRank` (validated): the Greenbriar Cup (day 3+), Hank's last season (rank 1–3), Kevin's doubles (day 2+), and the board's offer (Head of Grounds, day 10+). Rank-gated templates: `staff_relay` (Senior), `tournament_director` (Head of Grounds).
+- **Events** (`public/data/events.json`, day 1 = Monday): `week.<mon..sun>` weighted ids, `wildcard.chance`, no repeat of the last two days. An event sets `dispatchRate` (`MissionSystem.eventDispatchScale`), `tipMultiplier` / `groomBonusMultiplier` (`ShiftSystem.eventTipMultiplier` / `eventGroomBonusMultiplier`), `boardSize`, `templateBoost` / `missionBoost`, forced morning `weather` (`weatherUntil`) and extra `schedule` matches (merged with `mergeSchedule` and pushed through `MatchSystem.setSchedule` at day start / load only). It is announced on the clock-in radio card, shown in the time pill (`HUD.setEventLabel`) and on the report card (`report.event`).
+- **Measuring**: a headless multi-day sim of MissionSystem + ShiftSystem + EventSystem (player accepts board / radio / encounters, finishes each task in 80–220 s) went from 18 offers a day, 30 distinct missions ever, 79 % of offers repeated within 3 days and a regularly empty board / dry radio, to ~49 offers a day, 500+ distinct missions over 30 days, ~30 % offer repeats (18 % of completed missions) and no empty board or dry radio.
+
 ### Shift loop (`systems/ShiftSystem.js`, `ui/ShiftReport.js`)
 
 - **Phases**: `preShift` (clock frozen at `GAME.shiftStartHour` 7:00, clock-in radio card, no dispatch) → `onShift` (clock runs; the opening checklist, `missions.json → shift.openingMission`, starts; rush windows from `shift.rushWindows` speed up dispatch; at `shiftClosingHour` 18:30 the closing duties are radioed in) → `ending` (clock frozen at `shiftEndHour` 19:00, waits for a quiet moment: no dialogue, not grooming) → `report` (game paused with reason `'report'`, report card) → **Next day** (`Game.startNextDay`: 7:00 the next morning, `missions.newDay()`, overnight court wear, clock-in card). The night is skipped. A shift is about 19 real minutes.
 - **Money**: wages (`shift.hourlyWage` × hours worked), mission pay (`taskTypes[type].baseReward`, plus `groomBonus[rating]` on a maintenance mission after a groom) and tips. A tip rolls the client's archetype `tipChance` / `tipRange` (npcs.json), scaled by mood (`tipMoods`) and the Head of Grounds `tipBonus`. `onEarn` drives the HUD wallet and "+$X" floaters.
 - **Rank**: points = lifetime earnings + rep × `shift.repPoints`; rep comes from tasks, satisfied members, grooms and checklists (`shift.rep`). `shift.ranks` (points strictly increasing, first at 0) are Rookie Attendant → Court Attendant → Senior Attendant → Grounds Lead → Head of Grounds. Perks are cumulative (later ranks override a key): `cartSpeed` (fraction), `brushWidth` (m), `capColor`, `tipBonus`.
 - **Perk hooks**: `ShiftSystem.onPerks(perks)` → `Game._applyPerks`, which sets `cart.maxSpeedScale`, `cart.setBrushWidthBonus()` (paint width *and* the brush mesh) and `player.setCapColor()` (`Character.restyle({ hatColor, hatBrim })`, a cached geometry swap). `SIZES` / `GAME` are never mutated. `onPerks` also fires from `setState()`, so perks re-apply on every load.
-- The report card shows tasks, tips, member happiness, court quality (`CourtMaintenanceSystem.getAverageCleanliness()`), pay breakdown, checklists and rank progress.
+- The report card shows tasks, tips, member happiness, court quality (`CourtMaintenanceSystem.getAverageCleanliness()`), pay breakdown, "Spent today" (shop), checklists and rank progress.
+
+### Shop and spending (`systems/ShopSystem.js`, `ui/ShopUI.js`, `world/ClubUpgrades.js`, `public/data/shop.json`)
+
+- **What wages buy** (all data in `shop.json`, checked by `validateShop` in `npm run validate`): **Tennis gear** (slots `racket`, `strings`, `shoes`, `grip`; `stats` add to `PlayerProfile.getTennisStats()`, most with a trade-off; `look` colours the racket frame / strings, shoes, wristband), **Lessons** with Coach Rafa (`lessons.list[].boosts` → `profile.applyLesson`; `perDay` 2, price `basePrice + priceStep × lessons taken` capped at `maxPrice`), **Style** (`uniform`, `hat`, `eyewear`: `look` = Player style keys), **Cart** (`cartPaint`, `cartCanopy`, `cartLights`, `cartHorn`, `cartRack`: `cart` = `GolfCart.restyle` keys + `horn`), **Club projects** (contributions add up across days; each `id` must be a `ClubUpgrades` builder). `minRank` (rank index) locks an item; every non-optional slot has one free `starter` item (granted and worn on new games and old saves).
+- **Economy**: a shift pays about $300–450 (wage $144 + $90–200 task pay + $50–165 tips in full-shift test runs). Cosmetics $120–480, gear $120–1150, cart $180–900, lessons $150 → $400, projects $1,200–3,500 (about 3–10 shifts; all six ≈ $13,200).
+- **Entry points**: the **Shop** action at the pro shop counter (`Game._nearShopCounter`, customer side of the Building counter) opens every tab; talking to Jess or Rafa with nothing mission-related (`Game._offerShopTalk`; `shop.json → vendors`) offers "Browse the shop" / "Book a lesson" or small talk; the pause menu **Locker** opens `ShopUI` in locker mode (equip owned items only, over the pause menu). `Game.openShop({ vendor, tab, mode })` pauses with reason `'shop'` (no pause menu); Esc / ✕ closes and resumes (`togglePause` closes the shop first).
+- **State** lives in `PlayerProfile` (saved as `profile`): `owned`, `equipped`, `projects` (contributed $), `lessons`, `skills`, and `shop` (`day`, `spentToday`, `lessonsToday`, `spentTotal`; reset when the game day changes). Money goes through `profile.spend` → the shift wallet (rank points use lifetime earnings, so spending never costs rank). On load `profile.setState` emits `'load'` → `ShopSystem.applyAll()` re-grants starters, re-dresses the player / repaints the cart (`onLook`) and shows funded projects (`onProjectsChanged`).
+- **Looks**: `Player.setOutfit(look)` builds one complete style patch (`OUTFIT_KEYS`, defaults from `PLAYER_STYLE`) and restyles only when it changes; a shop hat replaces the staff cap, otherwise the rank `capColor` (gold Grounds Lead cap) still applies, and buying a hat while the rank cap is earned leaves it in the Locker until chosen. `Character.restyle` keys its geometry cache on the full style diff, so cumulative patches are safe. `GolfCart.restyle(look)` swaps cached merged paint / matte / headlight geometries (no extra draw calls); `ShopSystem.honk()` plays the equipped horn (H while driving).
+- **Club projects in the world** (`ClubUpgrades`, built hidden at load so shaders precompile, one or two merged meshes each on the buildings' prop / metal / lamp-glass materials, static bodies only while shown): koi + lily pads circling the fountain, a cup on the lounge trophy case (hidden beyond 32 m), brick planters by the entrance walk, a double-sided Court 1 scoreboard (canvas face redrawn only when `MatchSystem`'s court-1 score changes), patio heaters + colonnade lanterns (night glow), and a practice hitting wall with its own pad behind Court 2. All six add about 10 draw calls (overview, same frame: medium 301 → 312, low 229 → 236, high 533 → 549).
+- **Feedback**: coin sound on every spend, wallet bump + status line in the shop, rank-up jingle when a project completes, and confetti + a toast when the shop closes. Members (not staff) mention funded projects in small talk (`SmallTalk.setClubTalkProvider` → `ShopSystem.clubTalk()`).
 
 ### Characters and clips (`entities/CharacterModel.js`, `CharacterAnimations.js`, `CharacterRig.js`)
 
@@ -163,6 +190,14 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 - The ball is analytic (`TennisBall`: parabolic segments on the match clock). Each contact is planned: the receiver runs to where the racket head will meet the ball (`getContactPointWorld`) and starts the swing exactly `contact` seconds early; the remaining flight is re-aimed at the real racket at swing start. One pooled ball per court, no per-frame allocation, frustum LOD on low.
 - Wear on clay is queued and flushed to `court.wearAt` every 0.4 s (one texture upload per court). Hit and bounce "pocks" go through `SoundSystem.playBallHit(volume, kind)` with distance attenuation.
 - Matches are not saved; after a load the schedule restarts any match still inside its late-start window. Dev: `__game.matches.debugStart('court1', ['chad_blake', 'tommy_chen'], { teleport: true, warmup: 0, gamesToWin: 1 })`, `.debugStop(id)`, `.list()`, `.enabled`.
+
+### After-hours tennis (`src/tennis/`)
+
+- **Entry**: the shift report's "Stay for a hit with Coach Rafa" button (`ShiftReport` `onTennis`), or talking to Rafa after `shiftClosingHour` (`TennisSession.offerFromNpc`, hooked in `Game._runAction` 'talk'). `begin()` sets 7:30 PM (clock frozen, rain cleared, weather rerolls held), takes Court 1 (`NPC.setAreaBusy`, any match there ends, its back fences / signs hidden for the camera), puts Rafa in the `playing` state and hides the regular HUD (`body.cc-tennis`). While `tennis.active`, `Game._update` hands the frame to `TennisSession.update(dt)`, which steps physics, NPCs, matches, world, weather and its own camera. Leaving (`end()`): Next day if the report was already shown, else the clock goes to 19:00 and the normal clock-out shows the report. Nothing is saved mid-session; a reload returns to the report card. XP and the record are written when a drill / match ends (or is abandoned via Menu), then autosaved.
+- **Files**: `TennisSession.js` (flow, player control, flights and events, scoring glue, XP, coach tips), `TennisBallSim.js` (analytic ball with per-segment gravity for spin: `SPIN` table — topspin dips and kicks, slice floats and skids; `BallPredictor` walks bounces; `planFlight` solves the flight time for a wanted net clearance; court constants), `TennisAI.js` (Rafa: intercept search on the predicted flight + contact probe, `DIFFICULTY` easy/medium/hard, shot choice, serves, drill feeds), `TennisScore.js` (pure scoring: deuce/ad, tiebreak at 6–6 / 4–4 with every-two-points serve rotation, change of ends; formats `short` / `set` / `bo3`), `TennisHUD.js`, `TennisCamera.js`, `TennisFX.js` (landing marker, target rings), `TennisAudio.js` (pocks via `playBallHit`, net thud, crickets).
+- **Controls**: move with the joystick / WASD (optional auto-move assist drifts toward the ideal hitting spot after a 0.22 s read); SWING button or Space / J — the racket meets the ball `LEAD` (0.18 s) after the press, quality comes from the predicted ball–racket distance at that instant (Perfect / Good / Early / Late / Stretch / whiff); the timing ring on the button closes at the ideal press. Stick direction at contact aims (left/right, up = deep, down = short). Shots: Flat / Topspin / Slice / Lob (buttons or 1–4). Serve: hold SWING, release in the green (0.72–0.93), stick aims; faults, lets (net cord) and double faults. Shot scatter / pace / net margin come from `PlayerProfile.getTennisStats()` (power, control, spin, speed, serve, stamina), fatigue and incoming pace.
+- **Balance** (headless bot, 50 ms timing noise): Easy ≈ comfortable wins, Medium ≈ even, Hard ≈ losses; average rally 4–7 shots. Tune in `DIFFICULTY` (`TennisAI.js`) and the sigma / margin lines in `_playerShot`. XP is capped at `XP_CAP` per stat per session.
+- **Dev**: `__game.tennis.begin('debug')`, `.startMatch('short', 'easy')`, `.startDrill('fh'|'bh'|'volley'|'serve')`, `.externalClock = true` + `._tick(1/60)` for headless stepping, `.bot = { think(session, dt) { session.ctl.* } }` to drive it. The session adds about 6 draw calls (ball, marker, targets).
 
 ### Rendering pipeline (`src/graphics/`)
 
@@ -208,7 +243,7 @@ A plain shared object that `WeatherSystem` writes once per frame and any module 
 
 | Key | Owner | Contents |
 |-----|-------|----------|
-| `courtcall.save.v1` | `SaveSystem` | Versioned JSON snapshot (`SAVE_VERSION` = 1): time/day/weather, player + cart transforms (brush attached), in-cart flag, camera yaw, missions (active + step, completed, task board, timers), inventory, stats (incl. tips, shifts worked), clay court cleanliness + `courtGrids`, in-progress groom session (time, start cleanliness, tasks done, per-court coverage bit masks), degrade timer, `shift`, flags (`tutorialSeen`, `groomTutorialSeen`). Roughly 110 KB, most of it the three court masks |
+| `courtcall.save.v1` | `SaveSystem` | Versioned JSON snapshot (`SAVE_VERSION` = 1): time/day/weather, player + cart transforms (brush attached), in-cart flag, camera yaw, missions (active + step, completed, task board, timers), inventory, stats (incl. tips, shifts worked), clay court cleanliness + `courtGrids`, in-progress groom session (time, start cleanliness, tasks done, per-court coverage bit masks), degrade timer, `shift`, `events` (today's event), `missions.generated` (definitions of generated missions on the board / in progress) + `missions.history` (anti-repetition memory), flags (`tutorialSeen`, `groomTutorialSeen`). Roughly 110 KB, most of it the three court masks |
 | `courtcall.save.v1.backup` | `SaveSystem` | Unreadable or corrupt saves are moved here (`{ reason, at, raw }`) instead of crashing |
 | `courtcall.settings` | `SettingsStore` | `volume` (0–1), `muted`, `cameraSensitivity` (0.25–2.5) |
 | `courtcall.quality` | `Quality` | `'low' \| 'medium' \| 'high'` (absent = auto-detect) |
@@ -314,6 +349,8 @@ Outside `Constants.js`: wages, rush windows, rep values, `groomBonus` and ranks 
 
 **Adding a new NPC:** Add an entry to `data/npcs.json` under `npcs[]` with id, name, archetype, shirtColor, preferredAreas, greetings, requests and dialoguePool. The NPC spawns and wanders automatically, with a look derived from its id and archetype. For a hand-authored look (hair, hat, skin, bottom, brows/mouth, racket, scale, ...), add an entry keyed by the id to `NPC_STYLES` in `src/entities/NPC.js`.
 
+**Adding a mission template:** Add an entry to `missions.json → templates.list` (see "Mission variety and events"), give its `type` a `taskTypes` entry, and run `npm run validate`, which samples fills from every template and validates each result. A `random` template must open with a dialogue step by its `trigger` role. **Adding an event:** add it to `events.json → events` and list its id under one or more `week` days (or `wildcard`).
+
 **Adding a new mission:** Add an entry to `data/missions.json` under `missions[]` with id, type, title, description, source (`taskBoard`/`radio`/`random`, or `shift` for a routine referenced by `shift.openingMission` / `closingMission`) and a steps array. A `random` mission needs a `triggerNpc`; `client` names the member who tips. Give the `type` a `taskTypes` entry (`baseReward`) or it pays nothing. Run `npm run validate` afterwards: a mission with a dead step is never offered in game. Add any dialogue scripts to the `dialogues` object. Supported step actions: `goTo`, `dialogue`, `pickup`, `deliver`, `choose`, `groom`. A `goTo` `target` must be something `Game._detectCurrentArea` returns (a court id, `proShop`, `patio`, `garden`, `equipmentShed`). For the minimap pin it also needs a `<target>_center` or `<target>` waypoint in `map.json`. For maintenance missions, use type `maintenance` and the `groom` step action with a `target` matching a clay court id (e.g., `court3`, `court4`, `court5`). All 3 clay courts are groomed in one session, so a `groom` step targeting any clay court triggers the multi-court grooming system. Saves reference missions by id, so renaming an id drops that mission from existing saves.
 
 **Changing the map layout:** Edit `public/data/map.json`. Court positions, building locations, path routes and waypoints are all defined there, and the world rebuilds from this data on load. Keep new flat pieces on their own layer heights (see "No z-fighting").
@@ -336,6 +373,8 @@ Saves from a newer version, or with no migration path, are backed up to `courtca
 **Adding a setting:** Add a default to `DEFAULT_SETTINGS` and validation in `SettingsStore.load()` (`SaveSystem.js`), a control in `PauseMenu._buildSettingsView()` plus syncing in `_syncSettings()`, and apply it in the `settings.onChange` handler in `main.js`.
 
 **Adding a UI component:** Call `injectTheme()`, build DOM into `#ui-root`, and style it with the `--cc-*` variables and `.cc-*` classes. Keep touch targets at least 44px and respect `--cc-safe-*` insets. Stop pointer and touch events from reaching the canvas where needed (see `PauseMenu`).
+
+**Adding a shop item / lesson / project:** Add it to `public/data/shop.json` (`items[]` with `id`, `slot`, `name`, `desc`, `price`, optional `stats`, `look`, `cart`, `minRank`; `lessons.list[]` with `boosts`; `projects[]` with `cost`, `place`, `comments`) and run `npm run validate`. A new slot needs an entry in `slots` (with a free `starter` item unless `"optional": true`). A new project also needs a builder in `ClubUpgrades` and its id in `CLUB_UPGRADE_IDS` (`ShopSystem.js`); a new look key needs `PLAYER_LOOK_KEYS` / `CART_LOOK_KEYS` plus support in `Player` / `GolfCart`.
 
 **Adding inventory items:** Add a new entry to the `ITEMS` object in `src/systems/InventorySystem.js` with a name and emoji. Current items: `towels`, `ball_hopper`, `water_bottles`, `racket`.
 

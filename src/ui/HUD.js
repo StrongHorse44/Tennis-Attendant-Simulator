@@ -164,6 +164,19 @@ const CSS = `
   text-transform: uppercase;
   color: var(--cc-gold);
 }
+/* Today's club event (EventSystem): a third line in the time pill */
+.cc-time__event {
+  display: none;
+  margin-top: 2px;
+  max-width: 150px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cc-cream);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-time__event.is-on { display: block; }
 
 /* Task panel */
 .cc-tasks { width: 100%; border-radius: var(--cc-radius); overflow: hidden; }
@@ -977,6 +990,7 @@ export class HUD {
     const tMain = el('span', 'cc-time__main', this.timeWeatherEl);
     this._timeClockEl = el('span', 'cc-time__clock', tMain);
     this._timePeriodEl = el('span', 'cc-time__period', tMain);
+    this._timeEventEl = el('span', 'cc-time__event', tMain);
 
     // Wallet (ticks up toward the real balance in update())
     this.walletEl = el('div', 'cc-glass cc-wallet', statusRow);
@@ -1425,6 +1439,16 @@ export class HUD {
     this.radioIndicator.style.display = 'none';
     this._radioKind = null;
     this.notificationEl.classList.remove('cc-toasts--below');
+  }
+
+  /** Today's club event in the time pill ({ label, icon, title } from EventSystem.describe(), or null). */
+  setEventLabel(ev) {
+    const text = ev ? `${ev.icon ? ev.icon + ' ' : ''}${ev.label || ev.title || ''}` : '';
+    if (text === this._eventText) return;
+    this._eventText = text;
+    this._timeEventEl.textContent = text;
+    this._timeEventEl.classList.toggle('is-on', !!text);
+    if (ev && ev.title) this._timeEventEl.title = ev.title;
   }
 
   updateTimeWeather() {

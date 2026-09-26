@@ -1,0 +1,270 @@
+{
+  "_comment": "Daily events calendar (src/systems/EventSystem.js). Day 1 is a Monday. Each weekday lists weighted event ids; wildcard.chance swaps in a wildcard pick; the last two days never repeat. Effects: dispatchRate (x radio speed), tipMultiplier (x tips), groomBonusMultiplier (x groom bonus), boardSize (2-4 task board options), templateBoost { templateId: x weight } (templates with events: [...] only appear on their event day), missionBoost { missionId: x weight }, weather + weatherUntil (forced morning weather), schedule { maxConcurrent, format, matches } merged into schedule.json. announce = the manager clock-in radio text; label/icon = the clock pill; report = the report card line.",
+  "firstDay": "regular",
+  "fallback": "regular",
+  "wildcard": { "chance": 0.12, "events": [{ "id": "rain_day", "weight": 3 }, { "id": "vip_visit", "weight": 1 }] },
+  "week": {
+    "mon": [{ "id": "maintenance_monday", "weight": 3 }, { "id": "regular", "weight": 1 }],
+    "tue": [{ "id": "board_inspection", "weight": 2 }, { "id": "regular", "weight": 2 }],
+    "wed": [{ "id": "junior_clinic", "weight": 3 }, { "id": "regular", "weight": 1 }],
+    "thu": [{ "id": "ladies_doubles", "weight": 2 }, { "id": "twilight_mixer", "weight": 2 }],
+    "fri": [
+      { "id": "vip_visit", "weight": 2 },
+      { "id": "twilight_mixer", "weight": 1 },
+      { "id": "regular", "weight": 1 }
+    ],
+    "sat": [{ "id": "tournament", "weight": 4 }, { "id": "junior_clinic", "weight": 1 }],
+    "sun": [{ "id": "pool_party", "weight": 3 }, { "id": "regular", "weight": 1 }]
+  },
+  "events": [
+    {
+      "id": "regular",
+      "title": "Club Day",
+      "label": "Club Day",
+      "icon": "🎾",
+      "announce": "A regular day at Greenbriar. Keep the courts tidy and the members happy.",
+      "report": "A regular club day."
+    },
+    {
+      "id": "maintenance_monday",
+      "title": "Maintenance Monday",
+      "label": "Maintenance",
+      "icon": "🔧",
+      "announce": "Quiet Monday. Hank has a list, and the clay needs love. Fewer calls, more fixing.",
+      "dispatchRate": 0.85,
+      "templateBoost": { "monday_repairs": 1, "inspection_groom": 1, "clay_prep_match": 1.5 },
+      "missionBoost": { "maintenance_all_courts_groom": 2, "maintenance_morning_prep": 2, "maintenance_quick_sweep": 2 },
+      "report": "Hank's list got shorter."
+    },
+    {
+      "id": "board_inspection",
+      "title": "Board Inspection",
+      "label": "Inspection",
+      "icon": "📋",
+      "minDay": 2,
+      "announce": "The board is walking the club today. Frank and Diane have clipboards. Excellent grooming pays double.",
+      "dispatchRate": 1.1,
+      "groomBonusMultiplier": 2,
+      "templateBoost": { "inspection_walk": 1, "inspection_groom": 1 },
+      "missionBoost": { "maintenance_all_courts_groom": 1.5 },
+      "report": "The board inspected the club. Groom bonus x2."
+    },
+    {
+      "id": "junior_clinic",
+      "title": "Junior Clinic",
+      "label": "Junior Clinic",
+      "icon": "🧒",
+      "announce": "Rafa is running the Junior Clinic. Hoppers, water and patience on the courts all day.",
+      "dispatchRate": 1.1,
+      "templateBoost": { "clinic_hopper": 1, "mentor_drill": 3, "family_checkin": 2 },
+      "missionBoost": { "errand_rafa_lesson_setup": 3 },
+      "schedule": {
+        "matches": [
+          {
+            "id": "ev-clinic-1",
+            "court": ["court3", "court4", "court5"],
+            "start": "9:00",
+            "end": "11:00",
+            "players": ["rafa_ibarra", "theo_wellington"],
+            "note": "clinic: Theo"
+          },
+          {
+            "id": "ev-clinic-2",
+            "court": ["court4", "court3", "court5"],
+            "start": "13:00",
+            "end": "15:00",
+            "players": ["rafa_ibarra", "lily_santos"],
+            "note": "clinic: Lily"
+          },
+          {
+            "id": "ev-clinic-3",
+            "court": ["court1", "court2"],
+            "start": "15:30",
+            "end": "17:30",
+            "players": ["theo_wellington", "lily_santos"],
+            "note": "junior challenge match"
+          }
+        ]
+      },
+      "report": "The Junior Clinic ran all day."
+    },
+    {
+      "id": "ladies_doubles",
+      "title": "Ladies' Doubles Social",
+      "label": "Ladies' Social",
+      "icon": "🥂",
+      "announce": "Ladies' Doubles Social today. The patio needs setting up and the ladies notice everything.",
+      "tipMultiplier": 1.1,
+      "templateBoost": { "social_setup": 1, "tournament_water": 1, "couple_surprise": 2 },
+      "missionBoost": { "errand_water_bottles": 2, "conflict_flower_committee": 2 },
+      "schedule": {
+        "matches": [
+          {
+            "id": "ev-ladies-1",
+            "court": ["court2", "court1"],
+            "start": "10:00",
+            "end": "12:30",
+            "players": ["babs_hendricks", "harper_brandt"]
+          },
+          {
+            "id": "ev-ladies-2",
+            "court": ["court3", "court4", "court5"],
+            "start": "11:00",
+            "end": "13:30",
+            "players": ["maria_santos", "priya_sharma"]
+          },
+          {
+            "id": "ev-ladies-3",
+            "court": ["court5", "court4"],
+            "start": "14:00",
+            "end": "16:30",
+            "players": ["gloria_castellano", "diane_ross"],
+            "note": "nobody mention the flower beds"
+          }
+        ]
+      },
+      "report": "The Ladies' Doubles Social filled the patio."
+    },
+    {
+      "id": "twilight_mixer",
+      "title": "Twilight Mixer",
+      "label": "Twilight Mixer",
+      "icon": "🌇",
+      "announce": "Twilight Mixer this evening. Patio setup in the afternoon, then courts under the lights.",
+      "tipMultiplier": 1.15,
+      "templateBoost": { "social_setup": 1, "heat_water": 1.5 },
+      "schedule": {
+        "matches": [
+          {
+            "id": "ev-mixer-1",
+            "court": ["court1", "court2"],
+            "start": "16:00",
+            "end": "18:30",
+            "players": ["bob_hendricks", "vik_rao"]
+          },
+          {
+            "id": "ev-mixer-2",
+            "court": ["court3", "court4", "court5"],
+            "start": "16:30",
+            "end": "19:00",
+            "players": ["tommy_chen", "leo_brandt"]
+          }
+        ]
+      },
+      "report": "The Twilight Mixer ran late, as always."
+    },
+    {
+      "id": "vip_visit",
+      "title": "VIP Visit",
+      "label": "VIP Visit",
+      "icon": "⭐",
+      "minDay": 3,
+      "announce": "VIP visit today. Guests at the gate, members on their best behaviour, and tips are generous.",
+      "dispatchRate": 1.15,
+      "tipMultiplier": 1.5,
+      "templateBoost": { "vip_escort": 6, "vip_hospitality": 1 },
+      "report": "A VIP toured the club. Tips x1.5."
+    },
+    {
+      "id": "pool_party",
+      "title": "Pool Party",
+      "label": "Pool Party",
+      "icon": "🏖️",
+      "announce": "Pool Party! Dani and Gus will keep you running between the pool, the snack bar and the locker rooms.",
+      "weather": "sunny",
+      "weatherUntil": 17,
+      "tipMultiplier": 1.1,
+      "templateBoost": { "pool_party_run": 1, "heat_water": 2 },
+      "missionBoost": { "staff_pool_towels": 3, "staff_snack_lemonade": 2, "bldg_locker_towels": 2 },
+      "report": "The Pool Party was a splash."
+    },
+    {
+      "id": "tournament",
+      "title": "Member Tournament Saturday",
+      "label": "Tournament",
+      "icon": "🏆",
+      "minDay": 5,
+      "announce": "Member Tournament Saturday! Every court booked, ball kids needed, and the radio will not stop.",
+      "dispatchRate": 1.3,
+      "tipMultiplier": 1.2,
+      "boardSize": 4,
+      "templateBoost": {
+        "ball_kid": 1,
+        "tournament_water": 1,
+        "court_prep_match": 2,
+        "tournament_director": 2,
+        "clay_prep_match": 1.5
+      },
+      "schedule": {
+        "maxConcurrent": 5,
+        "matches": [
+          {
+            "id": "ev-tour-r1a",
+            "court": ["court1", "court2"],
+            "start": "8:00",
+            "end": "10:00",
+            "players": ["nate_okafor", "tommy_chen"]
+          },
+          {
+            "id": "ev-tour-r1b",
+            "court": ["court2", "court1"],
+            "start": "8:00",
+            "end": "10:00",
+            "players": ["leo_brandt", "kevin_park"]
+          },
+          {
+            "id": "ev-tour-r1c",
+            "court": ["court3", "court4", "court5"],
+            "start": "8:30",
+            "end": "10:30",
+            "players": ["gloria_castellano", "priya_sharma"]
+          },
+          {
+            "id": "ev-tour-r2a",
+            "court": ["court4", "court5", "court3"],
+            "start": "11:00",
+            "end": "13:00",
+            "players": ["chad_blake", "any"]
+          },
+          {
+            "id": "ev-tour-r2b",
+            "court": ["court1", "court2"],
+            "start": "13:30",
+            "end": "15:30",
+            "players": ["nate_okafor", "any"]
+          },
+          {
+            "id": "ev-tour-sf",
+            "court": ["court3", "court4", "court5"],
+            "start": "14:00",
+            "end": "16:00",
+            "players": ["frank_deluca", "any"]
+          },
+          {
+            "id": "ev-tour-final",
+            "court": ["court1", "court2"],
+            "start": "16:30",
+            "end": "18:45",
+            "players": ["any", "any"],
+            "note": "the final"
+          }
+        ]
+      },
+      "report": "The Member Tournament: every court, all day."
+    },
+    {
+      "id": "rain_day",
+      "title": "Rain Day",
+      "label": "Rain Day",
+      "icon": "🌧️",
+      "minDay": 2,
+      "announce": "Forecast says showers all morning. Indoor jobs, squeegees and bored members in the lounge.",
+      "weather": "rainy",
+      "weatherUntil": 12.5,
+      "dispatchRate": 0.9,
+      "templateBoost": { "rainy_lounge": 3, "rain_towels": 2, "rain_squeegee": 2 },
+      "missionBoost": { "bldg_lounge_fireplace": 3, "bldg_gym_hydration": 2, "bldg_locker_towels": 2 },
+      "report": "Rain kept everyone inside."
+    }
+  ]
+}

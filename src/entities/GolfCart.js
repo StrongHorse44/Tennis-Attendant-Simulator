@@ -36,28 +36,60 @@ function span(r, a, b, color, seg = 8) {
 const P = (geometry, x, y, z, color, rx = 0, ry = 0, rz = 0, s = 1) =>
   ({ geometry, matrix: makeMatrix(x, y, z, ry, s, rx, rz), color });
 
-function buildPaintGeo() {
+/**
+ * Cart look (GolfCart.restyle, shop cart upgrades). Colours are hex numbers or "#RRGGBB".
+ * lights: 'round' | 'bar' | 'bug'; rack: null | 'cooler' | 'balls'; horn: SoundSystem-free id
+ * (ShopSystem synthesizes it).
+ */
+export const DEFAULT_CART_LOOK = Object.freeze({
+  body: COLORS.golfCartBody, accent: COLORS.golfCartAccent,
+  canopy: COLORS.golfCartCanopy, canopyTrim: COLORS.golfCartCanopyTrim,
+  lights: 'round', lightColor: COLORS.golfCartHeadlight, rack: null, horn: 'beep',
+});
+
+const _shadeCol = new THREE.Color();
+function shadeHex(c, k) { return _shadeCol.set(c).multiplyScalar(1 + k).getHex(); }
+
+function buildPaintGeo(look = DEFAULT_CART_LOOK) {
   const C = COLORS;
-  const body = C.golfCartBody;
+  const body = look.body;
+  const accent = look.accent;
   const parts = [
     P(roundedBox(1.5, 0.34, 2.5, 0.09, 2), 0, 0.53, 0.05, body),                       // tub
-    P(roundedBox(1.52, 0.06, 2.3, 0.02), 0, 0.5, 0.05, C.golfCartAccent),                // side stripe
+    P(roundedBox(1.52, 0.06, 2.3, 0.02), 0, 0.5, 0.05, accent),                        // side stripe
     P(roundedBox(1.46, 0.52, 0.56, 0.15, 2), 0, 0.8, -1.0, body),                       // front cowl
-    P(roundedBox(1.2, 0.07, 0.04, 0.015), 0, 0.64, -1.285, C.golfCartAccent),            // nose band
+    P(roundedBox(1.2, 0.07, 0.04, 0.015), 0, 0.64, -1.285, accent),                    // nose band
     P(cylinderGeo(0.085, 0.085, 0.03, 18), 0, 0.88, -1.292, C.clubGold, Math.PI / 2),   // crest
-    P(cylinderGeo(0.05, 0.05, 0.02, 14), 0, 0.88, -1.306, C.golfCartAccent, Math.PI / 2),
+    P(cylinderGeo(0.05, 0.05, 0.02, 14), 0, 0.88, -1.306, accent, Math.PI / 2),
     P(roundedBox(1.36, 0.3, 0.62, 0.05), 0, 0.8, 0.24, body),                           // seat base
     P(roundedBox(1.5, 0.22, 0.62, 0.08, 2), 0, 0.78, 1.0, body),                        // rear deck
-    P(roundedBox(1.52, 0.05, 0.5, 0.02), 0, 0.72, 1.0, C.golfCartAccent),               // rear stripe
+    P(roundedBox(1.52, 0.05, 0.5, 0.02), 0, 0.72, 1.0, accent),                        // rear stripe
   ];
   for (const sx of [-1, 1]) {
-    parts.push(P(cylinderGeo(0.088, 0.088, 0.03, 16), sx * 0.47, 0.84, -1.29, C.golfCartRim, Math.PI / 2)); // bezels
+    if (look.lights === 'bug') {
+      parts.push(P(cylinderGeo(0.122, 0.122, 0.05, 20), sx * 0.49, 0.86, -1.3, C.golfCartRim, Math.PI / 2)); // chrome buckets
+    } else if (look.lights !== 'bar') {
+      parts.push(P(cylinderGeo(0.088, 0.088, 0.03, 16), sx * 0.47, 0.84, -1.29, C.golfCartRim, Math.PI / 2)); // bezels
+    }
     parts.push(P(roundedBox(0.2, 0.12, 0.05, 0.03), sx * 0.58, 0.78, 1.3, C.golfCartFrame));              // tail housings
   }
+  if (look.lights === 'bar') parts.push(P(roundedBox(1.08, 0.085, 0.03, 0.02), 0, 0.735, -1.29, C.golfCartFrame)); // bar housing
   return mergeParts(parts);
 }
 
-function buildMatteGeo() {
+/** Headlight lenses (emissive material) for a light style. */
+function buildHeadGeo(style) {
+  if (style === 'bar') return mergeParts([P(roundedBox(1.0, 0.05, 0.03, 0.015), 0, 0.735, -1.302)]);
+  if (style === 'bug') {
+    return mergeParts([-1, 1].map(sx => P(cylinderGeo(0.1, 0.1, 0.04, 20), sx * 0.49, 0.86, -1.318, undefined, Math.PI / 2)));
+  }
+  return mergeParts([
+    P(cylinderGeo(0.068, 0.068, 0.03, 16), -0.47, 0.84, -1.305, undefined, Math.PI / 2),
+    P(cylinderGeo(0.068, 0.068, 0.03, 16), 0.47, 0.84, -1.305, undefined, Math.PI / 2),
+  ]);
+}
+
+function buildMatteGeo(look = DEFAULT_CART_LOOK) {
   const C = COLORS;
   const frame = C.golfCartFrame;
   const uph = C.golfCartUpholstery;
@@ -72,22 +104,47 @@ function buildMatteGeo() {
     P(roundedBox(0.02, 0.14, 0.5, 0.008), 0, 1.0, 0.22, 0xB8A57F),                        // cushion seam
     P(roundedBox(1.34, 0.44, 0.11, 0.05), 0, 1.3, 0.53, uph, 0.12),                        // seat back
     P(roundedBox(0.02, 0.4, 0.115, 0.008), 0, 1.3, 0.53, 0xB8A57F, 0.12),                 // back seam
-    P(roundedBox(1.36, 0.05, 0.12, 0.02), 0, 1.53, 0.56, C.golfCartCanopyTrim, 0.12),      // back piping
-    // Canopy: roof, cream trim underside, raised rib
-    P(roundedBox(1.72, 0.08, 2.26, 0.035), 0, 2.4, -0.13, C.golfCartCanopy),
-    P(roundedBox(1.64, 0.04, 2.18, 0.018), 0, 2.345, -0.13, C.golfCartCanopyTrim),
-    P(roundedBox(1.46, 0.05, 1.94, 0.024), 0, 2.455, -0.13, 0x26503A),
-    // Bag rack platform + tennis bag + ball hopper
+    P(roundedBox(1.36, 0.05, 0.12, 0.02), 0, 1.53, 0.56, look.canopyTrim, 0.12),         // back piping
+    // Canopy: roof, trim underside, raised rib
+    P(roundedBox(1.72, 0.08, 2.26, 0.035), 0, 2.4, -0.13, look.canopy),
+    P(roundedBox(1.64, 0.04, 2.18, 0.018), 0, 2.345, -0.13, look.canopyTrim),
+    P(roundedBox(1.46, 0.05, 1.94, 0.024), 0, 2.455, -0.13, shadeHex(look.canopy, -0.16)),
+    // Bag rack platform + tennis bag
     P(roundedBox(1.1, 0.04, 0.46, 0.015), 0, 0.91, 1.06, 0x2A2C2E),
-    P(roundedBox(0.72, 0.26, 0.3, 0.12, 2), -0.2, 1.06, 1.06, C.golfCartAccent),
-    P(roundedBox(0.74, 0.05, 0.31, 0.02), -0.2, 1.09, 1.06, C.golfCartCanopyTrim),
+    P(roundedBox(0.72, 0.26, 0.3, 0.12, 2), -0.2, 1.06, 1.06, look.accent),
+    P(roundedBox(0.74, 0.05, 0.31, 0.02), -0.2, 1.09, 1.06, look.canopyTrim),
     P(cylinderGeo(0.03, 0.03, 0.26, 8), -0.2, 1.2, 1.06, 0x1E1F21, 0, 0, Math.PI / 2),      // bag handle
-    P(cylinderGeo(0.15, 0.13, 0.28, 12), 0.36, 1.07, 1.06, 0x5A5F64),                       // hopper
-    P(cylinderGeo(0.155, 0.155, 0.02, 12), 0.36, 1.21, 1.06, 0x8A9096),                    // hopper rim
   ];
-  // Tennis balls peeking out of the hopper
-  const balls = [[0.36, 1.06], [0.3, 1.02], [0.42, 1.02], [0.31, 1.11], [0.41, 1.1], [0.36, 1.13]];
-  balls.forEach(([x, z], i) => parts.push(P(sphereGeo(0.042, 8, 6), x, 1.22 + (i % 2) * 0.02, z, 0xD4E157)));
+  if (look.rack === 'cooler') {
+    // Shop "Cooler Rack": an igloo cooler strapped beside the bag
+    parts.push(
+      P(cylinderGeo(0.19, 0.18, 0.34, 16), 0.36, 1.1, 1.06, C.iglooCooler),
+      P(cylinderGeo(0.186, 0.186, 0.035, 16), 0.36, 0.96, 1.06, C.iglooCoolerLid),
+      P(cylinderGeo(0.2, 0.195, 0.05, 16), 0.36, 1.285, 1.06, C.iglooCoolerLid),
+      P(cylinderGeo(0.14, 0.19, 0.05, 16), 0.36, 1.33, 1.06, C.iglooCoolerLid),
+      P(roundedBox(0.04, 0.035, 0.12, 0.012), 0.56, 1.22, 1.06, C.iglooCoolerLid),
+      P(roundedBox(0.44, 0.02, 0.03, 0.008), 0.36, 1.17, 1.25, 0x1E1F21),                     // strap
+    );
+  } else if (look.rack === 'balls') {
+    // Shop "Ball Basket Rack": a wire basket heaped with practice balls
+    parts.push(
+      P(roundedBox(0.42, 0.2, 0.36, 0.03), 0.34, 1.03, 1.06, 0x3A3D40),
+      P(roundedBox(0.44, 0.025, 0.38, 0.01), 0.34, 1.14, 1.06, 0x8A9096),
+    );
+    for (let i = 0; i < 16; i++) {
+      const bx = 0.2 + (i % 4) * 0.09, bz = 0.94 + Math.floor(i / 4) * 0.08;
+      parts.push(P(sphereGeo(0.042, 8, 6), bx, 1.19 + ((i * 7) % 3) * 0.02, bz, 0xD4E157));
+    }
+    parts.push(P(sphereGeo(0.042, 8, 6), 0.3, 1.26, 1.04, 0xD4E157), P(sphereGeo(0.042, 8, 6), 0.38, 1.25, 1.1, 0xD4E157));
+  } else {
+    parts.push(
+      P(cylinderGeo(0.15, 0.13, 0.28, 12), 0.36, 1.07, 1.06, 0x5A5F64),                     // hopper
+      P(cylinderGeo(0.155, 0.155, 0.02, 12), 0.36, 1.21, 1.06, 0x8A9096),                  // hopper rim
+    );
+    // Tennis balls peeking out of the hopper
+    const balls = [[0.36, 1.06], [0.3, 1.02], [0.42, 1.02], [0.31, 1.11], [0.41, 1.1], [0.36, 1.13]];
+    balls.forEach(([x, z], i) => parts.push(P(sphereGeo(0.042, 8, 6), x, 1.22 + (i % 2) * 0.02, z, 0xD4E157)));
+  }
 
   for (const sx of [-1, 1]) {
     // Canopy struts (front struts lean forward slightly, rear straight)
@@ -391,12 +448,14 @@ export class GolfCart {
     // which also feeds InstancedMesh wheels → per-draw program flips)
     const matteMat = getMaterial('cartMatte', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78 }));
 
-    const paint = new THREE.Mesh(getGeometry('cart-paint', buildPaintGeo), paintMat);
+    const paint = new THREE.Mesh(getGeometry('cart-paint', () => buildPaintGeo()), paintMat);
+    this.paintMesh = paint;
     paint.castShadow = true;
     paint.receiveShadow = true;
     this.bodyGroup.add(paint);
 
-    const matte = new THREE.Mesh(getGeometry('cart-matte', buildMatteGeo), matteMat);
+    const matte = new THREE.Mesh(getGeometry('cart-matte', () => buildMatteGeo()), matteMat);
+    this.matteMesh = matte;
     matte.castShadow = true;
     matte.receiveShadow = true;
     this.bodyGroup.add(matte);
@@ -428,15 +487,13 @@ export class GolfCart {
     this.taillightMat = mat(0x8E1C14, {
       emissive: COLORS.golfCartTaillight, emissiveIntensity: 0.15, roughness: 0.3, unique: true, name: 'cartTaillight',
     });
-    const headGeo = getGeometry('cart-headlights', () => mergeParts([
-      P(cylinderGeo(0.068, 0.068, 0.03, 16), -0.47, 0.84, -1.305, undefined, Math.PI / 2),
-      P(cylinderGeo(0.068, 0.068, 0.03, 16), 0.47, 0.84, -1.305, undefined, Math.PI / 2),
-    ]));
+    const headGeo = getGeometry('cart-headlights', () => buildHeadGeo('round'));
     const tailGeo = getGeometry('cart-taillights', () => mergeParts([
       P(roundedBox(0.15, 0.08, 0.03, 0.012), -0.58, 0.78, 1.33),
       P(roundedBox(0.15, 0.08, 0.03, 0.012), 0.58, 0.78, 1.33),
     ]));
-    this.bodyGroup.add(new THREE.Mesh(headGeo, this.headlightMat));
+    this.headlightMesh = new THREE.Mesh(headGeo, this.headlightMat);
+    this.bodyGroup.add(this.headlightMesh);
     this.bodyGroup.add(new THREE.Mesh(tailGeo, this.taillightMat));
 
     // Headlight pool on the ground (additive, only visible at night / in rain)
@@ -819,6 +876,28 @@ export class GolfCart {
     const k = this.getBrushWidth() / BRUSH_W;
     if (this._brushBob) this._brushBob.scale.x = k;
     if (this.matRig) this.matRig.scale.x = k;
+  }
+
+  /**
+   * Shop cart upgrades: repaint / canopy / headlight style / rear rack (DEFAULT_CART_LOOK keys;
+   * missing keys = factory). Swaps cached merged geometries, so it adds no draw calls; rare
+   * (purchase / equip / load), never per frame. `horn` is stored for ShopSystem.honk().
+   */
+  restyle(look) {
+    const L = { ...DEFAULT_CART_LOOK, ...(look || {}) };
+    const key = JSON.stringify(L);
+    if (key === this._lookKey) return;
+    this._lookKey = key;
+    this.look = L;
+    const def = (keys) => keys.every(k => L[k] === DEFAULT_CART_LOOK[k]);
+    const paintKey = def(['body', 'accent', 'lights']) ? 'cart-paint' : `cart-paint|${L.body}|${L.accent}|${L.lights}`;
+    const matteKey = def(['canopy', 'canopyTrim', 'accent', 'rack']) ? 'cart-matte' : `cart-matte|${L.canopy}|${L.canopyTrim}|${L.accent}|${L.rack}`;
+    this.paintMesh.geometry = getGeometry(paintKey, () => buildPaintGeo(L));
+    this.matteMesh.geometry = getGeometry(matteKey, () => buildMatteGeo(L));
+    this.headlightMesh.geometry = getGeometry(L.lights === 'round' ? 'cart-headlights' : `cart-headlights|${L.lights}`, () => buildHeadGeo(L.lights));
+    this.headlightMat.color.set(L.lightColor);
+    this.headlightMat.emissive.set(L.lightColor);
+    this.hornStyle = L.horn;
   }
 
   attachBrush() {

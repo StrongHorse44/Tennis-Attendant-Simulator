@@ -6,6 +6,8 @@ import { InputSystem } from './systems/InputSystem.js';
 import { WeatherSystem } from './systems/WeatherSystem.js';
 import { DialogueSystem } from './systems/DialogueSystem.js';
 import { MissionSystem } from './systems/MissionSystem.js';
+import { MissionGenerator } from './systems/MissionGenerator.js';
+import { EventSystem } from './systems/EventSystem.js';
 import { InventorySystem } from './systems/InventorySystem.js';
 import { SoundSystem } from './systems/SoundSystem.js';
 import { World } from './world/World.js';
@@ -15,6 +17,11 @@ import { NPC, configureArchetypes } from './entities/NPC.js';
 import { Joystick } from './ui/Joystick.js';
 import { DialogueBox } from './ui/DialogueBox.js';
 import { injectTheme } from './ui/theme.js';
+import { PlayerProfile } from './systems/PlayerProfile.js';
+import { ShopSystem } from './systems/ShopSystem.js';
+import { setClubTalkProvider } from './systems/SmallTalk.js';
+import { ShopUI } from './ui/ShopUI.js';
+import { ClubUpgrades } from './world/ClubUpgrades.js';
 import { HUD } from './ui/HUD.js';
 import { CourtMaintenanceSystem } from './systems/CourtMaintenanceSystem.js';
 import { Quality } from './graphics/Quality.js';
@@ -32,6 +39,7 @@ import { buildWorldFacts, DETECTABLE_AREAS, INDOOR_AREAS, OUTDOOR_EXTRA_AREAS } 
 import { ITEMS } from './systems/InventorySystem.js';
 import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
+import { TennisSession } from './tennis/TennisSession.js';
 
 /** Seconds of unpaused play between autosaves. */
 /** Staff whereabouts hints (MissionSystem._whereabouts): how to say where someone is. */
@@ -233,6 +241,12 @@ class Game {
     // Load data
     const loader = new AssetLoader();
     const data = await loader.loadAllData();
+    // Optional data (never fatal): the daily events calendar, and the court schedule so today's
+    // event can merge its matches in (EventSystem → MatchSystem.setSchedule)
+    const optionalJSON = async (n) => {
+      try { return await loader.loadJSON(`${import.meta.env.BASE_URL}data/${n}`); } catch (e) { console.warn(`${n} unavailable:`, e.message || e); return null; }
+    };
+    [this.eventData, this.scheduleData] = await Promise.all([optionalJSON('events.json'), optionalJSON('schedule.json')]);
     this.mapData = data.mapData;
     this.npcData = data.npcData;
     this.missionData = data.missionData;
@@ -290,10 +304,13 @@ class Game {
 
     // Setup mission system (only missions whose every step works in this world are offered)
     this.missionSystem = new MissionSystem(this.missionData, this.dialogueSystem, this.inventory);
-    this.missionSystem.setWorldFacts(
-      buildWorldFacts({ map: this.mapData, npcs: this.npcData, missions: this.missionData, items: ITEMS }),
-      this._buildTargetPoints()
-    );
+    const worldFacts = buildWorldFacts({ map: this.mapData, npcs: this.npcData, missions: this.missionData, items: ITEMS });
+    this.missionSystem.setWorldFacts(worldFacts, this._buildTargetPoints());
+    // Procedural missions from missions.json → templates (validated against the same facts)
+    this.missionSystem.setGenerator(new MissionGenerator({
+      templates: this.missionData.templates, npcs: this.npcData, map: this.mapData,
+      schedule: this.scheduleData, items: ITEMS, facts: worldFacts,
+    }));
     this.missionMarkers = new MissionMarkers(this.scene, this.missionSystem);
     this.missionSystem.describePlace = (npc) => this._describePlace(npc);
 
@@ -303,6 +320,13 @@ class Game {
 
     // Setup HUD
     this.hud = new HUD(this.weather, this.missionSystem, this.inventory);
+
+    // Progression gates (minDay / minRank) and the daily events calendar (events.json)
+    this.missionSystem.getDay = () => this.weather.day || 1;
+    this.missionSystem.getRankIndex = () => this.shift.rankIndex;
+    this.events = new EventSystem(this.eventData, { missions: this.missionSystem, shift: this.shift, weather: this.weather });
+    this.shift.getEvent = () => this.events.describe();
+    this.events.onEventChange = () => { if (this.hud && this.hud.setEventLabel) this.hud.setEventLabel(this.events.describe()); };
 
     // Setup court maintenance system
     this.courtMaintenance = new CourtMaintenanceSystem(
@@ -384,7 +408,13 @@ class Game {
       weather: this.weather, missions: this.missionSystem, maintenance: this.courtMaintenance,
       sound: this.sound, camera: this.camera, waypoints: this.mapData.waypoints,
     });
-    this.matches.load();
+    // Today's event merges extra matches into schedule.json (at day start / load only)
+    this.events.onScheduleChange = (sched) => {
+      this.matches.setSchedule(sched);
+      if (this.missionSystem.generator) this.missionSystem.generator.setSchedule(sched);
+    };
+    if (this.scheduleData) this.events.setBaseSchedule(this.scheduleData);
+    else this.matches.load();
 
     // Radio dispatch: a card with "On it" / "Busy" (Busy just passes, no penalty)
     this.missionSystem.onRadioDispatch = (mission) => {
@@ -423,6 +453,27 @@ class Game {
       this.shift.recordReaction(mood);
     };
     this._wireShift();
+
+    // Player profile: owned gear, club project contributions, tennis skills and
+    // record. Spending comes out of the shift wallet (rank points use lifetime
+    // earnings, so spending never costs rank).
+    this.profile = new PlayerProfile();
+    this.profile.setWallet({
+      get: () => this.shift.wallet,
+      spend: (amount) => {
+        if (this.shift.wallet < amount) return false;
+        this.shift.wallet -= amount;
+        this.hud.setWallet(this.shift.wallet);
+        if (this.sound.playCoin) this.sound.playCoin();
+        return true;
+      },
+    });
+
+    // Club shop + services (shop.json): gear, lessons, cosmetics, cart upgrades, club projects
+    await this._createShop(loader);
+
+    // After-hours tennis with Coach Rafa (report card button / Rafa after closing time)
+    this.tennis = new TennisSession(this);
 
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);
@@ -646,12 +697,16 @@ class Game {
     const shift = this.shift;
     shift.getCourtQuality = () => (this.courtMaintenance ? this.courtMaintenance.getAverageCleanliness() : null);
     shift.onClockInPrompt = (day) => {
+      // Today's club event (events.json) is announced with the clock-in call
+      const ev = this.events ? this.events.describe() : null;
+      const themed = !!(ev && ev.id !== 'regular');
+      if (ev && this.hud.setEventLabel) this.hud.setEventLabel(ev);
       this.sound.playRadioChirp();
       this.hud.showRadioCard({
         kind: 'clockIn',
         channel: shift.data.manager || 'Club Manager',
-        title: `Good morning! Day ${day} starts now.`,
-        text: 'Shift runs 7 AM to 7 PM. Opening checklist first.',
+        title: themed ? `Day ${day}, ${ev.weekday}: ${ev.icon ? ev.icon + ' ' : ''}${ev.title}` : `Good morning! Day ${day} starts now.`,
+        text: themed ? `${ev.announce} Opening checklist first.` : 'Shift runs 7 AM to 7 PM. Opening checklist first.',
         actions: [{ label: 'Clock in', primary: true, onClick: () => this.clockIn() }],
       });
     };
@@ -682,6 +737,7 @@ class Game {
       this.hud.setWallet(shift.wallet, true);
       this.sound.playGroomComplete();
       this.pause('report');
+      report.spent = this.shop ? this.shop.spentToday() : 0; // "Spent today" (shop, lessons, projects)
       this.shiftReport.show(report);
       if (report.rankUp) this.sound.playRankUp();
       this.saveGame();
@@ -705,7 +761,10 @@ class Game {
     };
     shift.onPerks = (perks) => this._applyPerks(perks);
 
-    this.shiftReport = new ShiftReport({ onNextDay: () => this.startNextDay() });
+    this.shiftReport = new ShiftReport({
+      onNextDay: () => this.startNextDay(),
+      onTennis: () => { if (this.tennis) this.tennis.begin('report'); }, // after-hours tennis (src/tennis)
+    });
   }
 
   /** Clock in (clock-in card, or the end of the first-day tutorial). */
@@ -735,6 +794,127 @@ class Game {
     if (this.player) {
       try { this.player.setCapColor(perks.capColor || null); } catch (e) { /* cosmetic only */ }
     }
+  }
+
+  // ───────────────────────────── club shop ─────────────────────────────
+
+  /** Shop data, the club-project world additions, the shop overlay and the hooks between them. */
+  async _createShop(loader) {
+    const raw = await ShopSystem.loadData(loader, import.meta.env.BASE_URL);
+    const shop = new ShopSystem(raw, {
+      profile: this.profile,
+      getDay: () => this.weather.day || 1,
+      getRankIndex: () => this.shift.rankIndex,
+      ranks: this.shift.ranks,
+    });
+    this.shop = shop;
+    shop.sound = this.sound;
+    shop.hasRankCap = () => !!this.shift.getPerks().capColor;
+    shop.canHonk = () => !this.paused && this.player.isInCart;
+    this.clubUpgrades = new ClubUpgrades(this.scene, { physicsWorld: this.physicsWorld, mapData: this.mapData, matches: this.matches });
+    // Looks: equipped cosmetics / gear on the player, paint / canopy / lights / rack on the cart
+    shop.onLook = (look, cartLook) => {
+      try { this.player.setOutfit(look); } catch (e) { console.warn('Shop outfit:', e); }
+      try { this.cart.restyle(cartLook); } catch (e) { console.warn('Cart restyle:', e); }
+      this._pausedRenderPending = true;
+    };
+    shop.onProjectsChanged = (list) => { for (const [id, on] of list) this.clubUpgrades.setFunded(id, on); };
+    shop.onProjectFunded = (project) => {
+      this.clubUpgrades.setFunded(project.id, true);
+      this.sound.playRankUp();
+      (this._shopCelebrate || (this._shopCelebrate = [])).push(project); // confetti + toast once the overlay closes
+      this._pausedRenderPending = true;
+    };
+    shop.onPurchase = () => this.hud.setWallet(this.shift.wallet);
+    setClubTalkProvider(() => shop.clubTalk()); // members mention funded projects in small talk
+    shop.applyAll();
+
+    this.shopUI = new ShopUI({
+      shop, profile: this.profile, hasRankCap: shop.hasRankCap,
+      onFeedback: (r) => { if (!r.ok || r.kind === 'equip') this.sound.playUIClick(); },
+      onClose: (mode) => this._onShopClosed(mode),
+    });
+
+    // Cart horn: H while driving (the equipped horn from the cart shop)
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyH' && !e.repeat && shop.canHonk()) shop.honk();
+    });
+  }
+
+  /**
+   * Open the shop overlay (pauses the game without the pause menu). vendor: an npcs.json id
+   * from shop.json → vendors (Jess: every tab; Rafa: lessons). mode 'locker' = equip only
+   * (from the pause menu, which stays open underneath).
+   */
+  openShop({ vendor = 'jess_nakamura', tab, mode = 'shop', greeting } = {}) {
+    if (!this.shopUI || !this.shop || !this.shop.available) {
+      if (this.hud) this.hud.showNotification('The shop is closed right now.', 2.5);
+      return false;
+    }
+    if (mode === 'shop') {
+      if (this.paused) return false;
+      this.pause('shop');
+      if (this.pauseMenu) this.pauseMenu.setButtonVisible(false);
+      const v = this.shop.vendor(vendor);
+      if (!greeting && v && Array.isArray(v.greeting) && v.greeting.length) greeting = v.greeting[Math.floor(Math.random() * v.greeting.length)];
+    }
+    this.shopUI.open({ mode, vendor, tab, greeting });
+    return true;
+  }
+
+  _onShopClosed(mode) {
+    if (mode === 'shop') {
+      if (this.pauseMenu) this.pauseMenu.setButtonVisible(true);
+      if (this.paused && this.pauseReason === 'shop') this.resume();
+    }
+    const done = this._shopCelebrate;
+    if (done && done.length) {
+      this._shopCelebrate = null;
+      this.hud.celebrate();
+      const p = done[done.length - 1];
+      this.hud.showNotification(done.length > 1
+        ? `${done.length} club projects finished! Take a walk and see them.`
+        : `${p.name} is done! Go see it at ${p.place || 'the club'}.`, 5, 'sparkle');
+    }
+    this.hud.setWallet(this.shift.wallet, true);
+    this.saveGame();
+  }
+
+  /** Pro shop counter (Building: 4 m counter 2 m right of / 2 m behind the shop centre): customer side. */
+  _nearShopCounter(pos) {
+    const ps = this.mapData.areas.proShop;
+    if (!ps || !ps.center) return false;
+    const kx = ps.center.x + 2, kz = ps.center.z - 2;
+    return Math.abs(pos.x - kx) < 2.6 && pos.z > kz + 0.3 && pos.z < kz + 2.8;
+  }
+
+  /**
+   * Talking to a shop vendor (Jess, Coach Rafa) with nothing mission-related to say: offer the
+   * shop / lessons or small talk. Returns true if it took over the conversation.
+   */
+  _offerShopTalk(npc) {
+    if (!npc || !this.shop || !this.shop.available || !this.shopUI) return false;
+    const vendor = this.shop.vendor(npc.id);
+    if (!vendor || npc.hasRequest || npc.playing || this.dialogueSystem.isActive()) return false;
+    const ms = this.missionSystem;
+    for (const m of ms.getActiveMissions()) if (ms.getStepNpcId(m) === npc.id) return false;
+    if (ms.pendingEncounters && ms.pendingEncounters.has(npc.id)) return false;
+    const lessonsOnly = Array.isArray(vendor.tabs) && vendor.tabs.length === 1 && vendor.tabs[0] === 'lessons';
+    const lines = Array.isArray(vendor.greeting) && vendor.greeting.length ? vendor.greeting : ['What can I do for you?'];
+    const text = lines[Math.floor(Math.random() * lines.length)];
+    const color = (this.dialogueSystem.speakerColors && this.dialogueSystem.speakerColors.get(npc.name)) || undefined;
+    this.dialogueSystem.currentNPC = npc;
+    if (npc.startTalking) npc.startTalking();
+    this.dialogueBox.show(npc.name, text, color);
+    this.dialogueSystem.active = true;
+    this.dialogueSystem.showChoices([
+      { label: lessonsOnly ? `Book a lesson (${'$' + this.shop.lessonPrice()})` : 'Browse the shop' },
+      { label: 'Just saying hi' },
+    ], (index) => {
+      if (index === 0) this.openShop({ vendor: npc.id, greeting: text });
+      else ms.handleInteraction(npc, this._getPlayerWorldPos(), () => this.hud.updateTaskList());
+    });
+    return true;
   }
 
   _onMissionComplete(mission) {
@@ -773,7 +953,7 @@ class Game {
   }
 
   _handleTap(screenX, screenY) {
-    if (!this._ready || this.paused || this.dialogueSystem.isActive()) return;
+    if (!this._ready || this.paused || this.dialogueSystem.isActive() || (this.tennis && this.tennis.active)) return;
 
     // Raycast for NPC interaction (reused raycaster / vectors / hit array)
     const raycaster = this._raycaster;
@@ -792,6 +972,7 @@ class Game {
       if (hits.length > 0 && npc.distanceTo(this._getPlayerWorldPos()) < GAME.interactionRange) {
         hits.length = 0;
         this.sound.playUIClick();
+        if (this._offerShopTalk(npc)) return; // Jess / Rafa: shop or lessons
         this.missionSystem.handleInteraction(npc, this._getPlayerWorldPos(), () => {
           this.hud.updateTaskList();
         });
@@ -924,6 +1105,13 @@ class Game {
       }
     }
 
+    // Pro shop counter: browse the club shop (an NPC with a request keeps priority)
+    if (!inCart && kind !== 'taskBoard' && this.shopUI && !(kind === 'talk' && target && target.hasRequest) && this._nearShopCounter(playerPos)) {
+      kind = 'shop';
+      target = null;
+      label = 'Shop';
+    }
+
     // Check area for pickup/delivery (and complete goTo steps on arrival)
     this.currentArea = this._detectCurrentArea(playerPos);
     if (this.currentArea && this.missionSystem.handleArrival(this.currentArea)) {
@@ -985,6 +1173,8 @@ class Game {
       case 'talk':
         if (!target) break;
         this.sound.playUIClick();
+        if (this.tennis && this.tennis.offerFromNpc(target)) break; // Rafa after closing: "stay for a hit?"
+        if (this._offerShopTalk(target)) break; // Jess / Rafa: shop or lessons
         this.missionSystem.handleInteraction(target, playerPos, () => {
           this.hud.updateTaskList();
         });
@@ -1014,6 +1204,10 @@ class Game {
       case 'taskBoard':
         this.sound.playUIClick();
         this._openTaskBoard();
+        break;
+      case 'shop':
+        this.sound.playUIClick();
+        this.openShop({ vendor: 'jess_nakamura' });
         break;
       case 'pickup': {
         const item = this.missionSystem.handlePickup(this.currentArea, playerPos);
@@ -1305,6 +1499,8 @@ class Game {
   _update(dt) {
     // Update input
     this.input.update(dt);
+    // After-hours tennis owns the whole frame while it runs (TennisSession steps the world)
+    if (this.tennis && this.tennis.active) { this.tennis.update(dt); return; }
 
     // Keyboard dialogue advance (Space / Enter / E). The press is consumed so it can't also
     // trigger the world action button on the frame the dialogue closes.
@@ -1395,7 +1591,9 @@ class Game {
     this.missionSystem.update(dt, playerWorldPos);
     this.missionMarkers.update(dt, playerWorldPos, this.camera.position);
     if (this.itemProps) this.itemProps.update(dt);
+    if (this.clubUpgrades) this.clubUpgrades.update(dt);
     this.shift.update(dt, !this.dialogueSystem.isActive() && !this.courtMaintenance.isGrooming());
+    if (this.events) this.events.update(dt);
 
     // Update HUD
     this.hud.updateTimeWeather();
@@ -1411,6 +1609,7 @@ class Game {
       onResume: () => this.resume(),
       onSave: () => this.saveGame({ manual: true }),
       onReset: () => this.resetProgress(),
+      onLocker: () => this.openShop({ mode: 'locker' }),
       settings: this.settings,
       getQuality: () => Quality.tier,
       setQuality: (tier) => this.setQuality(tier),
@@ -1452,7 +1651,7 @@ class Game {
 
   /**
    * Freeze the game: physics, game time, weather, missions/radio timers, NPCs, input and audio.
-   * reason: 'menu' | 'button' | 'key' | 'hidden'
+   * reason: 'menu' | 'button' | 'key' | 'hidden' | 'shop' (shop overlay: no pause menu) | 'report' | 'gpu'
    */
   pause(reason = 'menu') {
     if (!this._ready || this.paused) return;
@@ -1463,7 +1662,7 @@ class Game {
     this.sound.setPaused(true);
     if (this.dialogueBox && this.dialogueBox.setPaused) this.dialogueBox.setPaused(true);
     // The report card and the GPU-reset panel are their own modals; everything else opens the pause menu
-    if (this.pauseMenu && reason !== 'report' && reason !== 'gpu') this.pauseMenu.open();
+    if (this.pauseMenu && reason !== 'report' && reason !== 'gpu' && reason !== 'shop') this.pauseMenu.open();
   }
 
   resume() {
@@ -1482,6 +1681,7 @@ class Game {
 
   togglePause() {
     if (!this._ready) return;
+    if (this.shopUI && this.shopUI.isOpen) { this.shopUI.close(); return; } // Esc leaves the shop / locker
     if (this.pauseReason === 'report') return; // the report card's "Next day" resumes
     if (this.pauseReason === 'gpu') return;    // only a reload recovers from a lost context
     if (this.paused) {

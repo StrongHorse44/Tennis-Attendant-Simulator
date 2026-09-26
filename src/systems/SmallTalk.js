@@ -21,6 +21,14 @@ export function timeBucket(hour) {
 }
 
 const MOODS = ['satisfied', 'neutral', 'unsatisfied'];
+
+/**
+ * Club talk: lines about the club itself (funded shop projects: "the koi in the fountain...").
+ * The shop registers a provider (data, ctx) → string[] | null; it joins the weighted buckets
+ * below for members (not staff, who have their own tips / hints).
+ */
+let clubTalkProvider = null;
+export function setClubTalkProvider(fn) { clubTalkProvider = typeof fn === 'function' ? fn : null; }
 const nonEmpty = (a) => Array.isArray(a) && a.length > 0;
 
 /**
@@ -48,7 +56,12 @@ export function pickSmallTalk(data, ctx = {}, rand = Math.random) {
       try { where = ctx.whereabouts(); } catch (e) { where = null; }
       if (!where || !where.name || !where.place) where = null;
     }
+    let club = null;
+    if (clubTalkProvider && d.archetype !== 'staff') {
+      try { club = clubTalkProvider(d, ctx); } catch (e) { club = null; }
+    }
     const buckets = [
+      [club, 1.8],
       [pool.idle, 3],
       [pool[w], weatherW],
       [pool[timeBucket(ctx.hour)], 1.4],

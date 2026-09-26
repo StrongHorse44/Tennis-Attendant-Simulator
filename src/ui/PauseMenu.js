@@ -9,6 +9,7 @@ import { injectTheme, THEME } from './theme.js';
  *   onResume(),                  // Resume pressed / backdrop Esc
  *   onSave() -> boolean,         // manual save
  *   onReset(),                   // confirmed reset
+ *   onLocker?(),                 // Locker button (change equipped gear / cosmetics / cart look)
  *   settings,                    // SettingsStore (volume, muted, cameraSensitivity)
  *   getQuality() -> tier, setQuality(tier),
  *   getSummary() -> { day, time, weatherIcon, weather, missionsCompleted, courtsGroomed, bestGroomRating,
@@ -227,6 +228,7 @@ const ICONS = {
   gear: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M19.4 13.5l1.6 1.2-2 3.4-1.9-.7a7.6 7.6 0 0 1-2 1.2L14.8 21h-4l-.3-2.4a7.6 7.6 0 0 1-2-1.2l-1.9.7-2-3.4 1.6-1.2a7.7 7.7 0 0 1 0-2.9L4.6 9.3l2-3.4 1.9.7a7.6 7.6 0 0 1 2-1.2L10.8 3h4l.3 2.4a7.6 7.6 0 0 1 2 1.2l1.9-.7 2 3.4-1.6 1.2a7.7 7.7 0 0 1 0 3z"/></svg>',
   save: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M8 3v5h7V3M8 21v-7h8v7"/></svg>',
   reset: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6M4 3.5v5.1h5.1"/></svg>',
+  locker: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v18M9 8h1M14 8h1M9 11h1M14 11h1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>',
   warn: '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="rgba(224,90,71,0.15)" stroke="currentColor" stroke-width="2"/><path d="M24 13v14" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/><circle cx="24" cy="34" r="2.2" fill="currentColor"/></svg>',
 };
@@ -410,6 +412,10 @@ export class PauseMenu {
     row.appendChild(this._button(`${ICONS.gear}<span>Settings</span>`, 'cc-btn ccp-btn', () => this.showView('settings')));
     row.appendChild(this._button(`${ICONS.save}<span>Save</span>`, 'cc-btn ccp-btn', () => this._doSave()));
     actions.appendChild(row);
+    // Locker: change equipped gear / uniform / cart look anywhere (ShopUI in locker mode, on top)
+    if (this.opts.onLocker) {
+      actions.appendChild(this._button(`${ICONS.locker}<span>Locker</span>`, 'cc-btn ccp-btn', () => this.opts.onLocker()));
+    }
 
     this.statusEl = el('div', 'ccp-status');
     this.statusEl.setAttribute('role', 'status');

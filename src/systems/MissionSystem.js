@@ -1,6 +1,7 @@
 import { GAME } from '../utils/Constants.js';
 import { ITEMS } from './InventorySystem.js';
 import { missionErrors } from './MissionValidation.js';
+import { weightedPick } from './MissionGenerator.js';
 import { pickSmallTalk } from './SmallTalk.js';
 import { EnvState } from '../graphics/EnvState.js';
 
@@ -19,6 +20,14 @@ export function shuffleInPlace(arr, rand = Math.random) {
 const RANDOM_ENCOUNTER_CHECK_INTERVAL = 0.5;
 /** Retry delay (s) for a radio dispatch that found every task slot full. */
 const RADIO_RETRY_WHEN_FULL = 20;
+/** Seconds between generated (procedural) random encounters, and how long an unanswered one waits. */
+const GEN_ENCOUNTER_COOLDOWN = 120;
+const GEN_ENCOUNTER_TTL = 240;
+/** Chance per check (0.5 s) that a nearby member offers a generated request, once the cooldown is over. */
+const GEN_ENCOUNTER_CHANCE = 0.04;
+/** Days of mission history kept (cooldowns / "helped recently"). */
+const HISTORY_DAYS = 14;
+const HISTORY_MAX = 400;
 
 const escapeRe = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -78,6 +87,27 @@ export class MissionSystem {
       if (m && m.id) this._templatesById.set(m.id, m);
     }
 
+    // Procedural missions (MissionGenerator) + anti-repetition memory across days
+    this.generator = null;
+    /** () => in-game day number / () => rank index (set by Game; gates minDay / minRank). */
+    this.getDay = () => 1;
+    this.getRankIndex = () => 0;
+    /** () => today's club event ({ id, boardSize, templateBoost, ... }) or null (set by EventSystem wiring). */
+    this.getEvent = () => null;
+    /** Extra radio speed from today's event (multiplies dispatchRate). */
+    this.eventDispatchScale = 1;
+    this._generatedById = new Map();  // generated mission id → definition (board, active, pending)
+    this._genEncounters = new Map();  // npc id → { mission, ttl }
+    this._genEncounterCooldown = 60;
+    /**
+     * { log: [{ s: sig, t: template, n: [npcIds], d: day, k: 'a'|'c' }], helped: { npcId: day },
+     *   offered: { sig: last earlier day it was offered }, seq }
+     */
+    this.history = { log: [], helped: {}, offered: {}, seq: 0 };
+    this._offeredToday = new Map();   // sig → times offered today
+    this._tplOfferedToday = new Map(); // template → times offered today
+    this._lastRainAt = -1e9;          // day * 24 + hour of the last rain seen
+
     // World facts (set by Game once the map/NPCs exist) → completability + marker points
     this._facts = {};
     this._targetPoints = new Map(); // area id → { x, z, h }
@@ -110,6 +140,16 @@ export class MissionSystem {
       this._completable.set(tpl.id, ok);
     }
     return ok;
+  }
+
+  /** Mission definition by id: authored (missions.json) or generated. */
+  _lookup(id) {
+    return this._templatesById.get(id) || this._generatedById.get(id) || null;
+  }
+
+  /** Attach a MissionGenerator (procedural missions fill the board, radio and encounters). */
+  setGenerator(gen) {
+    this.generator = gen || null;
   }
 
   /** Static world point for an area id ({x, z, h}), or null. */
@@ -204,6 +244,170 @@ export class MissionSystem {
       this._storyReady(m) && this.isCompletable(m);
   }
 
+  // ───────────────────────────── history / anti-repetition ─────────────────────────────
+
+  /** Repetition key: generated missions carry `sig` (template + key roles); authored use their id. */
+  _sig(m) { return (m && (m.sig || m.id)) || ''; }
+
+  _tplOf(m) { return (m && (m.template || m.id)) || ''; }
+
+  _npcsOf(m) {
+    const out = new Set();
+    if (!m) return out;
+    if (m.client) out.add(m.client);
+    if (m.triggerNpc) out.add(m.triggerNpc);
+    for (const s of m.steps || []) if (s && s.npcId) out.add(s.npcId);
+    return out;
+  }
+
+  /** Remember an accepted ('a') or completed ('c') mission for cooldowns and member weighting. */
+  _remember(m, kind) {
+    if (!m || m.source === 'shift') return;
+    const day = this.getDay() || 1;
+    const npcs = [...this._npcsOf(m)];
+    this.history.log.push({ s: this._sig(m), t: this._tplOf(m), n: npcs, d: day, k: kind });
+    if (kind === 'c') for (const id of npcs) this.history.helped[id] = day;
+    if (this.history.log.length > HISTORY_MAX) this.history.log.splice(0, this.history.log.length - HISTORY_MAX);
+  }
+
+  /** Days since `sig` was last accepted / completed (Infinity = never). */
+  _daysSinceSig(sig) {
+    const day = this.getDay() || 1;
+    const log = this.history.log;
+    for (let i = log.length - 1; i >= 0; i--) if (log[i].s === sig) return day - log[i].d;
+    return Infinity;
+  }
+
+  _daysSinceTemplate(tpl) {
+    const day = this.getDay() || 1;
+    const log = this.history.log;
+    for (let i = log.length - 1; i >= 0; i--) if (log[i].t === tpl) return day - log[i].d;
+    return Infinity;
+  }
+
+  /** Favour members you haven't helped recently (never: 2, today: 0.35). */
+  npcWeight(id) {
+    if (this._busyNpcs && this._busyNpcs.has(id)) return 0.15;
+    const d = this.history.helped[id];
+    if (d === undefined) return 2;
+    const ago = (this.getDay() || 1) - d;
+    return ago <= 0 ? 0.35 : ago === 1 ? 0.6 : ago === 2 ? 0.9 : 1.4;
+  }
+
+  /** Something identical is on the board, active, on the radio card or waiting as an encounter. */
+  _sigInPlay(sig) {
+    for (const m of this.taskBoardMissions) if (this._sig(m) === sig) return true;
+    for (const m of this.activeMissions) if (this._sig(m) === sig) return true;
+    if (this.pendingDispatch && this._sig(this.pendingDispatch) === sig) return true;
+    for (const e of this._genEncounters.values()) if (this._sig(e.mission) === sig) return true;
+    return false;
+  }
+
+  /** Days since `sig` was offered on an earlier day (Infinity = not recently). */
+  _offeredAgo(sig) {
+    const d = this.history.offered[sig];
+    return d === undefined ? Infinity : (this.getDay() || 1) - d;
+  }
+
+  /** Weight factor for something offered (and passed on) yesterday / the day before. */
+  _offeredFactor(sig) {
+    const ago = this._offeredAgo(sig);
+    return ago <= 1 ? 0.35 : ago === 2 ? 0.7 : 1;
+  }
+
+  /**
+   * Generated mission rejected: same template + key roles inside its cooldown, offered twice
+   * today, or (usually) offered yesterday already.
+   */
+  _isBlocked(m) {
+    const sig = this._sig(m);
+    if (this._sigInPlay(sig)) return true;
+    if ((this._offeredToday.get(sig) || 0) >= 2) return true;
+    if (Math.random() > this._offeredFactor(sig)) return true;
+    const tpl = this.generator && this.generator.byId.get(m.template);
+    const cd = tpl && Number.isInteger(tpl.cooldownDays) ? tpl.cooldownDays : 2;
+    return this._daysSinceSig(sig) < cd;
+  }
+
+  /** Template weight factor: rotate templates within a day, cool off ones just done. */
+  _templateFactor(tplId) {
+    const n = this._tplOfferedToday.get(tplId) || 0;
+    const ago = this._daysSinceTemplate(tplId);
+    return (1 / (1 + 0.6 * n)) * (ago <= 0 ? 0.5 : 1);
+  }
+
+  _noteOffered(m) {
+    const sig = this._sig(m);
+    this._offeredToday.set(sig, (this._offeredToday.get(sig) || 0) + 1);
+    const t = this._tplOf(m);
+    this._tplOfferedToday.set(t, (this._tplOfferedToday.get(t) || 0) + 1);
+  }
+
+  /** Generation context for MissionGenerator (built on demand, a few times a minute at most). */
+  _genCtx() {
+    const day = this.getDay() || 1;
+    const hour = EnvState.timeOfDay;
+    const ev = this.getEvent ? this.getEvent() : null;
+    const busy = new Set(this.pendingEncounters);
+    for (const m of this.activeMissions) for (const id of this._npcsOf(m)) busy.add(id);
+    this._busyNpcs = busy;
+    return {
+      day, hour, weather: EnvState.weather,
+      hoursSinceRain: (day * 24 + hour) - this._lastRainAt,
+      rankIndex: this.getRankIndex() || 0,
+      eventId: ev ? ev.id : null,
+      eventBoost: ev && ev.templateBoost ? ev.templateBoost : null,
+      busyNpcs: busy,
+      rand: Math.random,
+      uid: (tpl) => `g${day}-${++this.history.seq}-${tpl}`,
+      isBlocked: (m) => this._isBlocked(m),
+      npcWeight: (id) => this.npcWeight(id),
+      templateFactor: (id) => this._templateFactor(id),
+    };
+  }
+
+  /** One generated mission for `source` (registered, not yet offered), or null. */
+  _generate(source, ctx, opts) {
+    if (!this.generator) return null;
+    let m = null;
+    try { m = this.generator.generate(source, ctx || this._genCtx(), opts || {}); } catch (e) { console.warn('MissionGenerator failed:', e); }
+    if (!m || !this.isCompletable(m)) return null;
+    this._generatedById.set(m.id, m);
+    return m;
+  }
+
+  /** Weight of an authored mission on the board / radio: fresh one-shots first, repeatables rotate. */
+  _authoredWeight(m) {
+    let w = m.repeatable ? 1.1 : 3;
+    if (m.type === 'maintenance') w = 1.6;
+    const ago = this._daysSinceSig(m.id);
+    if (ago <= 0) w *= 0.3; else if (ago === 1) w *= 0.6;
+    w *= this._offeredFactor(m.id);
+    w /= 1 + 0.8 * (this._offeredToday.get(m.id) || 0);
+    const ev = this.getEvent ? this.getEvent() : null;
+    if (ev && ev.missionBoost && Number.isFinite(ev.missionBoost[m.id])) w *= ev.missionBoost[m.id];
+    return w;
+  }
+
+  /** Board size for today (event boardSize, 2..4; default 3). */
+  _boardSize() {
+    const ev = this.getEvent ? this.getEvent() : null;
+    const n = ev && Number.isFinite(ev.boardSize) ? ev.boardSize : 3;
+    return Math.max(2, Math.min(4, Math.round(n)));
+  }
+
+  /** Drop generated definitions nothing refers to any more. */
+  _pruneGenerated() {
+    const keep = new Set();
+    for (const m of this.taskBoardMissions) keep.add(m.id);
+    for (const m of this.activeMissions) keep.add(m.id);
+    if (this.pendingDispatch) keep.add(this.pendingDispatch.id);
+    for (const e of this._genEncounters.values()) keep.add(e.mission.id);
+    for (const id of this._generatedById.keys()) {
+      if (!keep.has(id)) { this._generatedById.delete(id); this._completable.delete(id); }
+    }
+  }
+
   /**
    * Member storylines: `requires` (mission ids completed first) and `hours` ([from, to) in-game
    * hours) gate when a mission can be OFFERED. Once active it runs to the end at any hour.
@@ -218,6 +422,9 @@ export class MissionSystem {
       const t = EnvState.timeOfDay;
       if (!(t >= h[0] && t < h[1])) return false;
     }
+    // Progression: chapters unlock by day number and rank (index into shift.ranks)
+    if (Number.isFinite(m.minDay) && (this.getDay() || 1) < m.minDay) return false;
+    if (Number.isFinite(m.minRank) && (this.getRankIndex() || 0) < m.minRank) return false;
     return true;
   }
 
@@ -254,6 +461,15 @@ export class MissionSystem {
   }
 
   update(dt, playerPos) {
+    if (EnvState.weather === 'rainy') this._lastRainAt = (this.getDay() || 1) * 24 + EnvState.timeOfDay;
+    if (this._genEncounterCooldown > 0) this._genEncounterCooldown -= dt;
+    if (this._genEncounters.size) {
+      for (const [id, e] of this._genEncounters) {
+        e.ttl -= dt;
+        if (e.ttl <= 0) this._dropEncounter(id);
+      }
+    }
+
     // Task board refresh
     this.taskBoardTimer -= dt;
     if (this.taskBoardTimer <= 0) {
@@ -267,7 +483,7 @@ export class MissionSystem {
       if (this.pendingDispatchTimer <= 0) this.declineDispatch('timeout');
     } else if (this.dispatchEnabled) {
       // Radio dispatch (faster during rush windows)
-      this.radioTimer -= dt * this.dispatchRate;
+      this.radioTimer -= dt * this.dispatchRate * (this.eventDispatchScale || 1);
       if (this.radioTimer <= 0) {
         this.radioTimer = GAME.radioDispatchInterval;
         this._dispatchRadio();
@@ -288,12 +504,62 @@ export class MissionSystem {
     }
   }
 
+  /**
+   * New board: 2–4 options (event boardSize), a weighted mix of authored missions (fresh
+   * one-shots and storylines first, repeatables rotating) and generated ones. Nothing that
+   * is on cooldown, already offered twice today or already in play.
+   */
   _refreshTaskBoard() {
-    const available = this.missionTemplates.filter(m => this._isOfferable(m, 'taskBoard'));
+    const size = this._boardSize();
+    const authored = this.missionTemplates.filter(m => this._isOfferable(m, 'taskBoard'));
+    if (!this.generator) {
+      this.taskBoardMissions = shuffleInPlace(authored).slice(0, Math.min(size, authored.length));
+      for (const m of this.taskBoardMissions) this._noteOffered(m);
+      return;
+    }
     this.taskBoardMissions = [];
-    const shuffled = shuffleInPlace(available);
-    for (let i = 0; i < Math.min(3, shuffled.length); i++) {
-      this.taskBoardMissions.push(shuffled[i]);
+    this._pruneGenerated();
+    const ctx = this._genCtx();
+    const cands = authored.map(m => ({ m, w: this._authoredWeight(m) }));
+    const usedTpl = new Set();
+    for (let i = 0; i < size + 2; i++) {
+      const g = this._generate('taskBoard', ctx, { exclude: usedTpl });
+      if (!g) break;
+      usedTpl.add(g.template);
+      cands.push({ m: g, w: 1.6 });
+    }
+    const board = [];
+    const sigs = new Set();
+    let repeatables = 0;
+    while (board.length < size && cands.length) {
+      const c = weightedPick(cands, (x) => x.w);
+      if (!c) break;
+      cands.splice(cands.indexOf(c), 1);
+      const sig = this._sig(c.m);
+      if (sigs.has(sig)) continue;
+      // At most two daily repeatables per board; one maintenance job is enough
+      if (!c.m.generated && c.m.repeatable && repeatables >= 2) continue;
+      sigs.add(sig);
+      board.push(c.m);
+      if (!c.m.generated && c.m.repeatable) repeatables++;
+      if (c.m.type === 'maintenance') for (const o of cands) if (o.m.type === 'maintenance') o.w *= 0.25;
+    }
+    this.taskBoardMissions = board;
+    for (const m of board) this._noteOffered(m);
+    this._pruneGenerated();
+  }
+
+  /** Keep at least two options on the board (after the player takes one). */
+  _topUpBoard() {
+    if (!this.generator || this.taskBoardMissions.length >= 2) return;
+    const ctx = this._genCtx();
+    const used = new Set(this.taskBoardMissions.map(m => this._tplOf(m)));
+    for (let i = 0; i < 3 && this.taskBoardMissions.length < 2; i++) {
+      const g = this._generate('taskBoard', ctx, { exclude: used });
+      if (!g) break;
+      used.add(g.template);
+      this.taskBoardMissions.push(g);
+      this._noteOffered(g);
     }
   }
 
@@ -306,9 +572,24 @@ export class MissionSystem {
       this.radioTimer = RADIO_RETRY_WHEN_FULL;
       return;
     }
-    const available = this.missionTemplates.filter(m => this._isOfferable(m, 'radio'));
-    if (available.length === 0) return;
-    const mission = available[Math.floor(Math.random() * available.length)];
+    const cands = this.missionTemplates.filter(m => this._isOfferable(m, 'radio')).map(m => ({ m, w: this._authoredWeight(m) }));
+    if (this.generator) {
+      const ctx = this._genCtx();
+      const used = new Set();
+      for (let i = 0; i < 2; i++) {
+        const g = this._generate('radio', ctx, { exclude: used });
+        if (!g) break;
+        used.add(g.template);
+        cands.push({ m: g, w: 1.8 });
+      }
+    }
+    const pick = cands.length ? weightedPick(cands, (x) => x.w) || cands[0] : null;
+    if (!pick) {
+      this.radioTimer = RADIO_RETRY_WHEN_FULL; // nothing fits right now: try again soon
+      return;
+    }
+    const mission = pick.m;
+    this._noteOffered(mission);
     this.pendingDispatch = mission;
     this.pendingDispatchTimer = GAME.dispatchCardTimeout ?? 25;
     if (this.onRadioDispatch) this.onRadioDispatch(mission);
@@ -329,6 +610,7 @@ export class MissionSystem {
     if (this.hasFreeSlot() && !this._isActive(tpl.id)) {
       active = { ...tpl, currentStep: 0, status: 'active' };
       this.activeMissions.push(active);
+      this._remember(active, 'a');
       this._notifyUpdate();
     }
     if (this.onDispatchClosed) this.onDispatchClosed(tpl, !!active);
@@ -340,6 +622,7 @@ export class MissionSystem {
     const tpl = this.pendingDispatch;
     if (!tpl) return;
     this.pendingDispatch = null;
+    if (tpl.generated) this._generatedById.delete(tpl.id);
     this.radioTimer = Math.min(this.radioTimer, GAME.dispatchDeclineCooldown ?? 30);
     if (this.onDispatchClosed) this.onDispatchClosed(tpl, false, reason);
   }
@@ -358,15 +641,60 @@ export class MissionSystem {
         if (Math.random() < p) {
           this.offerEncounter(mission.triggerNpc);
           this.randomEncounterCooldown = 30;
-          break;
+          return;
         }
       }
     }
+    this._checkGeneratedEncounter(playerPos);
+  }
+
+  /**
+   * Procedural encounters: now and then a member near the player (not busy with a mission)
+   * gets a generated request ("!"). One at a time, spaced out, and they give up after a while.
+   */
+  _checkGeneratedEncounter(playerPos) {
+    if (!this.generator || this._genEncounterCooldown > 0 || this._genEncounters.size > 0 || !this.hasFreeSlot()) return;
+    if (!this.dispatchEnabled) return; // on shift only
+    if (Math.random() >= GEN_ENCOUNTER_CHANCE) return;
+    const range = GAME.interactionRange * 3;
+    const near = [];
+    for (const npc of this.npcsMap.values()) {
+      if (npc.hasRequest || this.pendingEncounters.has(npc.id) || npc.playing) continue;
+      if (typeof npc.distanceTo === 'function' && npc.distanceTo(playerPos) < range) near.push(npc);
+    }
+    if (!near.length) return;
+    const ctx = this._genCtx();
+    const npc = weightedPick(near, (n) => this.npcWeight(n.id)) || near[0];
+    const m = this._generate('random', ctx, { trigger: npc.id });
+    this._genEncounterCooldown = m ? GEN_ENCOUNTER_COOLDOWN : 20;
+    if (!m) return;
+    m.triggerNpc = npc.id;
+    this._genEncounters.set(npc.id, { mission: m, ttl: GEN_ENCOUNTER_TTL });
+    this._noteOffered(m);
+    this.pendingEncounters.add(npc.id);
+    this.refreshNPCMarkers();
+  }
+
+  _dropEncounter(npcId) {
+    const e = this._genEncounters.get(npcId);
+    if (!e) return;
+    this._genEncounters.delete(npcId);
+    this._generatedById.delete(e.mission.id);
+    this.pendingEncounters.delete(npcId);
+    this.refreshNPCMarkers();
+  }
+
+  /** The mission an offered encounter with `npcId` would start (authored first, then generated). */
+  _encounterFor(npcId) {
+    const authored = this.missionTemplates.find(m => this._isOfferable(m, 'random') && m.triggerNpc === npcId);
+    if (authored) return authored;
+    const e = this._genEncounters.get(npcId);
+    return e ? e.mission : null;
   }
 
   /** Give an NPC a pending random-encounter request ("!"), if they have an offerable one. */
   offerEncounter(npcId) {
-    const has = this.missionTemplates.some(m => this._isOfferable(m, 'random') && m.triggerNpc === npcId);
+    const has = this.missionTemplates.some(m => this._isOfferable(m, 'random') && m.triggerNpc === npcId) || this._genEncounters.has(npcId);
     if (!has) return false;
     this.pendingEncounters.add(npcId);
     this.refreshNPCMarkers();
@@ -391,19 +719,23 @@ export class MissionSystem {
     };
     this.activeMissions.push(active);
     this.taskBoardMissions = this.taskBoardMissions.filter(m => m.id !== mission.id);
+    this._remember(active, 'a');
+    this._topUpBoard();
     this._notifyUpdate();
     return true;
   }
 
   acceptRandomEncounter(npcId) {
-    const mission = this.missionTemplates.find(m => this._isOfferable(m, 'random') && m.triggerNpc === npcId);
-    if (mission && this.hasFreeSlot()) {
+    const mission = this._encounterFor(npcId);
+    if (mission && this.hasFreeSlot() && !this._isActive(mission.id)) {
       const active = {
         ...mission,
         currentStep: 0,
         status: 'active',
       };
+      if (this._genEncounters.has(npcId) && this._genEncounters.get(npcId).mission === mission) this._genEncounters.delete(npcId);
       this.activeMissions.push(active);
+      this._remember(active, 'a');
       this._notifyUpdate();
       return active;
     }
@@ -444,10 +776,26 @@ export class MissionSystem {
     }
     if (this.pendingDispatch) this.declineDispatch('newDay');
     this.pendingEncounters.clear();
+    this._genEncounters.clear();
+    this._genEncounterCooldown = 60;
+    // Yesterday's offers feed tomorrow's rotation (history.offered)
+    const yesterday = (this.getDay() || 1) - 1;
+    for (const sig of this._offeredToday.keys()) this.history.offered[sig] = yesterday;
+    this._offeredToday.clear();
+    this._tplOfferedToday.clear();
+    this._pruneHistory();
     this._refreshTaskBoard();
     this.taskBoardTimer = GAME.taskBoardRefreshInterval;
     this.radioTimer = GAME.radioDispatchInterval;
     this._notifyUpdate();
+  }
+
+  /** Forget history older than HISTORY_DAYS. */
+  _pruneHistory() {
+    const day = this.getDay() || 1;
+    this.history.log = this.history.log.filter(e => day - e.d <= HISTORY_DAYS);
+    for (const [id, d] of Object.entries(this.history.helped)) if (day - d > HISTORY_DAYS) delete this.history.helped[id];
+    for (const [sig, d] of Object.entries(this.history.offered)) if (day - d > 3) delete this.history.offered[sig];
   }
 
   // ───────────────────────────── steps ─────────────────────────────
@@ -497,8 +845,10 @@ export class MissionSystem {
       mission.status = 'complete';
       if (!mission.reactions) mission.reactions = {};
       // Shift routines come back every day; everything else is one-shot until the next day
-      // (repeatable) or forever.
-      if (mission.source !== 'shift') this.completedMissionIds.add(missionId);
+      // (repeatable) or forever. Generated missions are unique and live on in `history`.
+      if (mission.source !== 'shift' && !mission.generated) this.completedMissionIds.add(missionId);
+      this._remember(mission, 'c');
+      if (mission.generated) this._generatedById.delete(missionId);
 
       this._notifyUpdate();
       if (this.onMissionComplete) {
@@ -628,6 +978,9 @@ export class MissionSystem {
 
     if (step.action === 'dialogue' && step.dialogueKey) {
       this.dialogueSystem.startDialogueFromKey(npc, step.dialogueKey, onComplete);
+    } else if (step.action === 'dialogue' && Array.isArray(step.lines) && step.lines.length) {
+      // Generated missions carry their own filled-in lines ({ speaker, text })
+      this.dialogueSystem.startDialogue(npc, step.lines.map(l => ({ speaker: l.speaker || npc.name, text: l.text })), onComplete);
     } else if (step.action === 'dialogue') {
       const lines = [{ speaker: npc.name, text: step.prompt }];
       this.dialogueSystem.startDialogue(npc, lines, onComplete);
@@ -717,6 +1070,18 @@ export class MissionSystem {
       taskBoard: this.taskBoardMissions.map(m => m.id),
       radioTimer: this.radioTimer,
       taskBoardTimer: this.taskBoardTimer,
+      // Generated missions on the board or in progress (full definitions: their ids are unique)
+      generated: [...this.activeMissions, ...this.taskBoardMissions]
+        .filter(m => m.generated)
+        .map(m => stripRuntime(m)),
+      // Anti-repetition memory across days (cooldowns, members helped recently)
+      history: {
+        log: this.history.log.slice(-HISTORY_MAX),
+        helped: { ...this.history.helped },
+        offered: { ...this.history.offered },
+        today: { day: this.getDay() || 1, sigs: [...this._offeredToday.keys()].slice(0, 200) },
+        seq: this.history.seq,
+      },
     };
   }
 
@@ -726,7 +1091,39 @@ export class MissionSystem {
    */
   setState(state) {
     if (!state || typeof state !== 'object') return;
-    const known = this._templatesById;
+    // Generated definitions first (validated again: the world or data may have changed)
+    this._generatedById.clear();
+    if (Array.isArray(state.generated)) {
+      for (const g of state.generated) {
+        if (!g || typeof g !== 'object' || typeof g.id !== 'string' || this._templatesById.has(g.id)) continue;
+        const def = { ...g, generated: true };
+        if (missionErrors(def, this._facts).length === 0) this._generatedById.set(def.id, def);
+      }
+    }
+    const h = state.history;
+    if (h && typeof h === 'object') {
+      this.history = {
+        log: Array.isArray(h.log) ? h.log.filter(e => e && typeof e.s === 'string' && Number.isFinite(e.d)).map(e => ({
+          s: e.s, t: typeof e.t === 'string' ? e.t : e.s, n: Array.isArray(e.n) ? e.n.filter(x => typeof x === 'string') : [], d: e.d, k: e.k === 'c' ? 'c' : 'a',
+        })).slice(-HISTORY_MAX) : [],
+        helped: {},
+        offered: {},
+        seq: Number.isFinite(h.seq) ? h.seq : 0,
+      };
+      if (h.helped && typeof h.helped === 'object') for (const [id, d] of Object.entries(h.helped)) if (Number.isFinite(d)) this.history.helped[id] = d;
+      if (h.offered && typeof h.offered === 'object') for (const [sig, d] of Object.entries(h.offered)) if (Number.isFinite(d)) this.history.offered[sig] = d;
+      // Offers from the saved day: same day → still "today"; an earlier day → yesterday's rotation
+      this._offeredToday.clear();
+      const t = h.today;
+      if (t && Array.isArray(t.sigs) && Number.isFinite(t.day)) {
+        for (const sig of t.sigs) {
+          if (typeof sig !== 'string') continue;
+          if (t.day === (this.getDay() || 1)) this._offeredToday.set(sig, 1);
+          else this.history.offered[sig] = t.day;
+        }
+      }
+    }
+    const known = { get: (id) => this._lookup(id) };
 
     this.completedMissionIds = new Set();
     if (Array.isArray(state.completed)) {
@@ -756,7 +1153,7 @@ export class MissionSystem {
     if (Array.isArray(state.taskBoard)) {
       for (const id of state.taskBoard) {
         const tpl = known.get(id);
-        if (this._isOfferable(tpl, 'taskBoard') && this.taskBoardMissions.length < 3 && !this.taskBoardMissions.includes(tpl)) {
+        if (this._isOfferable(tpl, 'taskBoard') && this.taskBoardMissions.length < 4 && !this.taskBoardMissions.includes(tpl)) {
           this.taskBoardMissions.push(tpl);
         }
       }
@@ -768,7 +1165,14 @@ export class MissionSystem {
       this.taskBoardTimer = Math.max(1, Math.min(GAME.taskBoardRefreshInterval, state.taskBoardTimer));
     }
     if (this.taskBoardMissions.length === 0) this.taskBoardTimer = Math.min(this.taskBoardTimer, 5);
+    this._pruneGenerated();
 
     this._notifyUpdate();
   }
+}
+
+/** A mission definition without runtime fields (for the save). */
+function stripRuntime(m) {
+  const { currentStep, status, reactions, ...def } = m;
+  return def;
 }
