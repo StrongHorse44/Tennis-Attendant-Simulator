@@ -984,6 +984,94 @@
           "dialogueKey": "lesson_setup_1"
         }
       ]
+    },
+    {
+      "id": "bldg_locker_towels",
+      "type": "errand",
+      "title": "Locker Room Linens",
+      "description": "The locker rooms are out of towels. Collect a fresh stack from the pool house laundry and restock the clubhouse locker rooms.",
+      "source": "taskBoard",
+      "repeatable": true,
+      "client": "jess_nakamura",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "poolHouse",
+          "item": "towels",
+          "prompt": "Grab fresh towels from the pool house (west of the clubhouse, past the locker wing)."
+        },
+        {
+          "action": "deliver",
+          "location": "lockerRoom",
+          "item": "towels",
+          "prompt": "Restock the clubhouse locker rooms (through the lounge, down the photo corridor)."
+        }
+      ]
+    },
+    {
+      "id": "bldg_gym_hydration",
+      "type": "errand",
+      "title": "Gym Hydration",
+      "description": "The fitness centre's water cooler is empty and the spin crowd is parched. Bring water bottles over from the café.",
+      "source": "radio",
+      "repeatable": true,
+      "client": "nate_okafor",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "cafe",
+          "item": "water_bottles",
+          "prompt": "Pick up a case of water from the clubhouse café bar."
+        },
+        {
+          "action": "deliver",
+          "location": "fitnessCenter",
+          "item": "water_bottles",
+          "prompt": "Deliver the water to the Fitness & Wellness centre by the front lot."
+        }
+      ]
+    },
+    {
+      "id": "bldg_lounge_fireplace",
+      "type": "conflict",
+      "title": "Fireside Seats",
+      "description": "A dispute over the armchairs by the lounge fireplace. Sort it out before it becomes club lore.",
+      "source": "taskBoard",
+      "client": "gloria_castellano",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "memberLounge",
+          "prompt": "Head to the members' lounge in the clubhouse."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "gloria_castellano",
+          "prompt": "Hear Gloria out about the fireside armchairs.",
+          "dialogueKey": "bldg_lounge_fireplace_1"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you settle the seating?",
+          "choices": [
+            {
+              "label": "Reserve the chairs for the champions",
+              "result": "You put a brass 'Club Champions' card on the armchairs. Gloria beams; the juniors grumble.",
+              "reactions": { "gloria_castellano": "satisfied", "theo_wellington": "unsatisfied" }
+            },
+            {
+              "label": "First come, first served",
+              "result": "You remind everyone the lounge is for all members. Gloria sniffs, but agrees it's fair.",
+              "reactions": { "gloria_castellano": "neutral" }
+            },
+            {
+              "label": "Bring in a third armchair",
+              "result": "You drag a spare armchair over from the card table. Suddenly there's room for everyone.",
+              "reactions": { "gloria_castellano": "satisfied" }
+            }
+          ]
+        }
+      ]
     }
   ],
 
@@ -1143,6 +1231,11 @@
     "morning_prep_done": [
       { "speaker": "Hank Morris", "text": "All three courts done? Let me see..." },
       { "speaker": "Hank Morris", "text": "Looking sharp! The members are going to love playing on that surface today. Good job." }
+    ],
+    "bldg_lounge_fireplace_1": [
+      { "speaker": "Gloria Castellano", "text": "Thirty years I have sat in that chair by the fire. Thirty years!" },
+      { "speaker": "Gloria Castellano", "text": "And today some teenager is doing his homework in it with a smoothie. On the leather." },
+      { "speaker": "Gloria Castellano", "text": "I'm not asking for a plaque, dear. Although a plaque would be lovely." }
     ]
   }
 }
