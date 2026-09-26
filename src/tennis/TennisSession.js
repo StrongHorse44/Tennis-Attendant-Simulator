@@ -272,6 +272,7 @@ export class TennisSession {
     if (npc.state === 'talking') npc.stopTalking();
     if (npc.playing) npc.stopPlaying();
     npc.startPlaying(this.frame.id, 'north');
+    npc.fullRateAnim = true; // the opponent animates every frame at full detail, whatever the camera distance
     npc.character.setBallVisible(false);
 
     this.sides[0] = 1; this.sides[1] = -1;
@@ -310,6 +311,7 @@ export class TennisSession {
     const npc = this.coachNpc;
     this.ai.reset();
     npc.stopPlaying();
+    npc.fullRateAnim = false;
     const p = g.player;
     p.character.setRacketVisible(false);
     p.character.setBallVisible(false);
@@ -664,7 +666,11 @@ export class TennisSession {
   _onSwingDown() {
     if (!this.active) return;
     const ph = this.phase, s = this.srv;
-    if (ph === 'serve' && s.who === 0 && !s.started) { if (!this.cam.busy) this._serveToss(); return; }
+    if (ph === 'serve' && s.who === 0 && !s.started) {
+      if (this.cam.busy) s.pending = true; // tossed as soon as the camera arrives, if still held
+      else this._serveToss();
+      return;
+    }
     if (this._incoming()) { if (!this.chg.on) this._startCharge(); return; }
     // A practice swing between points (never mid-rally: it would plant your feet)
     if (this.t >= this.pl.swingFree && (ph === 'menu' || ph === 'feedWait' || ph === 'results')) {
@@ -1360,7 +1366,7 @@ export class TennisSession {
     const srv = this.srv, f = this.frame;
     srv.who = who; srv.started = false; srv.charging = false; srv.charge = 0; srv.power = 0;
     srv.deuce = deuce; srv.second = second; srv.tRelease = INF; srv.tContact = INF;
-    srv.tPress = INF; srv.tSweet = INF; srv.tossed = false; srv.tWhiff = INF; srv.label = '';
+    srv.tPress = INF; srv.tSweet = INF; srv.tossed = false; srv.tWhiff = INF; srv.label = ''; srv.pending = false;
     const s = this.sides[who], r = -s;
     const sp = this._serveSpot(who, deuce);
     const bu = (deuce ? r : -r) * 2.3, bv = r * 4.5;
@@ -1395,6 +1401,10 @@ export class TennisSession {
   _updateServe(dt) {
     const srv = this.srv, t = this.t;
     if (this.phase !== 'serve') return;
+    if (srv.pending && !this.cam.busy) {
+      srv.pending = false;
+      if (srv.who === 0 && !srv.started && this.ctl.swing) this._serveToss();
+    }
     if (srv.who === 0 && srv.started) {
       if (srv.charging) {
         // Trophy position while SWING is held; the meter shows how far through the toss you are

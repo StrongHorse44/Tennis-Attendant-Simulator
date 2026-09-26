@@ -13,8 +13,8 @@ export class TennisAudio {
     this._next = 0.8;
   }
 
-  start() { this.on = true; this._next = 0.6; }
-  stop() { this.on = false; }
+  start() { this.on = true; this._next = 0.6; if (this.sound) this.sound.ambientHold = true; }
+  stop() { this.on = false; if (this.sound) this.sound.ambientHold = false; }
 
   _vol(pos) {
     if (!CameraTracker.valid) return 0.8;

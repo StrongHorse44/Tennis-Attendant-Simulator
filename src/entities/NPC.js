@@ -778,6 +778,7 @@ export class NPC {
     this.character.updateEvery = cd > 30 ? (low ? 5 : 4) : cd > 16 ? (low ? 3 : 2) : (low && cd > 10 ? 2 : 1);
     // Racket swings stay frame-exact near the camera (the ball meets the strings on the contact frame)
     if (this.state === 'playing' && cd < 26 && this.character.anim.oneShot) this.character.updateEvery = 1;
+    if (this.fullRateAnim) this.character.updateEvery = 1; // e.g. Rafa as the after-hours opponent
     this.character.update(dt);
 
     const bs = 0.95 * this.modelScale;
@@ -806,7 +807,7 @@ export class NPC {
     a = Math.max(0, Math.min(1, a));
     this._camDist = camDist;
     // Body LOD: low-detail mesh when far (hysteresis) and always on the low tier
-    const far = Quality.tier === 'low' || (this._lodFar ? camDist > 13 : camDist > 16);
+    const far = Quality.tier === 'low' || (!this.fullRateAnim && (this._lodFar ? camDist > 13 : camDist > 16));
     if (far !== this._lodFar) { this._lodFar = far; this.character.setLod(far); }
     const tag = this.nameTag;
     tag.material.opacity += (a - tag.material.opacity) * Math.min(1, dt * 10);

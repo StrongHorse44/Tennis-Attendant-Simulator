@@ -641,7 +641,7 @@ export class SoundSystem {
 
   _playBirdChirp() {
     // Skip while paused/muted so chirps don't queue up on a suspended context
-    if (!this.initialized || this.paused || this.muted) return;
+    if (!this.initialized || this.paused || this.muted || this.ambientHold) return; // ambientHold: evening tennis (no birds at night)
     try {
       const now = this.ctx.currentTime;
 
