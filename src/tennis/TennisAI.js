@@ -144,6 +144,7 @@ export class TennisAI {
     this.swingStart = INF;
     this.mode = 'base';
     this.recRun = false;
+    this.recU = 0; this.recV = HALF_L + 0.4; // recovery spot: middle of the baseline until tactics pick one
     this._resolvedSeen = false;
   }
 

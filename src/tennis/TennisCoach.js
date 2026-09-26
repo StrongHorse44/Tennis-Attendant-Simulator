@@ -36,8 +36,8 @@ const INF = Infinity;
 const SP = { flat: 0, topspin: 1, slice: 2, lob: 3, drop: 4, smash: 5 };
 const SP_LABEL = ['flat', 'topspin', 'slice', 'lob', 'drop', 'smash'];
 // Where the player's ball ended (onLanded result)
-const R_PEND = -1, R_IN = 0, R_NET = 1, R_LONG = 2, R_WIDE = 3, R_MISS = 4;
-const RES = { in: R_IN, net: R_NET, long: R_LONG, wide: R_WIDE, miss: R_MISS };
+const R_PEND = -1, R_IN = 0, R_NET = 1, R_LONG = 2, R_WIDE = 3, R_MISS = 4, R_CTR = 5; // R_CTR: a serve over the centre line
+const RES = { in: R_IN, net: R_NET, long: R_LONG, wide: R_WIDE, miss: R_MISS, centre: R_CTR };
 // How a point ended (onPointEnd why)
 const WHY = { out: 1, net: 2, winner: 3, ace: 4, double: 5 };
 const Y_WINNER = 3, Y_ACE = 4, Y_DOUBLE = 5;
@@ -333,6 +333,7 @@ const ISSUES = [
       [(c) => {
         if (c.svRes(R_NET, 5) >= 2) return ['Serves in the net. Kick, 2, goes higher over it.', 'Kick, 2!'];
         if (c.svRes(R_WIDE, 5) >= 2) return ['Missing wide. Aim a little more to the middle.', 'More middle!'];
+        if (c.svRes(R_CTR, 5) >= 2) return ['Over the centre line. Aim a touch wider in the box.', 'A bit wider!'];
         return ['Serves long. Kick, 2, dives down into the box.', 'Kick, 2!'];
       }],
       [['Kick, 2, and aim for the middle of the box. Then add pace.', 'Middle first!']],
@@ -1415,7 +1416,7 @@ export class TennisCoach {
     return k;
   }
 
-  svFaults(n) { return this.svRes(R_NET, n) + this.svRes(R_LONG, n) + this.svRes(R_WIDE, n) + this.svRes(R_MISS, n); }
+  svFaults(n) { return this.svRes(R_NET, n) + this.svRes(R_LONG, n) + this.svRes(R_WIDE, n) + this.svRes(R_CTR, n) + this.svRes(R_MISS, n); }
 
   /** First-serve percentage over the newest n first serves (count in _n). */
   firstIn(n) {

@@ -1182,7 +1182,7 @@ export class TennisSession {
         } else {
           fl.bounces = 1;
           this.fx.hideMarker();
-          if (fl.kind === 'serve' && fl.let) {
+          if (fl.kind === 'serve' && fl.let && this.mode === 'match') { // (a drill serve that clips the tape and lands in simply counts)
             // A let is replayed: that serve does not count (first-serve % / the coach)
             if (fl.hitter === 0) { this.stats.serves--; if (!this.srv.second) this.stats.firsts--; }
             this._resolve(-1, 'let');
@@ -1676,9 +1676,12 @@ export class TennisSession {
     const fl = this.fl, f = this.frame;
     const u = f.lu(fl.landX, fl.landZ);
     if (fl.kind === 'serve') {
-      // Out of the service box: past the service line = long, either side line (incl. the centre line) = wide
-      const vv = f.lv(fl.landX, fl.landZ) * this.sides[1 - fl.hitter];
-      return vv > SERVICE_L + LINE_TOL ? 'long' : 'wide';
+      // Out of the service box: past the service line = long, over the centre line = centre,
+      // past the singles side line = wide (the same frame as _isIn)
+      const rs = this.sides[1 - fl.hitter];
+      const vv = f.lv(fl.landX, fl.landZ) * rs;
+      if (vv > SERVICE_L + LINE_TOL) return 'long';
+      return u * (this.srv.deuce ? rs : -rs) < -LINE_TOL ? 'centre' : 'wide';
     }
     return Math.abs(u) > SINGLES_W + LINE_TOL ? 'wide' : 'long';
   }
