@@ -350,7 +350,7 @@ export class MissionGenerator {
     for (const l of asArr(step.lines)) {
       const by = isObj(l) && l.by ? npcOf(l.by) : main;
       const raw = isObj(l) && l.text !== undefined ? l.text : l;
-      const text = this._fill(pickText(raw, by && by.archetype, rand), fills, rand);
+      const text = this._fill(pickText(raw, by ? [by.id, by.archetype] : null, rand), fills, rand);
       if (text) out.push({ speaker: by ? by.name : '', text });
     }
     if (step.idle && main) {
@@ -471,7 +471,7 @@ export class MissionGenerator {
     m.description = `“${line}” — ${n.name}`;
     const first = this._first(n);
     const opening = [{ speaker: n.name, text: line }];
-    const ack = pickText((L.ack || {})[kind], n.archetype, rand);
+    const ack = pickText((L.ack || {})[kind], [n.id, n.archetype], rand);
     if (ack) opening.push({ speaker: n.name, text: this._fill(ack, fills, rand) });
     m.steps.push({ action: 'dialogue', npcId: n.id, prompt: `Hear out ${first}.`, lines: opening });
     const thanksPool = n.dialoguePool && Array.isArray(n.dialoguePool.satisfied) ? n.dialoguePool.satisfied : [];
@@ -482,7 +482,7 @@ export class MissionGenerator {
       if (!this._isStaff(n) || plan.reportBack) m.steps.push({ action: 'dialogue', npcId: n.id, prompt: `Let ${first} know it's done.`, lines: [{ speaker: n.name, text: thanks }] });
     } else if (kind === 'relay') {
       const o = plan.other;
-      const relay = this._fill(pickText((L.relay || {})[o.archetype] || (L.relay || {})['*'] || '{member.first} asked me to pass something on.', o.archetype, rand), fills, rand);
+      const relay = this._fill(pickText(L.relay || '{member.first} asked me to pass something on.', [o.id, o.archetype], rand), fills, rand);
       m.steps.push({ action: 'dialogue', npcId: o.id, prompt: `Pass ${first}'s message to ${this._first(o)}.`, lines: [{ speaker: 'You', text: `Message from ${first}: "${line}"` }, { speaker: o.name, text: relay }] });
     } else if (kind === 'groom') {
       m.type = 'maintenance';
@@ -530,7 +530,7 @@ export class MissionGenerator {
     const fromCourts = /\bfrom the courts\b/i.test(text);
 
     // Grooming (Hank / Diane)
-    if (/\b(groom|grooming|sweep|swept)\b/i.test(text)) {
+    if (/\b(groom|grooming|sweep|swept|drag)\b/i.test(text) || (/\bclay\b/i.test(text) && /\b(attention|rough)\b/i.test(text))) {
       const clay = this.courts.filter(c => c.type === 'clay' && this.facts.clayCourtIds ? this.facts.clayCourtIds.has(c.id) : c.type === 'clay');
       if (clay.length) return { kind: 'groom', to: clay[0].id };
     }
@@ -623,12 +623,15 @@ export function weightedPick(list, weightOf, rand = Math.random) {
   return list[list.length - 1];
 }
 
-/** A string from text | [texts] | { archetype: text, '*': text }. */
-function pickText(v, archetype, rand = Math.random) {
+/** A string from text | [texts] | { npcId or archetype: text, '*': text } (keys: [npcId, archetype]). */
+function pickText(v, keys, rand = Math.random) {
   if (v === undefined || v === null) return '';
   if (typeof v === 'string') return v;
-  if (Array.isArray(v)) return v.length ? pickText(v[Math.floor(rand() * v.length)], archetype, rand) : '';
-  if (isObj(v)) return pickText(v[archetype] !== undefined ? v[archetype] : v['*'], archetype, rand);
+  if (Array.isArray(v)) return v.length ? pickText(v[Math.floor(rand() * v.length)], keys, rand) : '';
+  if (isObj(v)) {
+    const k = asArr(keys).find(x => x && v[x] !== undefined);
+    return pickText(k ? v[k] : v['*'], keys, rand);
+  }
   return String(v);
 }
 
@@ -673,6 +676,9 @@ export function validateTemplatesShape(t, { taskTypes, sources = ['taskBoard', '
         if (ref && !names.slice(0, k).includes(ref)) err(`${at}: role "${name}" refers to "${ref}", which must be an earlier role`);
       }
     });
+    if (asArr(x.sources).includes('random') && Array.isArray(x.steps) && !(isObj(x.steps[0]) && x.steps[0].action === 'dialogue' && x.steps[0].npc === x.trigger)) {
+      err(`${at}: a random template must open with a dialogue step by its trigger ("${x.trigger}")`);
+    }
     if (!Array.isArray(x.steps) || !x.steps.length) err(`${at}: needs "steps"`);
     else x.steps.forEach((s, j) => {
       if (!isObj(s)) { err(`${at} step ${j}: not an object`); return; }

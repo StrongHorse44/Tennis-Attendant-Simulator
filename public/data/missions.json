@@ -341,8 +341,8 @@
       {
         "id": "rival_dispute",
         "type": "conflict",
-        "sources": ["taskBoard", "radio", "random"],
-        "weight": { "random": 1, "*": 2 },
+        "sources": ["taskBoard", "radio"],
+        "weight": 2,
         "cooldownDays": 3,
         "roles": {
           "a": { "npc": "member", "hasRel": ["rival"] },
@@ -714,7 +714,7 @@
                 "jess_nakamura": "{Item} at {from}. Tag says {owner}. Lost and found is full. Of hats, mostly.",
                 "dani_kowalski": "Found {item} at {from}! Tag says {owner}! Walking feet, but quick feet!",
                 "hank_morris": "Somebody left {item} at {from}. {owner.first}, says the tag. Take it to {to}.",
-                "*": "{Item} was left at {from}. It belongs to {owner}."
+                "*": "Someone left {item} at {from}. The tag says {owner}."
               }
             ]
           },
@@ -997,7 +997,7 @@
         "client": "host",
         "key": ["guest"],
         "title": ["Escort {guest}", "VIP tour for {host.first}'s guest"],
-        "description": ["{guest} is at the gate as a guest of {host}. Give them the tour."],
+        "description": ["{Guest} is at the gate as a guest of {host}. Give them the tour."],
         "steps": [
           {
             "action": "dialogue",
@@ -1110,7 +1110,7 @@
           }
         },
         "key": ["a", "b"],
-        "title": ["Staff relay: {a.first} to {b.first}", "Coordinate {topic}"],
+        "title": ["Staff relay: {a.first} to {b.first}", "Pass it on: {topic}"],
         "description": ["As a senior attendant you keep the staff in sync. {a} needs {b} to hear about {topic}."],
         "steps": [
           {
@@ -1178,7 +1178,7 @@
       {
         "id": "rainy_lounge",
         "type": "social",
-        "sources": ["taskBoard", "radio", "random"],
+        "sources": ["taskBoard", "radio"],
         "weight": 3,
         "cooldownDays": 1,
         "weather": ["rainy"],
@@ -1391,14 +1391,14 @@
       {
         "id": "pool_party_run",
         "type": "event",
-        "sources": ["taskBoard", "radio", "random"],
+        "sources": ["taskBoard", "radio"],
         "weight": 4,
         "cooldownDays": 0,
         "events": ["pool_party"],
         "roles": {
           "staff": { "npc": "staff", "ids": ["dani_kowalski", "gus_papadakis"] },
           "item": { "item": ["towels", "water_bottles"] },
-          "from": { "area": ["lockerRoom", "poolHouse", "cafe", "proShop"] },
+          "from": { "area": "itemSource", "of": "item" },
           "place": { "area": ["pool", "poolHouse", "patio"], "not": ["from"] },
           "guest": { "npc": "member" }
         },
@@ -1428,7 +1428,7 @@
             "prompt": "Hand {guest.first} their share.",
             "lines": [
               {
-                "entitled": "A pool party. At a tennis club. Well. The towels are acceptable.",
+                "entitled": "A pool party. At a tennis club. Well. The refreshments are acceptable.",
                 "junior": "CANNONBALL. Oh. Sorry. Thank you!",
                 "*": "Best party of the summer! Thank you!"
               }
