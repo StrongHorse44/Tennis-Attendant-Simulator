@@ -5,41 +5,56 @@ import { courtOcclusionTwin } from '../world/Court.js';
 /**
  * TennisOcclusion — keeps the after-hours tennis view clear: everything standing between the
  * broadcast camera and the play is made see-through, and put back exactly as it was when the
- * session ends.
+ * session ends. It works on whichever court the session plays (session.frame: Court 1 hard,
+ * Court 2 grass, Court 5 clay, ...) and at either end.
  *
  *   const occ = new TennisOcclusion(game);
  *   occ.begin(session);            // TennisSession.begin(), once the court / sides are set
  *   occ.update(session, dt);       // every _tick, AFTER this.cam.update(this, dt)
- *   occ.end();                     // TennisSession.end() (idempotent)
+ *   occ.end();                     // TennisSession.end() (idempotent); setSurface(): end() on the
+ *                                  // old court, then begin() on the new one
  *
  * What it does
  *  - Court meshes (every court's matte / metal / chain-link / windscreen / sign / lamp-glass
  *    material is patched at creation by withOcclusionFade, see graphics/OcclusionFade.js): the
- *    shared uniforms describe the half-space behind the baseline at the camera's end, limited
- *    across the court, above the curbs, plus camera→player-chest and camera→ball segments that
- *    stop short of their focus. That covers Court 1's near floodlight poles / arms / heads,
- *    fence posts, rails, windscreen, chain-link and sign board, and — after a change of ends,
- *    with the camera over clay courts 3/4 — their south fence, poles and heads. The strength
- *    ramps in over RAMP s; each end has its own strength and follows the camera (it swaps as
- *    the camera glides over the net on a change of ends).
+ *    shared uniforms describe, in the session court's frame, the half-space behind the baseline
+ *    at the camera's end, limited across the court (|u| < U_MAX), above the curbs, plus
+ *    camera→player-chest and camera→ball segments that stop short of their focus. Every court's
+ *    meshes that reach into that region are faded, not only the session court's, which is what
+ *    the neighbours need:
+ *      Court 1 / Court 2, +v end: their own near floodlights, fence, windscreen, sign board;
+ *      Court 1 / Court 2, -v end: the camera is over the clay courts (3 / 4 / 5), whose +v fences,
+ *        poles and heads stand 1.25 m behind the hard courts' -v fence: both are faded;
+ *      Court 5 (clay), +v end: the camera sits over Court 2's pad, so Court 2's -v fence, lamps
+ *        and sign fade with Court 5's own; Court 4's fence where it continues Court 5's (to
+ *        |u| < U_MAX) too;
+ *      Court 5, -v end: its own fence and lamps; the south tree belt is handled below.
+ *    The strength ramps in over RAMP s; each end has its own strength and follows the camera (it
+ *    swaps as the camera glides over the net on a change of ends).
  *  - Explicit hides, restored in end():
- *      club projects (the funded Court 1 scoreboard) inside the fade region → group hidden;
+ *      club projects inside the fade region (the funded Court 1 scoreboard behind Court 1's +v
+ *        fence, the practice hitting wall behind Court 2's +v fence) → group hidden;
  *      near trees (instanced) inside the region whose canopy enters the view → instance
- *        collapsed (sticky while that end is faded, so its shadow does not flicker);
+ *        collapsed (sticky while that end is faded, so its shadow does not flicker): e.g. the
+ *        south belt behind Court 5's -v end, the feature oaks behind Court 2's +v end on phones;
  *      floodlight night halos (THREE.Points, their .visible is reset every frame by Court)
- *        of lamps inside the region → excluded with geometry.setDrawRange.
+ *        of lamps inside the region, any court's → excluded with geometry.setDrawRange.
  *  - GTAO (high tier): faded court meshes are flagged userData.noAO for the session (PostFX's
  *    AO visibility pass already skips those), so no dark AO ghost is left where they were.
- *  - Court 1's court-* meshes hidden by the old TennisSession._setFences(false) are shown again
- *    (the fade replaces that hide; the far fence stays visible as a backdrop).
+ *  - The session court's court-* meshes hidden by the old TennisSession._setFences(false) are
+ *    shown again (the fade replaces that hide; the far fence stays visible as a backdrop).
  *
- * No per-frame allocations; no new shader programs at begin (uniform writes only).
+ * Only materials with a precompiled fade twin (Court.js sharedMaterials: matte, metal, windscreen,
+ * sign, lamp glass) or patched in place (chain-link) can fade: a new opaque court material needs
+ * a twin there too. No per-frame allocations; no new shader programs at begin (uniform writes and
+ * the material swap only).
  */
 
 const HALF_L = 12.3;            // baseline, court-local v (TennisBallSim.HALF_L)
 const NEAR_V = HALF_L + 0.5;    // the fade ramps in over 0.5 m from here: full from 13.3 (lamp heads
                                 // overhang to ~13.35, the fence is at 14.5)
-const U_MAX = 10.2;             // across-court limit: Court 1's fence ends at |u| 9, Court 2's starts at 11
+const U_MAX = 10.2;             // across-court limit: a court's fence ends at |u| 9, the next hard court's
+                                // starts at 11 (clay neighbours continue at 8: faded to here)
 const U_FEATHER = 0.6;
 const MIN_Y = 0.28;             // curbs, base plates, stray balls and the surface stay solid
 const KEEP = 0.87;              // fraction of pixels removed at full fade (2/16 remain as a faint ghost)
@@ -50,6 +65,16 @@ const BALL_R = 0.5;
 const TREE_V_MAX = NEAR_V + 24; // candidate trees: behind a baseline, up to here...
 const TREE_U_MAX = 18;          // ...and this far across
 const HIDE_AT = 0.5;            // explicit hides switch at this effective fade
+
+/** A court's meshes / points, nested ones too, except the hidden precompile group of fade twins. */
+function collectParts(obj, out) {
+  for (const ch of obj.children) {
+    if (ch.name === 'courtOcclusionTwins') continue;
+    out.push(ch);
+    if (ch.children.length) collectParts(ch, out);
+  }
+  return out;
+}
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -194,17 +219,21 @@ export class TennisOcclusion {
     const uv = new THREE.Vector2();
     const courts = (g.world && g.world.courts) || [];
 
-    // Court meshes: re-show what the old _setFences hid; flag faded meshes noAO (GTAO ghosts)
+    // Court meshes, every court's (a neighbour's fence / lamps can stand behind the session
+    // court's baseline): re-show what the old _setFences hid; flag faded meshes noAO (GTAO ghosts)
     const own = this.frame.court && this.frame.court.mesh;
+    const parts = [];
     for (const court of courts) {
       const root = court && court.mesh;
       if (!root) continue;
       root.updateMatrixWorld(true);
-      for (const ch of root.children) {
+      parts.length = 0;
+      collectParts(root, parts);
+      for (const ch of parts) {
         if (!ch.isMesh) continue;
         const twin = courtOcclusionTwin(ch.material);
         if (!twin && !isOcclusionFaded(ch.material)) continue;
-        if (root === own && !ch.visible) ch.visible = true;
+        if (root === own && ch.parent === root && !ch.visible) ch.visible = true;
         if (!ch.geometry.boundingBox) ch.geometry.computeBoundingBox();
         _box.copy(ch.geometry.boundingBox).applyMatrix4(ch.matrixWorld);
         if (this._boxInRegion(_box, uv, true)) {
@@ -214,8 +243,8 @@ export class TennisOcclusion {
           if (twin) { this._swaps.push({ mesh: ch, prev: ch.material }); ch.material = twin; }
         }
       }
-      // Floodlight halos (4 points: -v end pair, +v end pair)
-      for (const ch of root.children) {
+      // Floodlight halos (4 points: -v end pair, +v end pair, in the court's own frame)
+      for (const ch of parts) {
         if (!ch.isPoints || ch.name !== 'courtLampHalos') continue;
         const pa = ch.geometry.attributes.position;
         if (!pa) continue;
@@ -228,7 +257,7 @@ export class TennisOcclusion {
       }
     }
 
-    // Club projects (the Court 1 scoreboard sits right behind the south fence)
+    // Club projects (the Court 1 scoreboard, Court 2's hitting wall: right behind a +v fence)
     const up = g.clubUpgrades && g.clubUpgrades.projects;
     if (up && typeof up.values === 'function') {
       for (const p of up.values()) {
