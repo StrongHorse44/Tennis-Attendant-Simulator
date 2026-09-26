@@ -76,7 +76,7 @@ uniform vec4 uOccZone;
 uniform vec4 uOccEnds;
 uniform vec4 uOccA;
 uniform vec4 uOccB;
-float occBayer2( vec2 a ) { a = floor( a ); return fract( a.x * 0.5 + a.y * a.y * 0.75 ); }
+float occBayer2( vec2 a ) { a = mod( floor( a ), 2.0 ); return fract( a.x * 0.5 + a.y * 0.75 ); } // exact at any resolution
 float occSeg( vec3 p, vec4 f ) {
   if ( f.w <= 0.0 ) return 0.0;
   vec3 d = f.xyz - cameraPosition;
