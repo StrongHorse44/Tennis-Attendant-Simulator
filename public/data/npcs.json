@@ -1157,7 +1157,7 @@
       "greetings": [
         "Hi! Welcome to the deck! Walking feet, please. Thank you!",
         "Hey! Sunscreen check: have you reapplied? Be honest.",
-        "Morning! Water's 26 degrees. I checked. Twice.",
+        "Hey! Water's 26 degrees. I checked. Twice.",
         "Hi hi! You're not here to cannonball, are you? Good.",
         "Hey! Pool's open, chair's occupied, whistle's ready."
       ],
@@ -1299,7 +1299,7 @@
       "greetings": [
         "Champ! Let's go! How are the legs today?",
         "Hey hey! You walked in here. That's one rep. Proud of you.",
-        "Morning, champ! Hydrated? Stretched? Believing in yourself?",
+        "Champ! Hydrated? Stretched? Believing in yourself?",
         "There they are! Rest day or leg day? Trick question. Leg day.",
         "Champ! Perfect timing. I need somebody to high-five."
       ],
@@ -1373,10 +1373,10 @@
         "dani_kowalski": { "type": "colleague", "note": "Waves at the lifeguard chair every patrol. She whistles back. Twice means trouble." }
       },
       "greetings": [
-        "Morning. Gate's open, lot's quiet. Good start.",
-        "Afternoon. Nothing to report. That's the best kind of report.",
+        "Hello there. Gate's open, lot's quiet. Good start.",
+        "Hey. Nothing to report. That's the best kind of report.",
         "Hey there. You're on my list. The good list.",
-        "Evening. Seventeen thousand steps so far. Slow day.",
+        "Hi. Seventeen thousand steps so far. Slow day.",
         "Hello. Everything's secure. Except the crossword. Seven down is killing me."
       ],
       "requests": [

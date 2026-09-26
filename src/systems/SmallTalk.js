@@ -34,6 +34,7 @@ export function pickSmallTalk(data, ctx = {}, rand = Math.random) {
   const pool = d.dialoguePool || {};
   const greetings = nonEmpty(d.greetings) ? d.greetings : null;
   let lines = null;
+  let where = null;
 
   if (ctx.firstChat && greetings) lines = greetings;
   if (!lines && ctx.moodSet && MOODS.includes(ctx.mood) && nonEmpty(pool[ctx.mood]) && rand() < 0.45) lines = pool[ctx.mood];
@@ -43,7 +44,6 @@ export function pickSmallTalk(data, ctx = {}, rand = Math.random) {
     const w = ctx.weather;
     const weatherW = w === 'rainy' || w === 'windy' ? 2.2 : w === 'cloudy' ? 0.9 : 0.6;
     // Whereabouts hint: only when someone worth pointing at is somewhere nameable
-    let where = null;
     if (nonEmpty(pool.hints) && typeof ctx.whereabouts === 'function') {
       try { where = ctx.whereabouts(); } catch (e) { where = null; }
       if (!where || !where.name || !where.place) where = null;
