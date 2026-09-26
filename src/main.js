@@ -34,6 +34,14 @@ import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
 
 /** Seconds of unpaused play between autosaves. */
+/** Staff whereabouts hints (MissionSystem._whereabouts): how to say where someone is. */
+const PLACE_PHRASES = {
+  proShop: 'in the pro shop', patio: 'out on the clubhouse patio', garden: 'in the garden by the fountain',
+  equipmentShed: 'down by the equipment shed', clubhouseLobby: 'in the clubhouse lobby', memberLounge: "in the members' lounge",
+  cafe: 'in the café', lockerRoom: 'in the locker rooms', fitnessCenter: 'in the fitness centre', poolHouse: 'in the pool house',
+  pool: 'out at the pool',
+};
+
 const AUTOSAVE_INTERVAL = 30;
 const ZERO_MOVE = Object.freeze({ x: 0, y: 0 });
 const GROOM_RATING_RANK = { needsWork: 1, good: 2, excellent: 3 };
@@ -287,6 +295,7 @@ class Game {
       this._buildTargetPoints()
     );
     this.missionMarkers = new MissionMarkers(this.scene, this.missionSystem);
+    this.missionSystem.describePlace = (npc) => this._describePlace(npc);
 
     // Shift loop: clock-in, rush windows, closing duties, report card, pay / tips / rank
     this.shift = new ShiftSystem(this.missionData.shift, this.npcData, this.weather, this.missionSystem);
@@ -1069,6 +1078,19 @@ class Game {
     }
 
     return null;
+  }
+
+  /** Where an NPC is, as a phrase for staff small talk ("on Court 3", "in the café"), or null. */
+  _describePlace(npc) {
+    const courtLabel = (id) => {
+      const c = (this.mapData.areas.courts || []).find(k => k.id === id);
+      return (c && c.label) || id;
+    };
+    if (npc.playing && npc.playing.courtId) return `playing a match on ${courtLabel(npc.playing.courtId)}`;
+    const id = this._detectCurrentArea(npc.body.position);
+    if (!id) return null;
+    if (/^court/.test(id)) return `over on ${courtLabel(id)}`;
+    return PLACE_PHRASES[id] || null;
   }
 
   _checkPickupAvailable(area) {

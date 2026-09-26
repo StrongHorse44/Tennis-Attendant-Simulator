@@ -7,6 +7,9 @@
  *   dialoguePool.idle                 personality, club life, other members
  *   dialoguePool.morning / afternoon / evening        by in-game hour (see timeBucket)
  *   dialoguePool.sunny / cloudy / rainy / windy       by current weather
+ *   dialoguePool.tips                 helpful club tips (staff)
+ *   dialoguePool.hints                "{name} is {place}" whereabouts lines (staff); filled from
+ *                                     ctx.whereabouts() → { name, place } or null
  */
 
 /** 'morning' (< 11:30), 'afternoon' (< 16:30) or 'evening'. */
@@ -39,11 +42,19 @@ export function pickSmallTalk(data, ctx = {}, rand = Math.random) {
     // Weighted buckets: personality first, then the moment (weather matters more when it's notable)
     const w = ctx.weather;
     const weatherW = w === 'rainy' || w === 'windy' ? 2.2 : w === 'cloudy' ? 0.9 : 0.6;
+    // Whereabouts hint: only when someone worth pointing at is somewhere nameable
+    let where = null;
+    if (nonEmpty(pool.hints) && typeof ctx.whereabouts === 'function') {
+      try { where = ctx.whereabouts(); } catch (e) { where = null; }
+      if (!where || !where.name || !where.place) where = null;
+    }
     const buckets = [
       [pool.idle, 3],
       [pool[w], weatherW],
       [pool[timeBucket(ctx.hour)], 1.4],
       [greetings, 0.6],
+      [pool.tips, 1.5],
+      [where ? pool.hints : null, where && where.needed ? 4 : 1.6],
     ];
     let total = 0;
     for (const [arr, wt] of buckets) if (nonEmpty(arr)) total += wt;
@@ -60,5 +71,11 @@ export function pickSmallTalk(data, ctx = {}, rand = Math.random) {
   // Don't repeat the last line (small pools can't always help it)
   let i = Math.floor(rand() * lines.length);
   if (lines.length > 1 && lines[i] === ctx.last) i = (i + 1 + Math.floor(rand() * (lines.length - 1))) % lines.length;
+  if (lines === pool.hints && where) return fillHint(lines[i], where);
   return String(lines[i]);
+}
+
+/** "{name} is {place}" → the whereabouts filled in. */
+export function fillHint(line, where) {
+  return String(line).split('{name}').join(where.name).split('{place}').join(where.place);
 }

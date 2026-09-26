@@ -62,6 +62,8 @@ export class MissionSystem {
     this.pendingDispatchTimer = 0;
     /** NPC ids with an offered (not yet started) random encounter. */
     this.pendingEncounters = new Set();
+    /** (npc) => "on Court 3" | "in the café" | null: where someone is, for staff whereabouts hints (set by Game). */
+    this.describePlace = null;
 
     this.onMissionUpdate = null;
     this.onRadioDispatch = null;
@@ -567,11 +569,44 @@ export class MissionSystem {
     const text = pickSmallTalk(npc.data, {
       mood: npc.mood, moodSet: !!npc.moodSet, firstChat,
       hour: EnvState.timeOfDay, weather: EnvState.weather, last: npc._smallTalkLast,
+      whereabouts: () => this._whereabouts(npc),
     });
     npc._smallTalkAt = now;
     npc._smallTalkLast = text;
     this.dialogueSystem.startDialogue(npc, [{ speaker: npc.name, text }], onComplete);
     return true;
+  }
+
+  /**
+   * Someone worth pointing the player at, for a staff member's "hints" small talk: the NPC an
+   * active mission is waiting on (or one with an offered encounter) first, else a random member.
+   * @returns {{ name: string, place: string, needed: boolean } | null}
+   */
+  _whereabouts(speaker) {
+    if (typeof this.describePlace !== 'function') return null;
+    const place = (n) => {
+      if (!n || n === speaker || !n.body) return null;
+      try { return this.describePlace(n); } catch (e) { return null; }
+    };
+    for (const mission of this.activeMissions) {
+      const step = this.getCurrentStep(mission.id);
+      if (!step || step.action !== 'dialogue' || !step.npcId) continue;
+      const n = this.npcsMap.get(step.npcId);
+      const p = place(n);
+      if (p) return { name: n.name, place: p, needed: true };
+    }
+    for (const id of this.pendingEncounters) {
+      const n = this.npcsMap.get(id);
+      const p = place(n);
+      if (p) return { name: n.name, place: p, needed: true };
+    }
+    const all = [...this.npcsMap.values()].filter(n => n !== speaker && n.archetype !== 'staff');
+    for (let tries = 0; tries < 4 && all.length; tries++) {
+      const n = all[Math.floor(Math.random() * all.length)];
+      const p = place(n);
+      if (p) return { name: n.name, place: p, needed: false };
+    }
+    return null;
   }
 
   /** Play a dialogue step, then advance; open the choices if the next step is `choose`. */

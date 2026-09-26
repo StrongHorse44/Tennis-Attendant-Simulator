@@ -11,6 +11,7 @@ import {
 } from './Building.js';
 import { artUV, artAspect } from './InteriorArt.js';
 import { registerNav } from './NavRooms.js';
+import { registerSeat } from '../entities/Seats.js';
 
 /**
  * ClubBuildings — the enterable buildings besides the pro shop:
@@ -1280,6 +1281,8 @@ export class PoolHouse extends ClubBuilding {
       L.trim.push(P(bevelBox(0.8, 0.6, 0.06, 0.02), at(gb, 0, 1.98, -0.32), 0xf04e3e));
       for (let k = 0; k < 4; k++) L.trim.push(P(boxGeo(0.7, 0.04, 0.08), at(gb, 0, 0.35 + k * 0.35, 0.37), 0xffffff));
       this._solid(gx, gz, 0.9, 0.9, 1.7);
+      // The lifeguard's seat (faces +x, ladder side): reserved for the pool attendant's post
+      registerSeat(gx, DY + 1.69, gz, HALF_PI, 'lifeguardChair', { reserved: true, approach: 0.95 });
     }
     // low iron fence around the deck (gap on the east side toward the path + where the house is)
     const gate = pool.gate || { side: 'east', a: pool.center.z - 1.5, b: pool.center.z + 1.5 };

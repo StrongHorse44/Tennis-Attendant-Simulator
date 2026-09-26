@@ -149,7 +149,8 @@
         "nate_okafor": { "type": "rival", "note": "Can't stand that Nate is better and doesn't brag about it." },
         "tommy_chen": { "type": "friend", "note": "Hitting partner. Tommy is the only one who laughs at his jokes." },
         "diane_ross": { "type": "rival", "note": "The Great Patio Table Incident." },
-        "jess_nakamura": { "type": "acquaintance", "note": "His best customer and her biggest headache." }
+        "jess_nakamura": { "type": "acquaintance", "note": "His best customer and her biggest headache." },
+        "otis_grant": { "type": "acquaintance", "note": "The security guy. Chad thinks they're buddies. Otis thinks about radar guns." }
       },
       "greetings": [
         "Bro, bro, BRO.",
@@ -252,7 +253,8 @@
         "babs_hendricks": { "type": "spouse", "note": "Married 41 years. She talks, he nods, both are happy." },
         "gloria_castellano": { "type": "friend", "note": "Mixed doubles partner in the 1982 club championship. They lost. He still brings it up." },
         "frank_deluca": { "type": "friend", "note": "Coffee buddy. Bob thinks the bylaws are 'more like guidelines'." },
-        "vik_rao": { "type": "friend", "note": "His knee surgeon. Bob shows everyone the scar, whether they ask or not." }
+        "vik_rao": { "type": "friend", "note": "His knee surgeon. Bob shows everyone the scar, whether they ask or not." },
+        "gus_papadakis": { "type": "friend", "note": "Gus knows his order. Gus also knows not to tell Babs about the second hot dog." }
       },
       "greetings": [
         "Hey kiddo! How goes it?",
@@ -303,7 +305,8 @@
       "relationships": {
         "priya_sharma": { "type": "friend", "note": "They joined the same week and compare notes on the unwritten rules." },
         "frank_deluca": { "type": "rival", "note": "Frank has cited him under the dress code three times. Kevin is terrified." },
-        "jess_nakamura": { "type": "friend", "note": "She sold him his first racket and quietly keeps him from buying the wrong grip." }
+        "jess_nakamura": { "type": "friend", "note": "She sold him his first racket and quietly keeps him from buying the wrong grip." },
+        "otis_grant": { "type": "friend", "note": "Unlocked his car three times. Kevin sends him a thank-you card every time." }
       },
       "greetings": [
         "Excuse me, um, hi...",
@@ -509,7 +512,9 @@
       "relationships": {
         "rafa_ibarra": { "type": "colleague", "note": "Friendly running argument about how much water clay needs." },
         "gloria_castellano": { "type": "friend", "note": "Dawn coffee on the Court 5 bench, every day for ten years." },
-        "frank_deluca": { "type": "acquaintance", "note": "Frank reports every divot. Personally. In writing." }
+        "frank_deluca": { "type": "acquaintance", "note": "Frank reports every divot. Personally. In writing." },
+        "gus_papadakis": { "type": "friend", "note": "Morning coffee at the hatch for thirty years. Good coffee. Hank said so once." },
+        "otis_grant": { "type": "friend", "note": "Opens the gate while Hank opens the shed. They agree about the geese." }
       },
       "greetings": [
         "Morning! Those clay courts won't groom themselves.",
@@ -613,7 +618,8 @@
         "rafa_ibarra": { "type": "colleague", "note": "Strings his rackets at 52 pounds, exactly, always." },
         "chad_blake": { "type": "acquaintance", "note": "Broken strings this season: 23. She keeps a chart." },
         "kevin_park": { "type": "friend", "note": "Talked him out of a racket 'with a built-in sensor'. He's grateful." },
-        "gloria_castellano": { "type": "friend", "note": "The only person she'll restring a wooden racket for." }
+        "gloria_castellano": { "type": "friend", "note": "The only person she'll restring a wooden racket for." },
+        "marcus_bell": { "type": "colleague", "note": "Makes a joke about restringing hamstrings. She doesn't laugh at it either." }
       },
       "greetings": [
         "Hey. Welcome to the pro shop. Don't touch the grip display.",
@@ -665,7 +671,8 @@
         "mrs_wellington": { "type": "family", "note": "His grandmother. He loves her. He avoids her before 2 PM." },
         "nate_okafor": { "type": "mentor", "note": "His idol. Nate lets him hit sometimes, which is basically everything." },
         "rafa_ibarra": { "type": "student", "note": "Coach. Theo pretends not to listen and remembers every word." },
-        "lily_santos": { "type": "acquaintance", "note": "She follows him around. He pretends to hate it." }
+        "lily_santos": { "type": "acquaintance", "note": "She follows him around. He pretends to hate it." },
+        "dani_kowalski": { "type": "acquaintance", "note": "She's whistled at him four times this summer. He's keeping count too." }
       },
       "greetings": [
         "Oh. Hey.",
@@ -716,7 +723,9 @@
       "relationships": {
         "maria_santos": { "type": "family", "note": "Her mom. Lily's official position is that Mom is 'embarrassing but okay'." },
         "tommy_chen": { "type": "friend", "note": "Taught her the tweener. Best adult at the club." },
-        "theo_wellington": { "type": "friend", "note": "Her hero. She will beat him one day. She has told him so." }
+        "theo_wellington": { "type": "friend", "note": "Her hero. She will beat him one day. She has told him so." },
+        "dani_kowalski": { "type": "mentor", "note": "Swim teacher. Dani lets her blow the whistle once per lesson, which is the best part." },
+        "gus_papadakis": { "type": "friend", "note": "Freeze-pop guy. Eleven badges, eleven freeze-pops. She's going for twelve." }
       },
       "greetings": [
         "HI! Did you know tennis balls used to be white?!",
@@ -768,7 +777,8 @@
         "chad_blake": { "type": "rival", "note": "Chad considers it a rivalry. Nate considers it a warm-up." },
         "theo_wellington": { "type": "mentor", "note": "Sees himself at fourteen. Hits with him whenever he can." },
         "vik_rao": { "type": "friend", "note": "Dr. Rao fixed his wrist last year and now they hit on Tuesdays." },
-        "leo_brandt": { "type": "acquaintance", "note": "Leo keeps challenging him. Nate keeps saying 'sure'." }
+        "leo_brandt": { "type": "acquaintance", "note": "Leo keeps challenging him. Nate keeps saying 'sure'." },
+        "marcus_bell": { "type": "friend", "note": "Times his split-step. Nate respects anyone with a stopwatch." }
       },
       "greetings": [
         "Hey. Good to see you.",
@@ -820,7 +830,8 @@
         "bob_hendricks": { "type": "spouse", "note": "Married 41 years. He tells jokes, she tells everyone he told a joke." },
         "diane_ross": { "type": "rival", "note": "The rose-versus-hydrangea war of the garden beds." },
         "maria_santos": { "type": "friend", "note": "Garden committee co-chair and her favorite listener." },
-        "harper_brandt": { "type": "friend", "note": "Her partner in mixers, gossip and punch recipes." }
+        "harper_brandt": { "type": "friend", "note": "Her partner in mixers, gossip and punch recipes." },
+        "gus_papadakis": { "type": "acquaintance", "note": "Her best source. The snack hatch hears everything first." }
       },
       "greetings": [
         "Oh, honey! Come here, you have to hear this.",
@@ -926,7 +937,9 @@
         "kevin_park": { "type": "rival", "note": "'That young man's shorts are a violation of section 7.3.'" },
         "mrs_wellington": { "type": "friend", "note": "Co-author of the new attire proposal. They meet weekly. Minutes are taken." },
         "hank_morris": { "type": "acquaintance", "note": "Sends him divot reports. Considers them a courtesy." },
-        "bob_hendricks": { "type": "friend", "note": "Morning coffee. Bob calls the bylaws 'guidelines'; Frank corrects him daily." }
+        "bob_hendricks": { "type": "friend", "note": "Morning coffee. Bob calls the bylaws 'guidelines'; Frank corrects him daily." },
+        "marcus_bell": { "type": "acquaintance", "note": "Calls him 'Sergeant'. Considers it the highest compliment available." },
+        "otis_grant": { "type": "friend", "note": "A man who respects a schedule. They review the day at seven sharp." }
       },
       "greetings": [
         "Attendant. At ease.",
@@ -976,7 +989,8 @@
       "tennis": { "level": "advanced", "style": "All-court grinder with a questionable relationship to the lines", "skill": 0.65, "hand": "right" },
       "relationships": {
         "harper_brandt": { "type": "spouse", "note": "Married six months. Still arguing about one line call from the honeymoon." },
-        "nate_okafor": { "type": "rival", "note": "Leo is 0-9 against him and considers it 'a developing situation'." }
+        "nate_okafor": { "type": "rival", "note": "Leo is 0-9 against him and considers it 'a developing situation'." },
+        "marcus_bell": { "type": "mentor", "note": "Getting him through the pilot medical. Leo hates the treadmill and loves the results." }
       },
       "greetings": [
         "Hey. Quick question: if a ball touches the line, it's in. Right? RIGHT?",
@@ -1026,7 +1040,8 @@
       "tennis": { "level": "intermediate", "style": "Crafty net player with a lob that makes Leo shout", "skill": 0.58, "hand": "left" },
       "relationships": {
         "leo_brandt": { "type": "spouse", "note": "Six months married. She calls the lines. He calls her 'counsel'." },
-        "babs_hendricks": { "type": "friend", "note": "Co-conspirator on every mixer and most of the gossip." }
+        "babs_hendricks": { "type": "friend", "note": "Co-conspirator on every mixer and most of the gossip." },
+        "dani_kowalski": { "type": "friend", "note": "Pool-party co-conspirator. Harper supplies the flamingos; Dani vetoes them." }
       },
       "greetings": [
         "Hi! Okay but you look like you need a lemonade.",
@@ -1076,7 +1091,9 @@
       "tennis": { "level": "intermediate", "style": "Textbook strokes, great anticipation, never finishes a match", "skill": 0.52, "hand": "right" },
       "relationships": {
         "nate_okafor": { "type": "friend", "note": "Patient turned hitting partner. Nate's wrist is great, thanks for asking." },
-        "bob_hendricks": { "type": "acquaintance", "note": "Did Bob's knee replacement. Bob tells everyone. With the scar." }
+        "bob_hendricks": { "type": "acquaintance", "note": "Did Bob's knee replacement. Bob tells everyone. With the scar." },
+        "marcus_bell": { "type": "acquaintance", "note": "Sends patients to Marcus for rehab. Marcus sends them back sore but stronger." },
+        "otis_grant": { "type": "acquaintance", "note": "Otis saves him the spot by the gate. Surgeons appreciate an exit strategy." }
       },
       "greetings": [
         "Hi! I have about eleven minutes. Let's make them count.",
@@ -1112,6 +1129,294 @@
         "sunny": ["Sunny! Hydrate. I'm serious. Heat exhaustion is not a vibe.", "Beautiful day. Sunscreen, everyone. SPF 30 minimum."]
       },
       "matchLines": { "win": ["Finished one!", "Textbook!"], "lose": ["Good match!", "Saved by the pager!"] }
+    },
+    {
+      "id": "dani_kowalski",
+      "name": "Dani Kowalski",
+      "archetype": "staff",
+      "shirtColor": "#D63A2F",
+      "preferredAreas": ["pool"],
+      "preferredTime": "afternoon",
+      "bio": "Head lifeguard and pool attendant. Former college distance swimmer who treats the pool deck like a small, sunny country with her as its border patrol.",
+      "quirks": ["Blows the whistle for emphasis, even mid-sentence", "Wears white zinc on her nose from May to September", "Counts everyone's laps, out loud, under her breath"],
+      "voice": "Bright, clipped, upbeat. Pool rules delivered like cheers. Lots of 'walking feet!' and counting.",
+      "tennis": { "level": "beginner", "style": "Swims better than she volleys; returns everything with a smile", "skill": 0.3, "hand": "right" },
+      "post": {
+        "spot": "post_lifeguard", "face": 140, "seat": "lifeguardChair", "stay": [40, 75],
+        "roam": [{ "spot": "post_deck_east", "face": -90 }, { "spot": "post_deck_west", "face": 90 }, { "spot": "pool1", "face": 180 }],
+        "roamChance": 0.35, "roamStay": [6, 12],
+        "breaks": [{ "spot": "post_hatch_line", "face": 180 }], "breakChance": 0.08, "breakStay": [20, 35]
+      },
+      "relationships": {
+        "lily_santos": { "type": "student", "note": "Teaches Lily's Saturday swim lessons. Best walking feet on the deck." },
+        "theo_wellington": { "type": "acquaintance", "note": "Three cannonball warnings this summer. He thinks nobody saw. She saw." },
+        "harper_brandt": { "type": "friend", "note": "Harper books the pool for every party. Dani books a second lifeguard." },
+        "gus_papadakis": { "type": "colleague", "note": "Trades five minutes of whistle duty for a grilled cheese. Fair deal." },
+        "otis_grant": { "type": "colleague", "note": "He passes the pool fence every patrol. She counts him as backup." }
+      },
+      "greetings": [
+        "Hi! Welcome to the deck! Walking feet, please. Thank you!",
+        "Hey! Sunscreen check: have you reapplied? Be honest.",
+        "Morning! Water's 26 degrees. I checked. Twice.",
+        "Hi hi! You're not here to cannonball, are you? Good.",
+        "Hey! Pool's open, chair's occupied, whistle's ready."
+      ],
+      "requests": [
+        "The towel caddy's empty again. Could you grab a stack from the locker rooms?",
+        "If you see Theo heading this way with a running start, whistle for me.",
+        "Can you tell Gus I'll take my break in ten? He'll know what that means. Grilled cheese."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Yes! That's a gold star. Real one, from my whistle drawer.", "Perfect! You're a natural. Ever thought about lifeguarding?", "Thank you! Deck's happy, I'm happy."],
+        "unsatisfied": ["Okay. Not ideal. Deep breaths. Pool breaths.", "Hmm. That's a yellow flag. Not red. Yellow.", "We'll call that a practice lap."],
+        "neutral": ["Okay! Noted. Walking feet.", "Sure thing. Carry on!"],
+        "idle": [
+          "Lily did a full length of backstroke yesterday. I may have cried behind my sunglasses.",
+          "Theo has cannonballed three times this summer. He thinks it's a secret. It is not a secret.",
+          "Harper's planning a flamingo pool party. I've already scheduled two extra guards and zero flamingos.",
+          "Gus makes the best grilled cheese in the county. I'd blow my whistle for it. I have.",
+          "Otis walks past the fence every hour on the dot. I set my water breaks by him.",
+          "Babs asked if the pool could be 'a bit less wet'. I said I'd look into it.",
+          "Rule one: walk. Rule two: no glass on the deck. Rule three: I see everything."
+        ],
+        "morning": ["Morning laps are the best laps. Nobody splashes before nine.", "I tested the water at seven. Chlorine's perfect. You're welcome."],
+        "afternoon": ["Afternoon crowd! Juniors in the shallow end, grown-ups pretending to read.", "Peak sun. Peak sunscreen. Reapply!"],
+        "evening": ["Golden hour on the water. Best view at the club, honestly.", "Last swims of the day. I'll start the 'five more minutes' countdown soon."],
+        "rainy": ["Rain means pool's closed. Thunder rule. I don't make the rules. Okay, I enforce them.", "Everyone out! It's just rain, but rules are rules."],
+        "windy": ["Wind keeps blowing the towels into the pool. I'm fishing out laundry.", "Umbrellas are down. They're sails today, not umbrellas."],
+        "cloudy": ["Cloudy! Still burn weather. UV doesn't care about clouds.", "Gray sky, blue water. Nice contrast."],
+        "sunny": ["Sunny! Hydrate, reapply, repeat.", "Perfect pool day. My chair's basically a throne today."],
+        "tips": [
+          "Pro tip: the locker rooms keep the fresh towel stacks. The pool house keeps the dry ones. Don't mix them up in front of Frank.",
+          "If you need water fast, Gus's snack bar is right behind me. Faster than the café.",
+          "The pool gate's on the east side, off the perimeter path. Carts park on the path, not the deck. Please.",
+          "Lost sunglasses end up in the pool house lost-and-found. Lost kids end up with me. Both get returned."
+        ],
+        "hints": [
+          "Looking for {name}? From my chair I spotted them {place}. I see everything.",
+          "Whistle report: {name} was {place} last I looked.",
+          "If you need {name}, they're {place}. I keep a mental map. Lifeguard brain."
+        ]
+      },
+      "matchLines": { "win": ["Whistle! Game!", "Walking feet win!"], "lose": ["Good rally!", "Back to the pool!"] }
+    },
+    {
+      "id": "gus_papadakis",
+      "name": "Gus Papadakis",
+      "archetype": "staff",
+      "shirtColor": "#2F6DB3",
+      "preferredAreas": ["poolHouse", "pool"],
+      "preferredTime": "midday",
+      "bio": "Runs the pool house snack bar out of a hatch the size of a window. Thirty-one summers of grilled cheese, lemonade and everybody's business.",
+      "quirks": ["Remembers every member's order, and every member's secrets", "Hums Greek folk songs over the fryer", "Calls everyone 'boss', including the ducks"],
+      "voice": "Warm, rumbly, conspiratorial. Food metaphors, 'boss', and gossip delivered like a daily special.",
+      "tennis": { "level": "none", "style": "Played once in 1994. Retired undefeated (one set, rain)", "skill": 0.2, "hand": "right" },
+      "post": {
+        "spot": "post_snack", "face": 0, "stay": [45, 80],
+        "roam": [{ "spot": "post_snack_shelf", "face": 90 }, { "spot": "post_snack_fridge", "face": 150 }],
+        "roamChance": 0.35, "roamStay": [5, 10],
+        "breaks": [{ "spot": "post_deck_north", "face": 0 }], "breakChance": 0.07, "breakStay": [20, 35]
+      },
+      "relationships": {
+        "bob_hendricks": { "type": "friend", "note": "Two hot dogs for Bob. One hot dog, if Babs asks." },
+        "babs_hendricks": { "type": "acquaintance", "note": "Gossip exchange at the hatch: she brings news, he brings fries." },
+        "hank_morris": { "type": "friend", "note": "Thirty years of 6 AM coffee together. About forty words exchanged. All good ones." },
+        "dani_kowalski": { "type": "colleague", "note": "Covers her whistle breaks. Payment: she eats his grilled cheese and says 'wow'." },
+        "lily_santos": { "type": "friend", "note": "A free freeze-pop for every swim badge. She has eleven badges." },
+        "marcus_bell": { "type": "rival", "note": "Marcus tells members to skip the fries. Gus makes the fries better. It's a war." }
+      },
+      "greetings": [
+        "Hey, boss! Hungry? You look hungry.",
+        "Boss! Just in time. Lemonade's fresh. Gossip's fresher.",
+        "Welcome to the finest hatch in the county. Also the only hatch.",
+        "Ah, my favorite attendant. Don't tell the others.",
+        "Hey, boss. Grill's hot, I'm hot, everybody's hot. Water?"
+      ],
+      "requests": [
+        "Babs ordered lemonade for her bridge club on the patio. Can you run it over? My legs are married to this hatch.",
+        "If Marcus asks, the fries are baked. They are not baked.",
+        "Tell Bob his hot dog is ready. Quietly."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Boss! That's a five-star job. Six, with fries.", "You're the real deal, boss. Freeze-pop's on me.", "Beautiful. Like a grilled cheese, golden on both sides."],
+        "unsatisfied": ["Eh. Burnt toast, boss. It happens.", "Not your best batch. We start fresh tomorrow.", "Okay, okay. I've seen worse. I've cooked worse."],
+        "neutral": ["Fine, boss. Fine like vanilla.", "Okay. Order up."],
+        "idle": [
+          "Bob gets two hot dogs every Tuesday. If Babs asks, it's one hot dog and a salad. Understand, boss?",
+          "Marcus came by and asked for a 'kale option'. I gave him a pickle. It's green.",
+          "Lily has eleven swim badges. Eleven freeze-pops. I'm going broke and I love it.",
+          "Hank and me, thirty years of morning coffee. He said 'good coffee' in 2011. I still think about it.",
+          "Babs brings the news, I bring the fries. Best newspaper at the club.",
+          "Chad tried to pay with a signed ball. I took it. It's holding up the menu board.",
+          "Dani blows that whistle at the ducks. The ducks don't listen. Nobody tells ducks nothing."
+        ],
+        "morning": ["Morning, boss. Coffee's on. Grill's warming up. Me too.", "Breakfast wraps till eleven. After that, you gotta know a guy. I'm the guy."],
+        "afternoon": ["Lunch rush! Six grilled cheese, four lemonades, one Frank asking for 'plain toast, dry'.", "Afternoon, boss. Busiest hour. Also my favorite."],
+        "evening": ["Closing soon. Last call for fries. Don't tell Marcus.", "Evening, boss. I'm scraping the grill. Very emotional time."],
+        "rainy": ["Rain! Everybody wants soup. I don't make soup. I'm making soup.", "Pool's closed, hatch is open. Hot chocolate, boss?"],
+        "windy": ["Wind keeps stealing my napkins. Club's got napkins in the trees now.", "Hold onto your hat, boss. And your fries."],
+        "cloudy": ["Cloudy. Good grilled cheese weather. All weather is grilled cheese weather.", "Gray day. Lemonade sales down, coffee up."],
+        "sunny": ["Sunny! Lemonade's flying out the hatch.", "Hot one, boss. Take a water. On the house. Don't tell anybody."],
+        "tips": [
+          "Tip from Gus: the pool house is the quickest place for water or towels on this side of the club. Everything else is a long walk.",
+          "Want to know what's going on at this club? Stand at my hatch for ten minutes. Everybody talks to the snack guy.",
+          "The café in the clubhouse does fancy coffee. I do real coffee. Both work, boss.",
+          "If a member's grumpy, bring them something cold. Nine times out of ten, that's the whole problem."
+        ],
+        "hints": [
+          "{name}? Came by for a lemonade not long ago. Now they're {place}, I heard.",
+          "Word at the hatch says {name} is {place}. The hatch is never wrong, boss.",
+          "You want {name}? They're {place}. Tell 'em Gus says hi."
+        ]
+      },
+      "matchLines": { "win": ["Order up!", "Golden!"], "lose": ["Eh, burnt.", "Next batch!"] }
+    },
+    {
+      "id": "marcus_bell",
+      "name": "Marcus Bell",
+      "archetype": "staff",
+      "shirtColor": "#1FA58A",
+      "preferredAreas": ["fitnessCenter"],
+      "preferredTime": "morning",
+      "bio": "Head trainer at the Fitness & Wellness centre. Ex-college sprinter with a clipboard, a stopwatch and boundless belief in everybody's hamstrings.",
+      "quirks": ["Counts reps in regular conversation", "Calls everyone 'champ'", "Carries a smoothie at all times; nobody has seen him buy one"],
+      "voice": "Hype-man energy, encouraging, reps and sets, 'champ', 'let's go'. Never negative, only 'not yet'.",
+      "tennis": { "level": "intermediate", "style": "Pure legs: gets to everything, hits it back with enthusiasm", "skill": 0.5, "hand": "right" },
+      "post": {
+        "spot": "post_gym", "face": -90, "stay": [40, 70],
+        "roam": [{ "spot": "post_gym_tread", "face": 180 }, { "spot": "post_juice", "face": 90 }],
+        "roamChance": 0.4, "roamStay": [6, 14],
+        "breaks": [{ "spot": "post_studio", "face": 180 }, { "spot": "post_fitness_out", "face": 180 }], "breakChance": 0.08, "breakStay": [20, 35]
+      },
+      "relationships": {
+        "nate_okafor": { "type": "friend", "note": "Spots Nate's squats and times his split-step. Nate logs both." },
+        "frank_deluca": { "type": "student", "note": "Fifty push-ups at seventy-eight. Calls Marcus 'Sergeant'. Marcus has asked him not to." },
+        "leo_brandt": { "type": "student", "note": "Pilot medical in six weeks. Leo does his cardio angry, which counts." },
+        "vik_rao": { "type": "acquaintance", "note": "Vik prescribes rest. Marcus prescribes burpees. They agree on water." },
+        "gus_papadakis": { "type": "rival", "note": "Friendly war: kale smoothies versus Gus's fries. The fries are winning." },
+        "jess_nakamura": { "type": "colleague", "note": "She restrings rackets, he restrings hamstrings. Her joke. She didn't laugh either." }
+      },
+      "greetings": [
+        "Champ! Let's go! How are the legs today?",
+        "Hey hey! You walked in here. That's one rep. Proud of you.",
+        "Morning, champ! Hydrated? Stretched? Believing in yourself?",
+        "There they are! Rest day or leg day? Trick question. Leg day.",
+        "Champ! Perfect timing. I need somebody to high-five."
+      ],
+      "requests": [
+        "I want to run a footwork boot camp. Could you borrow a ball hopper from the courts for me?",
+        "The cooler's running dry again. The spin crowd gets thirsty. Like, dramatic thirsty.",
+        "If you see Frank doing push-ups on the patio again, tell him: form first, champ."
+      ],
+      "dialoguePool": {
+        "satisfied": ["That's a personal best, champ! Let's go!", "Crushed it! Up top!", "Textbook form. I'm putting that on the whiteboard."],
+        "unsatisfied": ["Not yet, champ. Not yet is not never.", "Okay, reset. Shake it out. We go again.", "That's a warm-up set. The real set's coming."],
+        "neutral": ["Solid rep. Keep moving.", "Good. Consistent. That's the secret."],
+        "idle": [
+          "Frank did fifty push-ups this morning. He's seventy-eight. He called me 'Sergeant' after every ten.",
+          "Nate's split-step is 0.21 seconds. I timed it. He timed me timing it.",
+          "Leo's got a pilot medical in six weeks. He runs the treadmill like it owes him money.",
+          "Gus says fries are 'a potato-based recovery food'. I'm not saying he's right. I'm not saying he's wrong.",
+          "Vik keeps telling people to rest. I keep telling people to hydrate. Together we're one great doctor.",
+          "Somebody left a smoothie in the studio. It's been there since Monday. It's evolving.",
+          "Stretch before tennis, stretch after tennis, stretch while reading this sentence. Champ."
+        ],
+        "morning": ["Six AM class had eleven people. Eleven! Personal record.", "Morning is for movement, champ. Coffee is for after."],
+        "afternoon": ["Afternoon slump? Ten squats. Right now. Kidding. Unless?", "Midday crowd's the lunchtime spin class. Very intense. Very sweaty."],
+        "evening": ["Evening yoga at six. Bring a mat and your feelings.", "Cool-down hours, champ. Stretch it out."],
+        "rainy": ["Rain means everybody's in here. Full house. I love it.", "Rain day equals gym day. Nature's telling you to do lunges."],
+        "windy": ["Windy! Great resistance training for the walk over.", "Wind sprints, but make it literal."],
+        "cloudy": ["Cloudy. Perfect outdoor run weather. Nobody overheats.", "Gray sky, green light. Let's move."],
+        "sunny": ["Sunny! Hydrate, champ. Water first, then glory.", "Beautiful out. Take the stairs. There are no stairs. Find some."],
+        "tips": [
+          "Trainer tip: the fitness centre's by the north perimeter path, past the hard courts. The juice bar has the water cooler.",
+          "Members come back from matches thirsty. If you carry water toward the courts after a match, tips go up. Science.",
+          "Carrying heavy stuff? Take the cart. Lift with your legs, drive with your hands.",
+          "Frank's here at seven sharp, Nate at eight, Leo whenever he's angry. You can set a clock by 'em."
+        ],
+        "hints": [
+          "Scouting report, champ: {name} is {place}. Go get 'em.",
+          "{name}? Saw them heading off. Should be {place}. Jog there. Good cardio.",
+          "{name} is {place}, champ. Go get 'em. That's your next rep."
+        ]
+      },
+      "matchLines": { "win": ["Let's go, champ!", "Personal best!"], "lose": ["Not yet!", "Good legs, champ!"] }
+    },
+    {
+      "id": "otis_grant",
+      "name": "Otis Grant",
+      "archetype": "staff",
+      "shirtColor": "#1F2A44",
+      "preferredAreas": ["entrance", "parking"],
+      "preferredTime": "morning",
+      "bio": "Club security. Twenty-six years on the city force, then retired to a job with better lawns. Walks the perimeter every hour and knows every car, dog and gate latch on the property.",
+      "quirks": ["Knows every member by their license plate", "Does the crossword on his breaks, in pen", "Counts his steps: 22,000 is a slow day"],
+      "voice": "Calm, dry, unhurried. Speaks in short reports. Kind underneath, and occasionally very funny by accident.",
+      "tennis": { "level": "beginner", "style": "Stands at the baseline like it's a post and returns everything, eventually", "skill": 0.35, "hand": "right" },
+      "post": {
+        "spot": "post_gate", "face": -50, "stay": [60, 100],
+        "roam": [{ "spot": "patrol_lot", "face": 0 }],
+        "roamChance": 0.15, "roamStay": [6, 12],
+        "breaks": [{ "spot": "cafe1", "face": 0 }], "breakChance": 0.06, "breakStay": [25, 40]
+      },
+      "patrol": {
+        "route": ["patrol_lot", "patrol_n1", "patrol_n2", "patrol_ne", "patrol_e", "patrol_se", "patrol_s", "patrol_sw",
+          { "spot": "patrol_w", "face": -90, "hold": [5, 9] }, "patrol_nw", "patrol_lot"],
+        "chance": 0.25, "pause": [1, 3], "speed": 2.1
+      },
+      "relationships": {
+        "frank_deluca": { "type": "friend", "note": "Compare notes at the gate at seven sharp. Frank salutes. Otis nods." },
+        "hank_morris": { "type": "friend", "note": "Hank opens the shed, Otis opens the gate. Same thermos brand. Same opinions on geese." },
+        "chad_blake": { "type": "acquaintance", "note": "Clocked Chad's car at 31 in a 10. Twice. Chad thinks they're buddies." },
+        "kevin_park": { "type": "acquaintance", "note": "Unlocked Kevin's car three times. Kevin now wears his keys on a lanyard." },
+        "vik_rao": { "type": "acquaintance", "note": "Keeps a spot open by the gate for when Dr. Rao's pager goes off." },
+        "dani_kowalski": { "type": "colleague", "note": "Waves at the lifeguard chair every patrol. She whistles back. Twice means trouble." }
+      },
+      "greetings": [
+        "Morning. Gate's open, lot's quiet. Good start.",
+        "Afternoon. Nothing to report. That's the best kind of report.",
+        "Hey there. You're on my list. The good list.",
+        "Evening. Seventeen thousand steps so far. Slow day.",
+        "Hello. Everything's secure. Except the crossword. Seven down is killing me."
+      ],
+      "requests": [
+        "Found a racket by the perimeter fence. Dropped it at the locker room lost-and-found. Could you get it to the pro shop?",
+        "Somebody's parked across two spaces and the fire lane. I have a guess who.",
+        "If the pool gate's open after close, radio me. The raccoons are organized."
+      ],
+      "dialoguePool": {
+        "satisfied": ["Good work. I'll put it in the log. The good column.", "Clean. Efficient. You'd have made a fine officer.", "That's a closed case. Thank you."],
+        "unsatisfied": ["Hm. I'll note that. In pencil.", "Not ideal. We learn, we move on.", "That'll need a follow-up. Not today."],
+        "neutral": ["Copy that.", "Noted. Carry on."],
+        "idle": [
+          "Chad's car: silver, loud, fast. Clocked it at 31 in a 10. He waved at me. Twice.",
+          "I've unlocked Kevin's car three times. He wears his keys on a lanyard now. Growth.",
+          "Frank and I compare notes at seven sharp. Mostly about geese. The geese are a problem.",
+          "The raccoons tried the pool house bins again. They're getting smarter. So am I.",
+          "Dr. Rao gets the spot by the gate. When the pager goes, he's gone in ninety seconds. I've timed it.",
+          "Twenty-six years on the force. Now my biggest case is a missing visor. I like it better.",
+          "Seven down: 'Club where nothing happens, eleven letters'. I'm going with 'Greenbriar'. Doesn't fit. Still true."
+        ],
+        "morning": ["Opened the gate at six fifty-nine. Personal best.", "Morning round done. Lot's quiet. Geese are not."],
+        "afternoon": ["Afternoon. Lot's full. Somebody always parks crooked.", "Lunchtime is when people forget their headlights. I keep a list."],
+        "evening": ["Evening round. Checking every latch. Twice.", "Lights coming on. I like the club at dusk. Quiet."],
+        "rainy": ["Rain. Everybody runs to their cars at once. Chaos. Organized chaos.", "Wet patrol. Good boots. No complaints."],
+        "windy": ["Windy. The gate sign's swinging. I've got it.", "Wind's knocking visors off heads. Lost-and-found's going to be full."],
+        "cloudy": ["Overcast. Easy on the eyes. Good patrol weather.", "Clouds. No glare on the windshields. Plates read easy."],
+        "sunny": ["Sunny. Hot asphalt. Keep water in the cart.", "Bright one. Sunglasses on, eyes open."],
+        "tips": [
+          "Security tip: the perimeter path goes all the way around the club. With the cart, it's the fastest way from the gate to the clay courts.",
+          "Lost-and-found lives in the locker rooms. Rackets go to the pro shop after. Jess logs everything.",
+          "The pool gate is on the east side of the deck, right off the west perimeter path. Don't climb the fence. I will know.",
+          "If a member's missing, check the café first. Then the patio. Then the café again."
+        ],
+        "hints": [
+          "Last patrol, I had {name} {place}. That's in the log.",
+          "{name}? Report says {place}. Give or take a few minutes.",
+          "You're looking for {name}. They're {place}. I don't guess, I observe."
+        ]
+      },
+      "matchLines": { "win": ["Case closed.", "Secured."], "lose": ["Noted.", "Good hands."] }
     }
   ]
 }
