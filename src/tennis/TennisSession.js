@@ -52,6 +52,11 @@ const TOSS_DROP = 0.55;         // the toss peaks this far above the racket at f
 const OH_MIN_H = 1.95;          // contact height (above the court) where the overhead takes over
 const MAX_UNWIND = 1.8;         // fastest clip speed when a tap (short hold) unwinds to contact
 const INF = Infinity;
+// The session's day: it starts in late-afternoon light and the clock runs only while you play,
+// through golden hour and sunset until the floodlights take over. Hours of game time per second
+// of play, per match format (a longer match gets a slower sunset); drills use the short rate.
+const DAY_START = 16.75, DAY_END = 21;
+const DUSK_RATE = { short: 2.9 / 330, set: 2.9 / 660, bo3: 2.9 / 1300 };
 const DRILL_REPS = 10;
 const RALLY_TRIES = 3;          // rally challenge: attempts (stars from the best rally)
 const RALLY_STARS = [6, 14, 25];
@@ -226,7 +231,7 @@ export class TennisSession {
     ds.currentNPC = npc;
     npc.startTalking();
     ds.active = true;
-    ds.dialogueBox.show(npc.name, 'The courts are quiet and the lights are on. Stay for a hit after your shift? I will go easy. Maybe.', npc.dialogueColor || '#7db5ee');
+    ds.dialogueBox.show(npc.name, 'The courts are quiet now. Stay for a hit after your shift? We play into the sunset, then under the lights. I will go easy. Maybe.', npc.dialogueColor || '#7db5ee');
     ds.showChoices([
       { label: "Let's hit! 🎾", description: 'Clock out and meet Rafa on Court 1' },
       { label: 'Not tonight', description: 'Maybe another evening' },
@@ -258,13 +263,14 @@ export class TennisSession {
     if (g.player.isInCart) { g.player.exitCart(); g.sound.stopCartEngine && g.sound.stopCartEngine(); g.wasInCart = false; }
     if (g.hud && g.hud.isRadioCardVisible && g.hud.isRadioCardVisible()) g.hud.hideRadioDispatch();
 
-    // Evening: 7:30 PM, lights on, dry, weather held
+    // Late afternoon, clear sky, weather held; the session's own clock takes it to sunset and
+    // the floodlights (WeatherSystem.stadium) as you play
     const w = g.weather;
     this._saved = { frozen: w.clockFrozen, weatherTimer: w.weatherTimer, matches: g.matches ? g.matches.enabled : true, time: w.timeOfDay };
-    w.timeOfDay = Math.max(19.5, Math.min(21, w.timeOfDay));
+    w.timeOfDay = DAY_START;
     w.clockFrozen = true;
-    const wx = w.getWeather();
-    if (wx === 'rainy' || wx === 'stormy') w.setWeather('sunny', true);
+    w.stadium = 1;
+    if (w.getWeather() !== 'sunny') w.setWeather('sunny', true);
     // Court 1 to ourselves
     if (g.matches) {
       g.matches.enabled = false;
@@ -298,7 +304,7 @@ export class TennisSession {
     this.openMenu(false);
     this.audio.start();
     this._crowd('begin', this);
-    npc.say(pick(['Vamos! The court is ours.', 'Evening light. The most honest light.', 'Hola! Warm up the feet first.']), 2.6);
+    npc.say(pick(['Vamos! The court is ours.', 'Play till the lights come on.', 'Hola! Warm up the feet first.']), 2.6);
     this._resetCtl();
     return true;
   }
@@ -336,6 +342,7 @@ export class TennisSession {
     p.mesh.position.set(x, 0, z);
     if (g.matches) g.matches.enabled = this._saved ? this._saved.matches : true;
     const w = g.weather;
+    w.stadium = 0;
     if (this._saved) { w.weatherTimer = this._saved.weatherTimer; }
     g.cameraYaw = g.cameraTargetYaw = Math.atan2(this.frame.cx - x, this.frame.cz - z);
     if (g._snapCamera) g._snapCamera();
@@ -496,7 +503,8 @@ export class TennisSession {
 
     // World, weather (lights / shadows centred on the court), camera, HUD bits
     g.world.update(dt, pp);
-    g.weather.weatherTimer = Math.max(g.weather.weatherTimer, 30); // hold the evening
+    g.weather.weatherTimer = Math.max(g.weather.weatherTimer, 30); // hold the weather
+    this._advanceDay(dt);
     _v1.set(this.frame.cx, 0, this.frame.cz);
     g.weather.setShadowFocus(_v1);
     g.weather.update(dt);
@@ -507,6 +515,26 @@ export class TennisSession {
     this.fx.update(dt);
     if (g.hud) g.hud.update(dt);
     this.audio.update(dt);
+  }
+
+  /**
+   * The club's clock while the session runs its own sunset (saves use it): the session always
+   * ends at clock-out or later, or back where it started for a debug session.
+   */
+  clubTimeOfDay() {
+    if (!this.active || !this._saved) return NaN;
+    if (this.from === 'debug') return this._saved.time;
+    const sh = this.game.shift;
+    return Math.max(this._saved.time, (sh && sh.endHour) || GAME.shiftEndHour || 19);
+  }
+
+  /** The sun goes down while you play (not in the menu / results): day → sunset → floodlights. */
+  _advanceDay(dt) {
+    const ph = this.phase;
+    if (ph === 'menu' || ph === 'results' || !this.mode) return;
+    const w = this.game.weather;
+    const rate = this.mode === 'match' ? (DUSK_RATE[this.format] || DUSK_RATE.short) : DUSK_RATE.short;
+    if (w.timeOfDay < DAY_END) w.timeOfDay = Math.min(DAY_END, w.timeOfDay + dt * rate);
   }
 
   _readControls(dt) {

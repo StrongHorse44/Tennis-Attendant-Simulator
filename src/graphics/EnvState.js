@@ -20,6 +20,8 @@ export const EnvState = {
   nightFactor: 0,
   /** 0..1 — how much lamps / windows should glow (on a bit earlier than full night, and in heavy rain). */
   lampFactor: 0,
+  /** 0..1 — stadium floodlights lighting the scene (after-hours tennis at dusk / night; 0 otherwise). */
+  floodFactor: 0,
   /** 0..1 — golden-hour strength (sunrise / sunset warmth). */
   goldenFactor: 0,
   /** 0..1 — surfaces wetness (ramps up while raining, dries slowly). */

@@ -52,7 +52,8 @@ const _shared = {
 
 function updateShared() {
   const f = EnvState.lampFactor || 0;
-  _shared.flood.value = f;
+  // The fake floodlight pool on the surface steps back when real stadium light is on the scene
+  _shared.flood.value = f * (1 - 0.7 * (EnvState.floodFactor || 0));
   if (_shared.haloMat) _shared.haloMat.opacity = f * 0.6;
   const vis = f > 0.02;
   for (let i = 0; i < _shared.halos.length; i++) _shared.halos[i].visible = vis;

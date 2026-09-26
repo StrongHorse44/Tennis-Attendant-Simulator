@@ -1,4 +1,5 @@
 import { CameraTracker } from '../entities/CharacterModel.js';
+import { EnvState } from '../graphics/EnvState.js';
 
 /**
  * TennisAudio — sound for the after-hours mode, all through the shared SoundSystem (master
@@ -13,7 +14,7 @@ export class TennisAudio {
     this._next = 0.8;
   }
 
-  start() { this.on = true; this._next = 0.6; if (this.sound) this.sound.ambientHold = true; }
+  start() { this.on = true; this._next = 0.6; }
   stop() { this.on = false; if (this.sound) this.sound.ambientHold = false; }
 
   _vol(pos) {
@@ -94,6 +95,10 @@ export class TennisAudio {
   /** Evening crickets: schedule a chirp now and then (no continuous nodes). */
   update(dt) {
     if (!this.on) return;
+    // The session starts in daylight: birds until dusk, crickets once the lights come on
+    const dusk = EnvState.lampFactor > 0.45;
+    if (this.sound) this.sound.ambientHold = dusk;
+    if (!dusk) return;
     this._next -= dt;
     if (this._next > 0) return;
     this._next = 0.7 + Math.random() * 1.6;

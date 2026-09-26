@@ -174,7 +174,8 @@ export class PostFX {
   updateFromEnv(env) {
     if (!this.gradePass) return;
     const u = this.gradePass.uniforms;
-    const n = env.nightFactor, gd = env.goldenFactor, o = env.overcast;
+    // Under stadium floodlights the court reads like day: most of the night grade is lifted
+    const n = env.nightFactor * (1 - 0.75 * (env.floodFactor || 0)), gd = env.goldenFactor, o = env.overcast;
     const g = this.grade;
     u.uSaturation.value = g.saturation * (1 - 0.45 * n - 0.12 * o) + 0.05 * gd;
     u.uContrast.value = g.contrast * (1 - 0.04 * o);

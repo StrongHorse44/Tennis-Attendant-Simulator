@@ -395,6 +395,13 @@ function yawFromCannonQuat(q) {
   return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
 }
 
+function clubTime(game, t) {
+  const tn = game.tennis;
+  if (!tn || !tn.active || typeof tn.clubTimeOfDay !== 'function') return t;
+  const c = tn.clubTimeOfDay();
+  return Number.isFinite(c) ? c : t;
+}
+
 /** Build a plain JSON snapshot of the game's persistent state. */
 export function captureSaveData(game) {
   const { weather, player, cart, missionSystem, inventory, courtMaintenance } = game;
@@ -408,7 +415,8 @@ export function captureSaveData(game) {
   return {
     version: SAVE_VERSION,
     savedAt: 0,
-    time: { timeOfDay: w.timeOfDay, day: w.day || 1, weatherTimer: w.weatherTimer },
+    // After-hours tennis runs its own afternoon-to-night clock: save the club's time instead
+    time: { timeOfDay: clubTime(game, w.timeOfDay), day: w.day || 1, weatherTimer: w.weatherTimer },
     weather: w.weather,
     player: {
       x: pb.x, y: pb.y, z: pb.z,

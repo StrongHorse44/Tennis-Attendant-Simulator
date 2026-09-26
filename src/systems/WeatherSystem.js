@@ -40,6 +40,14 @@ const SUNRISE = 6.0;
 const SUNSET = 19.3;
 const MOON_DIR = new THREE.Vector3(-0.45, 0.78, 0.4).normalize();
 const MOON_COLOR = new THREE.Color(0xaabbee);
+// Stadium floodlights (after-hours tennis, `stadium` > 0): as the lamps come on, a bright
+// near-white key from high over the court and a lifted neutral fill take over from the moon,
+// so players and the ball stay clearly lit under a dark night sky.
+const FLOOD_DIR = new THREE.Vector3(0.16, 1, 0.08).normalize(); // nearly overhead: short shadows, no fence stripes
+const FLOOD_COLOR = new THREE.Color(0xfff3e2);
+const FLOOD_SKY = new THREE.Color(0xc9d0dc);
+const FLOOD_GND = new THREE.Color(0x4e5a3e);
+const FLOOD_KEY = 2.4, FLOOD_HEMI = 1.3, FLOOD_AMB = 0.28;
 const OVERCAST_TOP = new THREE.Color(0x8d99a8);
 const OVERCAST_HOR = new THREE.Color(0xc4cad0);
 const RAIN_TOP = new THREE.Color(0x646e7a);
@@ -82,6 +90,8 @@ export class WeatherSystem {
     this.day = 1; // in-game day counter (increments at midnight, or via startNewDay())
     /** Shift hook: while true the clock stands still (before clock-in, during the report card). */
     this.clockFrozen = false;
+    /** 0..1: stadium floodlights (after-hours tennis) — they switch on with the lamps at sunset. */
+    this.stadium = 0;
     this.weather = 'sunny'; // sunny, cloudy, rainy, windy
     this.weatherTimer = GAME.weatherCheckInterval;
 
@@ -482,6 +492,24 @@ export class WeatherSystem {
     this.hemisphereLight.groundColor.copy(L.gnd);
     this.hemisphereLight.intensity = L.hemiI * (1 - 0.2 * r) * (1 + 0.4 * o) * (envOn ? 0.35 : 1.0);
     if (envOn) this.scene.environmentIntensity = (0.45 + 0.1 * day + 0.8 * golden) * (1 - 0.25 * r) * (1 + 0.6 * o);
+    this.ambientLight.intensity = 0.08;
+
+    // Stadium floodlights: blend in as the lamps come on (never dims what the sun already gives)
+    const flood = this.stadium > 0 ? this.stadium * smoothstep(0.05, 0.9, lamp) : 0;
+    if (flood > 0.001) {
+      const fk = FLOOD_KEY * flood;
+      const w = fk / (fk + light.intensity + 1e-4);          // how much of the key is floodlight
+      this._keyDir.lerp(FLOOD_DIR, w).normalize();
+      light.color.lerp(FLOOD_COLOR, w);
+      light.intensity = Math.max(light.intensity, fk);
+      light.shadow.intensity = Math.max(light.shadow.intensity, 0.75 * flood);
+      const hemi = this.hemisphereLight;
+      hemi.color.lerp(FLOOD_SKY, flood);
+      hemi.groundColor.lerp(FLOOD_GND, flood);
+      hemi.intensity = Math.max(hemi.intensity, FLOOD_HEMI * flood * (envOn ? 0.55 : 1));
+      if (envOn) this.scene.environmentIntensity = Math.max(this.scene.environmentIntensity, 0.9 * flood);
+      this.ambientLight.intensity = 0.08 + FLOOD_AMB * flood;
+    }
 
     // Sky colours
     const top = this._c1.copy(L.top);
@@ -530,7 +558,7 @@ export class WeatherSystem {
     }
 
     // Exposure: gentle lift at night for readability
-    if (this.renderer) this.renderer.toneMappingExposure = 1.0 + 0.1 * night - 0.08 * r;
+    if (this.renderer) this.renderer.toneMappingExposure = 1.0 + 0.1 * night * (1 - flood) + 0.04 * flood - 0.08 * r;
 
     // Shadow frustum follows focus with texel snapping
     this._updateShadowCamera();
@@ -542,6 +570,7 @@ export class WeatherSystem {
     E.weather = this.weather;
     E.nightFactor = night;
     E.lampFactor = lamp;
+    E.floodFactor = flood;
     E.goldenFactor = golden;
     E.wetness = this._wetness;
     E.overcast = o;

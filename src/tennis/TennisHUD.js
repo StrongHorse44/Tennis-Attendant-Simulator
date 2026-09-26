@@ -507,7 +507,7 @@ export class TennisHUD {
     m.setAttribute('aria-label', 'After-hours tennis');
     const card = el('div', 'cc-panel cct-card', m);
     card.innerHTML = `
-      <div><div class="cc-label" style="color:var(--cc-gold)">Court 1 · under the lights</div>
+      <div><div class="cc-label" style="color:var(--cc-gold)">Court 1 · into the sunset, then under the lights</div>
       <h2 class="cc-title">Evening hit with Coach Rafa</h2>
       <div class="cct-sub">No clock, no members. Just you, Rafa and a basket of balls.</div></div>
       <div class="cct-sec"><div class="cc-label">Your game</div><div class="cct-stats" data-m="stats"></div><div class="cct-record" data-m="record"></div></div>
