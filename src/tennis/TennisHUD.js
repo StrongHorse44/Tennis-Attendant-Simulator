@@ -108,6 +108,7 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   font-size: 12px; padding: 5px 10px; border-radius: 99px; background: rgba(20,38,28,0.72); color: var(--cc-cream); display: none; max-width: 60vw; text-align: right;
 }
 .cct-hint.is-on { display: block; }
+.cct-hint__s { display: none; }
 
 .cct-coach {
   position: absolute; left: 50%; top: calc(var(--cc-safe-top) + 12px); transform: translateX(-50%);
@@ -117,7 +118,7 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
 }
 .cct-coach b { color: var(--cc-clay); margin-right: 4px; }
 .cct-coach.is-on { opacity: 1; }
-@media (max-width: 560px) { .cct-coach { top: auto; bottom: calc(var(--cc-safe-bottom) + 232px); max-width: calc(100vw - 32px); } }
+@media (max-width: 560px) { .cct-coach { top: calc(var(--cc-safe-top) + 132px); max-width: calc(100vw - 32px); } } /* under the scoreboard: the sky, not the court */
 @media (max-height: 520px) and (min-width: 561px) {
   .cct-coach { left: auto; right: calc(var(--cc-safe-right) + 12px); transform: none; top: calc(var(--cc-safe-top) + 62px); max-width: min(380px, calc(100vw - 360px)); }
 }
@@ -180,15 +181,17 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
   .cct-stats { grid-template-columns: 1fr 1fr; }
   .cct-swing { width: 96px; height: 96px; }
   .cct-shot { min-width: 48px; }
-  /* Narrow phones: the shot row clears the joystick; the serve hint and Rafa's line stack above it */
+  /* Narrow phones: the shot row clears the joystick; the serve hint sits above it */
   .cct-shots { bottom: calc(var(--cc-safe-bottom) + 164px); }
-  .cct-hint { bottom: calc(var(--cc-safe-bottom) + 216px); }
-  .cct-coach { bottom: calc(var(--cc-safe-bottom) + 262px); }
+  .cct-hint { bottom: calc(var(--cc-safe-bottom) + 216px); white-space: nowrap; }
+  .cct-hint__l { display: none; }
+  .cct-hint__s { display: inline; }
 }
 @media (max-height: 520px) {
   .cct-shots { bottom: calc(var(--cc-safe-bottom) + 24px); right: calc(var(--cc-safe-right) + 160px); flex-direction: column; }
-  .cct-meter { right: calc(var(--cc-safe-right) + 220px); }
-  .cct-hint { bottom: calc(var(--cc-safe-bottom) + 136px); }
+  .cct-meter { right: calc(var(--cc-safe-right) + 244px); }
+  /* the serve hint goes under the scoreboard (the shot column fills the right side) */
+  .cct-hint { bottom: auto; top: calc(var(--cc-safe-top) + 132px); right: auto; left: calc(var(--cc-safe-left) + 10px); text-align: left; max-width: 44vw; }
   .cct-pops { top: 16%; }
 }
 @media (prefers-reduced-motion: reduce) { .cct-pop.is-go { animation-duration: 0.01s; opacity: 1; } .cct-modal.is-on { animation: none; } }
@@ -281,6 +284,8 @@ export class TennisHUD {
     this.setShot(1);
 
     this.hintEl = el('div', 'cct-hint', play);
+    this.hintLong = el('span', 'cct-hint__l', this.hintEl);
+    this.hintShort = el('span', 'cct-hint__s', this.hintEl);
 
     // Serve meter
     this.meter = el('div', 'cct-meter', play);
@@ -467,9 +472,13 @@ export class TennisHUD {
 
   setServeHint(on, second = false) {
     this.hintEl.classList.toggle('is-on', !!on);
-    if (on) this.hintEl.textContent = second
-      ? 'Second serve: hold SWING to toss, let go in the green · 2 = safe kick'
-      : 'Your serve: hold SWING to toss, let go in the green · 1 flat · 2 kick · 3 slice · stick aims';
+    if (on) {
+      // Full line, and a one-line version for narrow phones (CSS picks)
+      this.hintLong.textContent = second
+        ? 'Second serve: hold SWING to toss, let go in the green · 2 = safe kick'
+        : 'Your serve: hold SWING to toss, let go in the green · 1 flat · 2 kick · 3 slice · stick aims';
+      this.hintShort.textContent = second ? '2nd serve: hold, let go in the green' : 'Hold SWING, let go in the green';
+    }
   }
 
   coach(text, sec = 2.8) {
