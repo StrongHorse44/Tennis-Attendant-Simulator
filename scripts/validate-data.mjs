@@ -7,13 +7,18 @@
  * / item resolves, deliver steps have a matching pickup, random missions have a trigger NPC,
  * the shift section points at real missions, and every goTo / pickup / deliver / groom
  * target has a minimap pin. schedule.json: known court / NPC ids, start < end, two players
- * per match, format ranges (validateSchedule). Exits 1 on any error (warnings don't fail).
+ * per match, format ranges (validateSchedule). missions.json → templates: shape
+ * (validateTemplatesShape) plus sampled fills from every template through MissionGenerator,
+ * each checked with validateMission. events.json: schema, boosts that name real templates /
+ * missions, each event's merged schedule (validateEvents). Exits 1 on any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { buildWorldFacts, validateMission, validateSchedule, hasMarkerPoint } from '../src/systems/MissionValidation.js';
 import { ITEMS } from '../src/systems/InventorySystem.js';
+import { MissionGenerator, validateTemplatesShape } from '../src/systems/MissionGenerator.js';
+import { validateEvents } from '../src/systems/EventSystem.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -121,6 +126,7 @@ const map = load('map.json');
 const npcs = load('npcs.json');
 const missions = load('missions.json');
 const schedule = load('schedule.json');
+const events = load('events.json');
 
 if (map && npcs && missions) {
   const facts = buildWorldFacts({ map, npcs, missions, items: ITEMS });
@@ -215,7 +221,53 @@ if (map && npcs && schedule) {
   }
 }
 
+// missions.json → templates (MissionGenerator): shape, then sampled fills must all be valid missions
+let nTemplates = 0, nSamples = 0;
+if (map && npcs && missions && missions.templates !== undefined) {
+  for (const p of validateTemplatesShape(missions.templates, { taskTypes: missions.taskTypes })) {
+    (p.level === 'error' ? errors : warnings).push(`missions.json ${p.msg}`);
+  }
+  const facts = buildWorldFacts({ map, npcs, missions, items: ITEMS });
+  const gen = new MissionGenerator({ templates: missions.templates, npcs, map, schedule, items: ITEMS, facts });
+  let seed = 12345;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (const t of gen.list) {
+    nTemplates++;
+    const samples = gen.sample(t, 16, rand);
+    if (!samples.length) { warnings.push(`missions.json template ${t.id}: produced no mission from the current data (never offered)`); continue; }
+    for (const m of samples) {
+      nSamples++;
+      for (const p of validateMission(m, facts, missions.taskTypes)) {
+        if (p.level === 'error') errors.push(`missions.json template ${t.id} (${m.sig}): ${p.msg}`);
+      }
+      const leftover = JSON.stringify(m).match(/\{[A-Za-z]+(\.[a-z]+)?\}/);
+      if (leftover) errors.push(`missions.json template ${t.id} (${m.sig}): unfilled placeholder ${leftover[0]}`);
+      for (const [i, s] of m.steps.entries()) {
+        const tgt = s.action === 'goTo' || s.action === 'groom' ? s.target : (s.action === 'pickup' || s.action === 'deliver') ? s.location : null;
+        if (tgt && !hasMarkerPoint(map, tgt)) warnings.push(`missions.json template ${t.id} step ${i}: "${tgt}" has no minimap pin`);
+      }
+    }
+  }
+}
+
+// events.json (EventSystem): schema, template / mission boosts, each event's merged schedule
+let nEvents = 0;
+if (events && map && npcs && missions) {
+  nEvents = Array.isArray(events.events) ? events.events.length : 0;
+  const facts = buildWorldFacts({ map, npcs, missions, items: ITEMS });
+  const templateIds = new Set(missions.templates && Array.isArray(missions.templates.list) ? missions.templates.list.map(t => t && t.id) : []);
+  const missionIds = new Set((missions.missions || []).map(m => m && m.id));
+  for (const p of validateEvents(events, { templateIds, missionIds, facts, baseSchedule: schedule })) {
+    (p.level === 'error' ? errors : warnings).push(`events.json ${p.msg}`);
+  }
+  const eventIds = new Set((events.events || []).map(e => e && e.id));
+  for (const t of (missions.templates && missions.templates.list) || []) {
+    for (const id of (t && Array.isArray(t.events)) ? t.events : []) if (!eventIds.has(id)) errors.push(`missions.json template ${t.id}: events lists unknown event "${id}"`);
+  }
+}
+
 for (const w of warnings) console.warn('warn  ' + w);
+console.log(`validate-data: ${nTemplates} mission templates (${nSamples} sampled missions), ${nEvents} events checked`);
 for (const e of errors) console.error('ERROR ' + e);
 const n = map && missions && Array.isArray(missions.missions) ? missions.missions.length : 0;
 console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches checked, ${errors.length} error(s), ${warnings.length} warning(s)`);

@@ -92,6 +92,9 @@ export function validateMission(m, facts = {}, taskTypes = null) {
       err('"hours" must be [from, to] in-game hours with 0 <= from < to <= 24');
     } else if (h[1] - h[0] < 2) warn('"hours" window under 2 game hours (the task board refreshes every ~2.4)');
   }
+  // Progression gates (MissionSystem._storyReady): day number and rank index (shift.ranks)
+  if (m.minDay !== undefined && !(Number.isInteger(m.minDay) && m.minDay >= 1)) err('"minDay" must be an integer >= 1');
+  if (m.minRank !== undefined && !(Number.isInteger(m.minRank) && m.minRank >= 0)) err('"minRank" must be an integer >= 0 (index into shift.ranks)');
   if (m.source === 'random') {
     if (!m.triggerNpc) err('random mission needs "triggerNpc"');
     else if (npcIds && !npcIds.has(m.triggerNpc)) err(`triggerNpc "${m.triggerNpc}" is not in npcs.json`);
@@ -117,7 +120,8 @@ export function validateMission(m, facts = {}, taskTypes = null) {
         if (!s.npcId) err(`${at}: dialogue needs "npcId"`);
         else if (npcIds && !npcIds.has(s.npcId)) err(`${at}: npcId "${s.npcId}" is not in npcs.json`);
         if (s.dialogueKey && dialogueKeys && !dialogueKeys.has(s.dialogueKey)) err(`${at}: dialogueKey "${s.dialogueKey}" is not in missions.json dialogues`);
-        if (!s.dialogueKey && !s.prompt) err(`${at}: dialogue needs "dialogueKey" or "prompt"`);
+        if (s.lines !== undefined && !(Array.isArray(s.lines) && s.lines.every(l => isObj(l) && typeof l.text === 'string' && l.text))) err(`${at}: "lines" must be [{ speaker, text }]`);
+        if (!s.dialogueKey && !s.prompt && !(Array.isArray(s.lines) && s.lines.length)) err(`${at}: dialogue needs "dialogueKey", "lines" or "prompt"`);
         break;
       case 'pickup':
       case 'deliver':

@@ -127,6 +127,43 @@ function sanitizeStats(s) {
 const SHIFT_PHASES = ['preShift', 'onShift', 'ending', 'report'];
 
 /**
+ * Generated missions (MissionSystem.getState().generated): full definitions of the procedural
+ * missions on the board or in progress. Only the shape is checked here; MissionSystem.setState
+ * re-validates every one with MissionValidation. Additive in v1 (absent = []).
+ */
+function sanitizeGenerated(v) {
+  if (!Array.isArray(v)) return [];
+  return v.filter(m => isObj(m) && typeof m.id === 'string' && m.id.length < 120 && Array.isArray(m.steps) && m.steps.length <= 16)
+    .filter(m => { try { return JSON.stringify(m).length <= 16384; } catch (e) { return false; } })
+    .slice(0, 12);
+}
+
+/**
+ * Mission history (anti-repetition across days, MissionSystem.getState().history): recent
+ * accepted / completed missions, members helped, yesterday's offers. Additive in v1 (absent = null).
+ */
+function sanitizeMissionHistory(v) {
+  if (!isObj(v)) return null;
+  const dayMap = (o, max) => {
+    const out = {};
+    if (!isObj(o)) return out;
+    for (const [k, d] of Object.entries(o).slice(0, max)) if (k.length < 200 && Number.isInteger(d)) out[k] = d;
+    return out;
+  };
+  const log = Array.isArray(v.log) ? v.log.filter(e => isObj(e) && typeof e.s === 'string' && e.s.length < 200 && Number.isInteger(e.d))
+    .slice(-400)
+    .map(e => ({ s: e.s, t: str(e.t, e.s.slice(0, 199)), n: strArr(e.n, 8), d: e.d, k: e.k === 'c' ? 'c' : 'a' })) : [];
+  const today = isObj(v.today) && Number.isInteger(v.today.day) ? { day: v.today.day, sigs: strArr(v.today.sigs, 200) } : null;
+  return { log, helped: dayMap(v.helped, 64), offered: dayMap(v.offered, 400), today, seq: int(v.seq, 0, 0) };
+}
+
+/** Daily event (EventSystem.getState): { day, id, recent }. Additive in v1 (absent = null). */
+function sanitizeEvents(v) {
+  if (!isObj(v)) return null;
+  return { day: int(v.day, -1, -1), id: str(v.id), recent: strArr(v.recent, 4) };
+}
+
+/**
  * Shift loop state (ShiftSystem.getState). Additive in v1: a save without it returns null
  * and ShiftSystem derives the phase from the clock.
  */
@@ -239,6 +276,8 @@ export function sanitizeSave(raw) {
       taskBoard: strArr(missions.taskBoard, 10),
       radioTimer: num(missions.radioTimer, NaN, 0, 1e6),
       taskBoardTimer: num(missions.taskBoardTimer, NaN, 0, 1e6),
+      generated: sanitizeGenerated(missions.generated),
+      history: sanitizeMissionHistory(missions.history),
     },
     inventory: strArr(raw.inventory, 10),
     stats: sanitizeStats(raw.stats),
@@ -248,6 +287,7 @@ export function sanitizeSave(raw) {
     courtDegradeTimer: num(raw.courtDegradeTimer, NaN, 0, 1e6),
     shift: sanitizeShift(raw.shift),
     profile: sanitizeProfile(raw.profile),
+    events: sanitizeEvents(raw.events),
     flags: {
       tutorialSeen: bool(flags.tutorialSeen),
       groomTutorialSeen: bool(flags.groomTutorialSeen),
@@ -391,6 +431,7 @@ export function captureSaveData(game) {
     courtDegradeTimer: cm.degradeTimer,
     shift: game.shift ? game.shift.getState() : null,
     profile: game.profile ? game.profile.getState() : null,
+    events: game.events ? game.events.getState() : null,
     flags,
   };
 }
@@ -448,6 +489,8 @@ export function applySaveData(game, data) {
   });
 
   step('inventory', () => inventory.setState(data.inventory));
+  // Today's event before missions (the board and dispatch read it), after the clock (day)
+  step('events', () => { if (game.events && data.events) game.events.setState(data.events); });
   step('missions', () => missionSystem.setState(data.missions));
   // After time/weather (the phase is checked against the clock) and missions (routines)
   step('shift', () => { if (game.shift) game.shift.setState(data.shift); });

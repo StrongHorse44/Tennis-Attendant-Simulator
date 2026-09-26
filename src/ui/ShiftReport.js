@@ -179,6 +179,8 @@ export class ShiftReport {
     const r = this.r;
     r.title.textContent = `Day ${rep.day} shift report`;
     r.sub.textContent = `Clocked out at 7:00 PM · ${rep.hours ? rep.hours.toFixed(rep.hours % 1 ? 1 : 0) : 0} h on the clock`;
+    // Today's club event (EventSystem), e.g. "🏆 Member Tournament Saturday"
+    if (rep.event && rep.event.id !== 'regular') r.sub.textContent = `${rep.event.icon ? rep.event.icon + ' ' : ''}${rep.event.title} · ${r.sub.textContent}`;
 
     r.promo.classList.toggle('is-on', !!rep.rankUp);
     if (rep.rankUp) {

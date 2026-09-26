@@ -35,6 +35,42 @@
       "icon": "clipboard",
       "baseReward": 12,
       "estimatedTime": 150
+    },
+    "prep": {
+      "label": "Court Prep",
+      "icon": "package",
+      "baseReward": 8,
+      "estimatedTime": 120
+    },
+    "weather": {
+      "label": "Weather Job",
+      "icon": "brush",
+      "baseReward": 9,
+      "estimatedTime": 120
+    },
+    "escort": {
+      "label": "Guest Escort",
+      "icon": "clipboard",
+      "baseReward": 12,
+      "estimatedTime": 150
+    },
+    "director": {
+      "label": "Tournament Desk",
+      "icon": "clipboard",
+      "baseReward": 22,
+      "estimatedTime": 150
+    },
+    "social": {
+      "label": "Member Care",
+      "icon": "clipboard",
+      "baseReward": 6,
+      "estimatedTime": 60
+    },
+    "event": {
+      "label": "Club Event",
+      "icon": "package",
+      "baseReward": 10,
+      "estimatedTime": 90
     }
   },
 
@@ -64,6 +100,1536 @@
       { "id": "senior", "title": "Senior Attendant", "points": 550, "perks": { "brushWidth": 0.5 }, "unlock": "Wide drag brush: +0.5 m sweep." },
       { "id": "lead", "title": "Grounds Lead", "points": 1000, "perks": { "capColor": "#d9a441" }, "unlock": "The gold Grounds Lead cap." },
       { "id": "head", "title": "Head of Grounds", "points": 1700, "perks": { "cartSpeed": 0.2, "tipBonus": 0.2 }, "unlock": "Members tip 20% more, and the cart motor tune goes up to +20%." }
+    ]
+  },
+
+  "templates": {
+    "_comment": "Procedural mission templates (src/systems/MissionGenerator.js). Each template's roles are filled from the live world (npcs.json members, relationships and request pools; map.json areas; schedule.json matches; InventorySystem ITEMS) and every result is checked with MissionValidation before it is offered. Gates: minDay, minRank (index into shift.ranks), hours, weather, afterRain, events (EventSystem ids). cooldownDays keeps the same template + key roles from repeating for N days. Text fills: {role}, {role.first}, {role.label}, {Role} (capitalised), {court.time}. Dialogue text may be a string, a list (random pick) or an archetype / npc-id map with '*' as the default. greet / idle / thanks add one of the speaker's own npcs.json lines.",
+    "itemSources": {
+      "towels": ["proShop", "lockerRoom", "poolHouse", "fitnessCenter"],
+      "ball_hopper": ["equipmentShed", "garden"],
+      "water_bottles": ["cafe", "proShop", "poolHouse", "fitnessCenter"],
+      "racket": ["proShop", "lockerRoom"],
+      "*": ["proShop"]
+    },
+    "itemHomes": { "towels": "lockerRoom", "ball_hopper": "equipmentShed", "water_bottles": "cafe", "racket": "proShop" },
+    "staffItems": {
+      "jess_nakamura": ["racket", "towels", "water_bottles"],
+      "gus_papadakis": ["water_bottles", "towels"],
+      "marcus_bell": ["water_bottles", "towels"],
+      "dani_kowalski": ["towels"],
+      "hank_morris": ["ball_hopper"],
+      "rafa_ibarra": ["ball_hopper", "racket"],
+      "otis_grant": ["racket"]
+    },
+    "staffAreas": {
+      "jess_nakamura": "proShop",
+      "gus_papadakis": "poolHouse",
+      "dani_kowalski": "pool",
+      "marcus_bell": "fitnessCenter",
+      "hank_morris": "equipmentShed",
+      "rafa_ibarra": "court3",
+      "otis_grant": "clubhouseLobby"
+    },
+    "itemNames": {
+      "towels": "fresh towels",
+      "ball_hopper": "a ball hopper",
+      "water_bottles": "cold water",
+      "racket": "the racket"
+    },
+    "requestLines": {
+      "titles": {
+        "fetch": ["{member.first}: {item}", "{Item} for {member.first}", "A request from {member.first}"],
+        "relay": ["Message for {other.first}", "{member.first} to {other.first}"],
+        "check": ["{member.first} needs a hand", "Check {place.label} for {member.first}"],
+        "groom": ["{member.first} wants the clay dragged"]
+      },
+      "ack": {
+        "fetch": {
+          "entitled": "Well? Off you go.",
+          "friendly": "Thank you so much!",
+          "clueless": "Is that okay? Sorry. Thank you!",
+          "competitive": "Appreciated. Clock is running.",
+          "social": "You're a doll.",
+          "veteran": "Good lad. Or lass. Good attendant.",
+          "junior": "Thanks. Cool.",
+          "staff": "Thanks. I owe you one.",
+          "*": "Thanks!"
+        },
+        "relay": { "*": "You will pass that on? Thank you." },
+        "check": { "entitled": "I will wait. Not patiently.", "*": "Could you take a look? Thanks." },
+        "groom": { "*": "Brush is in the shed. Drag it like you mean it." }
+      },
+      "relay": {
+        "entitled": "Hm. Tell {member.first} I heard. Whether I agree is another matter.",
+        "friendly": "Oh! Tell {member.first} thanks, and that I said hi!",
+        "clueless": "Oh. Okay. Should I write that down? I will write that down.",
+        "competitive": "Noted. Tell {member.first}: understood.",
+        "social": "{member.first} said that? Oh, I have to go find them right now.",
+        "veteran": "Tell {member.first} I will be there. I am always there.",
+        "junior": "Ugh. Fine. Tell {member.first} okay.",
+        "staff": "Copy that. Tell {member.first} I am on it.",
+        "*": "Got it. Thanks for passing it on."
+      },
+      "checked": {
+        "*": [
+          "All sorted at {place}.",
+          "Checked {place}. Everything is in order.",
+          "I took care of it at {place}."
+        ]
+      }
+    },
+    "list": [
+      {
+        "id": "fetch_for_member",
+        "type": "errand",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": { "random": 2, "*": 3 },
+        "cooldownDays": 2,
+        "roles": {
+          "member": { "npc": "member" },
+          "item": { "item": "any" },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": { "area": "npcArea", "of": "member", "not": ["from"] }
+        },
+        "client": "member",
+        "trigger": "member",
+        "key": ["member", "item"],
+        "title": ["{Item} for {member.first}", "{member.first} needs {item}", "A {place.label} request"],
+        "description": ["{member} would like {item} at {place}.", "{member.first} is asking for {item} over at {place}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Find out what {member.first} needs.",
+            "greet": true,
+            "lines": [
+              {
+                "entitled": "I need {item} at {place}. Today, ideally, not next season.",
+                "friendly": "Oh, hi! If it's no trouble, could you bring {item} over to {place}? No rush!",
+                "clueless": "Sorry, is this something you do? I'd love {item} at {place}... if that's allowed?",
+                "competitive": "{Item} at {place}, please. I have a set to finish.",
+                "social": "Honey, you're a lifesaver. {Item}, {place}, and I'll owe you a story.",
+                "veteran": "{Item} to {place}, if you would. My knees have filed a complaint.",
+                "junior": "Um. Could I get {item} at {place}? Thanks. Cool.",
+                "staff": "Could you run {item} to {place} for me? I cannot leave my post.",
+                "*": "Could you bring {item} to {place}?"
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Pick up {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Bring {item} to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Let {member.first} know it is there.",
+            "lines": [
+              {
+                "entitled": "Finally. Set it down there. Carefully.",
+                "friendly": "Oh, you're a star! Right where I needed it.",
+                "clueless": "Oh! Is that for me? Wow. I didn't know you could just... ask.",
+                "competitive": "Good timing. Between sets. Efficient.",
+                "social": "You angel! Sit a minute, I have news. No? Next time, then.",
+                "veteran": "Well now. Service like the old days.",
+                "junior": "Whoa. Thanks. That is actually really cool.",
+                "staff": "Appreciated. That saves me a trip.",
+                "*": "Thanks, that's exactly what I needed."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "staff_run",
+        "type": "errand",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 2,
+        "roles": {
+          "staff": { "npc": "staff", "ids": ["jess_nakamura", "gus_papadakis", "marcus_bell"] },
+          "from": { "area": "staffArea", "of": "staff" },
+          "item": { "item": "any", "ownedBy": "staff" },
+          "member": { "npc": "member" },
+          "place": { "area": "npcArea", "of": "member", "not": ["from"] }
+        },
+        "client": "member",
+        "key": ["staff", "member"],
+        "title": ["Run {item} for {staff.first}", "{member.first}'s order", "Delivery: {from.label} to {place.label}"],
+        "description": ["{staff} has {item} ready for {member}. Run it to {place}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "staff",
+            "prompt": "Check in with {staff.first} at {from}.",
+            "lines": [
+              {
+                "*": "{member.first} ordered {item}. It is ready. {place.label}, please. I cannot leave my post."
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab {item} from {from}." },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Run {item} to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Tell {member.first} their order is in.",
+            "lines": [
+              {
+                "entitled": "Finally. Set it down there. Carefully.",
+                "friendly": "Oh, you're a star! Right where I needed it.",
+                "clueless": "Oh! Is that for me? Wow. I didn't know you could just... ask.",
+                "competitive": "Good timing. Between sets. Efficient.",
+                "social": "You angel! Sit a minute, I have news. No? Next time, then.",
+                "veteran": "Well now. Service like the old days.",
+                "junior": "Whoa. Thanks. That is actually really cool.",
+                "staff": "Appreciated. That saves me a trip.",
+                "*": "Thanks, that's exactly what I needed."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "return_to_staff",
+        "type": "errand",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": { "random": 1.5, "*": 2 },
+        "cooldownDays": 2,
+        "roles": {
+          "staff": { "npc": "staff", "ids": ["jess_nakamura", "dani_kowalski", "hank_morris", "rafa_ibarra"] },
+          "to": { "area": "staffArea", "of": "staff" },
+          "item": { "item": ["racket", "towels", "ball_hopper"], "ownedBy": "staff" },
+          "member": { "npc": "member" },
+          "from": { "area": "npcArea", "of": "member", "not": ["to"] }
+        },
+        "client": "member",
+        "trigger": "member",
+        "key": ["member", "staff"],
+        "title": ["Return {item} to {staff.first}", "{member.first} borrowed something"],
+        "description": ["{member} borrowed {item} from {staff} and left it at {from}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Talk to {member.first}.",
+            "lines": [
+              {
+                "entitled": "I borrowed {item} from {staff.first}. It is at {from}. Returning things is, I believe, your department.",
+                "friendly": "Oh, I'm so embarrassed. I borrowed {item} from {staff.first} and left it at {from}. Could you take it back?",
+                "clueless": "Um, I think I was supposed to return {item} to {staff.first}? It's at {from}. Was there a form?",
+                "competitive": "{Item} at {from} belongs to {staff.first}. I am mid-session. Would you?",
+                "social": "Honey, {staff.first} lent me {item} and it is sitting at {from}. You know how it is. Be a dear?",
+                "veteran": "{Staff.first} lent me {item}. Left it at {from}. My memory is a clay court after rain.",
+                "junior": "I kind of borrowed {item} from {staff.first}. It's at {from}. Can you... return it? Please?",
+                "*": "Could you get {item} from {from} back to {staff.first}?"
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Pick up {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "to", "prompt": "Return it to {to}." },
+          {
+            "action": "dialogue",
+            "npc": "staff",
+            "prompt": "Let {staff.first} know it is back.",
+            "lines": [{ "*": "From {member.first}? Of course it is. Thanks for bringing it home." }],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "rival_dispute",
+        "type": "conflict",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": { "random": 1, "*": 2 },
+        "cooldownDays": 3,
+        "roles": {
+          "a": { "npc": "member", "hasRel": ["rival"] },
+          "b": { "related": "a", "rel": ["rival"] },
+          "place": { "area": "npcArea", "of": "a" },
+          "topic": {
+            "text": [
+              "the shaded table",
+              "the last court slot before lunch",
+              "a line call from last Tuesday",
+              "the ball machine sign-up sheet",
+              "who gets the good bench",
+              "the patio umbrella",
+              "the new club bylaws",
+              "whose turn it is to host the mixer"
+            ]
+          }
+        },
+        "trigger": "a",
+        "key": ["a", "b"],
+        "title": ["{a.first} vs {b.first}", "Words at {place.label}", "Keep the peace: {a.first} and {b.first}"],
+        "description": ["{a} and {b} are arguing about {topic}. Calm things down."],
+        "steps": [
+          { "action": "goTo", "target": "place", "prompt": "Head to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "a",
+            "prompt": "Hear {a.first} out.",
+            "lines": [
+              {
+                "entitled": "{b.first} has decided {topic} belongs to them. It does not. I will be heard on this.",
+                "friendly": "I hate making a fuss, really, but {b.first} and I can't agree about {topic}.",
+                "clueless": "I think I did something wrong? {b.first} is very upset about {topic} and I only sort of know what that is.",
+                "competitive": "Data point: {b.first} is wrong about {topic}. I have receipts.",
+                "social": "Okay, so. {Topic}. {b.first}. You can imagine. Actually, let me tell you.",
+                "veteran": "Forty years at this club and {b.first} still wants to argue about {topic}.",
+                "junior": "{b.first} is being weird about {topic}. Like, really weird.",
+                "*": "{b.first} and I disagree about {topic}."
+              }
+            ]
+          },
+          {
+            "action": "dialogue",
+            "npc": "b",
+            "prompt": "Get {b.first}'s side.",
+            "lines": [
+              {
+                "entitled": "Whatever {a.first} told you is a fiction. {Topic} was settled years ago. In my favour.",
+                "friendly": "Oh dear, is {a.first} still on about {topic}? I only want everyone to have fun.",
+                "clueless": "Is this about {topic}? Sorry. I genuinely thought I had it right.",
+                "competitive": "{a.first} is emotional about {topic}. I am being logical. Write that down.",
+                "social": "Honey, {topic} is not the issue. The issue is {a.first}'s tone.",
+                "veteran": "{a.first} has been wrong about {topic} since before you were born, sweetheart.",
+                "junior": "It's not even a big deal. {Topic}. Whatever. {a.first} started it.",
+                "*": "{a.first} is making too much of {topic}."
+              }
+            ]
+          },
+          {
+            "action": "choose",
+            "prompt": "How do you settle it?",
+            "choices": [
+              {
+                "label": "Side with {a.first}",
+                "result": "{a.first} is delighted. {b.first} stalks off, muttering about the committee.",
+                "reactions": { "a": "satisfied", "b": "unsatisfied" }
+              },
+              {
+                "label": "Side with {b.first}",
+                "result": "{b.first} gives a regal nod. {a.first} looks betrayed, but lets it go.",
+                "reactions": { "a": "unsatisfied", "b": "satisfied" }
+              },
+              {
+                "label": "Split the difference",
+                "result": "You propose they take turns. Neither is thrilled. Both agree.",
+                "reactions": { "a": "neutral", "b": "neutral" }
+              },
+              {
+                "label": "Change the subject to their backhands",
+                "result": "Two compliments later they are comparing grips. {Topic} is forgotten, for now.",
+                "reactions": { "a": "satisfied", "b": "neutral" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "friend_favour",
+        "type": "errand",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": { "random": 2, "*": 2 },
+        "cooldownDays": 3,
+        "roles": {
+          "a": { "npc": "member", "hasRel": ["friend"] },
+          "b": { "related": "a", "rel": ["friend"] },
+          "item": { "item": ["water_bottles", "towels", "racket", "ball_hopper"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": { "area": "npcArea", "of": "b", "not": ["from"] }
+        },
+        "client": "a",
+        "trigger": "a",
+        "key": ["a", "b"],
+        "title": ["A favour for {b.first}", "{a.first} sends {item}", "From {a.first}, with love"],
+        "description": ["{a} wants {item} taken to their friend {b} at {place}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "a",
+            "prompt": "Talk to {a.first}.",
+            "lines": [
+              {
+                "entitled": "{b.first} is at {place} and has, as usual, forgotten {item}. Take some. Say it is from me.",
+                "friendly": "{b.first} is over at {place} and I bet they could use {item}. Would you? Tell them it's from me!",
+                "clueless": "My friend {b.first} said they needed {item}? At {place}? I think that is what they said.",
+                "competitive": "{b.first} is training at {place}. Needs {item}. Friends look after friends.",
+                "social": "Bring {item} to {b.first} at {place}, and tell them I said hi. And that I heard about the thing.",
+                "veteran": "Old {b.first} is over at {place}. Take {item}. Do not let them pay you.",
+                "junior": "Can you bring {item} to {b.first}? At {place}? They're my friend. Kind of my best friend.",
+                "*": "Could you bring {item} to {b.first} at {place}? Tell them it is from me."
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Pick up {item} at {from}." },
+          {
+            "action": "deliver",
+            "item": "item",
+            "location": "place",
+            "prompt": "Drop {item} off at {place}."
+          },
+          {
+            "action": "dialogue",
+            "npc": "b",
+            "prompt": "Tell {b.first} who sent it.",
+            "lines": [
+              {
+                "entitled": "{a.first} sent this? Hm. Tell {a.first} I noticed.",
+                "friendly": "From {a.first}? Oh, that's so sweet! Tell them thank you!",
+                "clueless": "Oh! {a.first}? That is so nice. Do I tip you? Or them?",
+                "competitive": "{a.first}. Solid teammate. Noted.",
+                "social": "{a.first}! That darling. We are having lunch. You are invited. Not really. But thank you!",
+                "veteran": "{a.first} remembered. Well, well.",
+                "junior": "Wait, {a.first} did? Cool. That's really cool.",
+                "staff": "From {a.first}? Good people. Thanks.",
+                "*": "From {a.first}? How kind. Thank you."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "family_checkin",
+        "type": "conflict",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": { "random": 1.5, "*": 1.5 },
+        "cooldownDays": 3,
+        "roles": {
+          "parent": { "npc": "member", "ids": ["maria_santos", "mrs_wellington"] },
+          "kid": { "related": "parent", "rel": ["family"] },
+          "item": { "item": ["water_bottles", "towels"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": { "area": "npcArea", "of": "kid", "not": ["from"] }
+        },
+        "client": "parent",
+        "trigger": "parent",
+        "key": ["parent", "kid"],
+        "title": ["Check on {kid.first}", "{parent.first} is worried", "Where is {kid.first}?"],
+        "description": ["{parent} wants you to bring {item} to {kid} at {place}, and find out what they are up to."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "parent",
+            "prompt": "Talk to {parent.first}.",
+            "lines": [
+              {
+                "entitled": "{kid.first} is supposed to be somewhere respectable. I suspect {place}. Take {item}, and report back.",
+                "friendly": "Oh, could you take {item} to {kid.first}? I think they're at {place}. They never drink enough water!",
+                "*": "Could you bring {item} to {kid.first} at {place}?"
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Pick up {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Bring {item} to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "kid",
+            "prompt": "Find {kid.first}.",
+            "lines": [
+              {
+                "*": "Oh. Did {parent.first} send you? Please say I was doing something responsible. I was practising. Mostly."
+              }
+            ]
+          },
+          {
+            "action": "choose",
+            "prompt": "What do you tell {parent.first}?",
+            "choices": [
+              {
+                "label": "The whole truth",
+                "result": "{parent.first} gets the full report. {kid.first} gets a look that could curdle lemonade.",
+                "reactions": { "parent": "satisfied", "kid": "unsatisfied" }
+              },
+              {
+                "label": "\"Practising hard\"",
+                "result": "Technically true. {parent.first} relaxes, and {kid.first} owes you one.",
+                "reactions": { "parent": "neutral", "kid": "satisfied" }
+              },
+              {
+                "label": "Suggest they play together",
+                "result": "You pitch a family hit on the weekend. Somehow, both of them say yes.",
+                "reactions": { "parent": "satisfied", "kid": "neutral" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "couple_surprise",
+        "type": "errand",
+        "sources": ["taskBoard", "random"],
+        "weight": { "random": 1.5, "*": 1 },
+        "cooldownDays": 4,
+        "roles": {
+          "a": { "npc": "member", "ids": ["bob_hendricks", "babs_hendricks", "leo_brandt", "harper_brandt"] },
+          "b": { "related": "a", "rel": ["spouse"] },
+          "item": { "item": ["water_bottles", "towels"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": { "area": ["garden", "patio", "memberLounge", "cafe"], "not": ["from"] }
+        },
+        "client": "a",
+        "trigger": "a",
+        "key": ["a"],
+        "title": ["A surprise for {b.first}", "{a.first}'s secret plan"],
+        "description": ["{a} is planning a little surprise for {b} at {place}. Keep it quiet."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "a",
+            "prompt": "Talk to {a.first}, discreetly.",
+            "lines": [
+              {
+                "friendly": "Psst. I'm doing a little something for {b.first} at {place}. Could you set out {item}? Not a word!",
+                "social": "Okay, secret mission. {b.first}. {Place}. {Item}, arranged nicely. If they ask, you've never met me.",
+                "competitive": "Operation {b.first}: {item} at {place}. Precision matters. They notice everything.",
+                "*": "Could you set out {item} at {place} for {b.first}? It is a surprise."
+              }
+            ]
+          },
+          {
+            "action": "pickup",
+            "item": "item",
+            "location": "from",
+            "prompt": "Quietly pick up {item} at {from}."
+          },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Set it up at {place}." },
+          {
+            "action": "dialogue",
+            "npc": "b",
+            "prompt": "Send {b.first} to {place}, casually.",
+            "lines": [
+              {
+                "by": "b",
+                "text": { "*": "{Place}? Why would I go to... oh. Oh, {a.first}. That big softie." }
+              }
+            ]
+          },
+          {
+            "action": "dialogue",
+            "npc": "a",
+            "prompt": "Report back to {a.first}.",
+            "lines": [{ "*": "They loved it? They LOVED it. You are getting a very good review." }],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "mentor_drill",
+        "type": "errand",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": 1.5,
+        "cooldownDays": 3,
+        "roles": {
+          "coach": { "npc": "any", "hasRel": ["mentor", "student"] },
+          "pupil": { "related": "coach", "rel": ["mentor", "student"] },
+          "item": { "item": ["ball_hopper"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "court": { "area": "court", "not": ["from"] }
+        },
+        "client": "coach",
+        "trigger": "coach",
+        "key": ["coach", "pupil"],
+        "title": ["Drill time: {coach.first} and {pupil.first}", "Hopper to {court.label}"],
+        "description": ["{coach} wants a hopper on {court} to drill with {pupil}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "coach",
+            "prompt": "Talk to {coach.first}.",
+            "lines": [
+              {
+                "staff": "I have {pupil.first} for twenty minutes on {court}. A full hopper, and the lesson teaches itself.",
+                "competitive": "Promised {pupil.first} some reps on {court}. Can you get a hopper out there? Efficiency.",
+                "veteran": "I am showing {pupil.first} a thing or two on {court}. We need balls. Lots of them.",
+                "*": "Could you get a hopper to {court}? {pupil.first} and I are drilling."
+              }
+            ]
+          },
+          {
+            "action": "pickup",
+            "item": "item",
+            "location": "from",
+            "prompt": "Grab a ball hopper at {from}."
+          },
+          { "action": "deliver", "item": "item", "location": "court", "prompt": "Set it up on {court}." },
+          {
+            "action": "dialogue",
+            "npc": "pupil",
+            "prompt": "Tell {pupil.first} the balls are ready.",
+            "lines": [
+              {
+                "junior": "A whole hopper? Okay. Okay. I can do this. Cool.",
+                "clueless": "Oh no, that is a lot of balls. That is fine. That is fine!",
+                "competitive": "Full hopper. Good. Let us see what {coach.first} has.",
+                "*": "Balls on {court}? Tell {coach.first} I am on my way."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "lost_and_found",
+        "type": "errand",
+        "sources": ["taskBoard", "radio"],
+        "weight": 2,
+        "cooldownDays": 2,
+        "roles": {
+          "finder": { "npc": "staff", "ids": ["otis_grant", "jess_nakamura", "dani_kowalski", "hank_morris"] },
+          "owner": { "npc": "member" },
+          "item": { "item": "any" },
+          "from": {
+            "area": [
+              "garden",
+              "patio",
+              "pool",
+              "court1",
+              "court2",
+              "court3",
+              "court4",
+              "court5",
+              "memberLounge",
+              "cafe",
+              "lockerRoom",
+              "clubhouseLobby"
+            ]
+          },
+          "to": { "area": "npcArea", "of": "owner", "not": ["from"] }
+        },
+        "client": "owner",
+        "key": ["owner", "item"],
+        "title": ["Lost & found: {item}", "Whose {item.label}?", "Return {owner.first}'s things"],
+        "description": ["{finder} spotted {item} left at {from}. The tag says {owner}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "finder",
+            "prompt": "Check in with {finder.first}.",
+            "lines": [
+              {
+                "otis_grant": "Report: {item}, abandoned at {from}. Name tag says {owner}. Suspect is probably at {to}.",
+                "jess_nakamura": "{Item} at {from}. Tag says {owner}. Lost and found is full. Of hats, mostly.",
+                "dani_kowalski": "Found {item} at {from}! Tag says {owner}! Walking feet, but quick feet!",
+                "hank_morris": "Somebody left {item} at {from}. {owner.first}, says the tag. Take it to {to}.",
+                "*": "{Item} was left at {from}. It belongs to {owner}."
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Collect {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "to", "prompt": "Bring it to {to}." },
+          {
+            "action": "dialogue",
+            "npc": "owner",
+            "prompt": "Return it to {owner.first}.",
+            "lines": [
+              {
+                "entitled": "I did not lose it. I set it down. There is a difference.",
+                "friendly": "Oh my goodness, I looked everywhere! Thank you!",
+                "clueless": "Oh! I did not even know it was gone. Is that bad?",
+                "competitive": "I was wondering where that went. Thanks.",
+                "social": "Honey, you found it! I was about to put out a bulletin.",
+                "veteran": "My memory is not what it was. Neither is my knee. Thank you.",
+                "junior": "Oh. Oops. Please don't tell my parents.",
+                "*": "There it is! Thank you."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "court_prep_match",
+        "type": "prep",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 1,
+        "hours": [7, 18],
+        "roles": {
+          "court": { "area": "upcomingMatch", "within": [0.3, 3] },
+          "player": { "matchPlayer": "court" },
+          "hopper": { "item": ["ball_hopper"] },
+          "hfrom": { "area": "itemSource", "of": "hopper", "not": ["court"] },
+          "water": { "item": ["water_bottles"] },
+          "wfrom": { "area": "itemSource", "of": "water", "not": ["court"] }
+        },
+        "client": "player",
+        "key": ["court", "player"],
+        "title": ["Prep {court.label} for {court.time}", "Court prep: {player.first} at {court.time}"],
+        "description": ["{player} has {court} booked at {court.time}. Balls and water out before they arrive."],
+        "steps": [
+          {
+            "action": "pickup",
+            "item": "hopper",
+            "location": "hfrom",
+            "prompt": "Grab a ball hopper at {hfrom}."
+          },
+          {
+            "action": "deliver",
+            "item": "hopper",
+            "location": "court",
+            "prompt": "Set the hopper on {court}."
+          },
+          { "action": "pickup", "item": "water", "location": "wfrom", "prompt": "Pick up water at {wfrom}." },
+          {
+            "action": "deliver",
+            "item": "water",
+            "location": "court",
+            "prompt": "Put water courtside on {court}."
+          },
+          {
+            "action": "dialogue",
+            "npc": "player",
+            "prompt": "Tell {player.first} the court is ready.",
+            "lines": [
+              {
+                "by": "player",
+                "text": {
+                  "entitled": "Ready early? That is how it should always be.",
+                  "competitive": "Balls, water, clean lines. Now we are talking.",
+                  "*": "Court is ready already? You are a legend."
+                }
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "clay_prep_match",
+        "type": "maintenance",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.2,
+        "cooldownDays": 1,
+        "hours": [7, 17],
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "court": { "area": "upcomingMatch", "surface": "clay", "within": [0.5, 3] },
+          "player": { "matchPlayer": "court" }
+        },
+        "client": "player",
+        "key": ["court"],
+        "title": ["Groom before the {court.time} match", "Fresh clay for {player.first}"],
+        "description": ["{player} plays on {court} at {court.time}. Drag the clay courts before they arrive."],
+        "steps": [
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Hitch the drag brush at the equipment shed."
+          },
+          { "action": "groom", "target": "court", "prompt": "Groom the clay courts." },
+          {
+            "action": "dialogue",
+            "npc": "player",
+            "prompt": "Let {player.first} know the clay is fresh.",
+            "lines": [{ "*": "Fresh lines. Now I have no excuses. Terrible. Thank you." }],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "rain_squeegee",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "afterRain": true,
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "c1": { "area": "court", "surface": "hard" },
+          "c2": { "area": "court", "surface": "hard", "not": ["c1"] }
+        },
+        "key": ["c1"],
+        "title": ["Squeegee the hard courts", "Dry out {c1.label} and {c2.label}"],
+        "description": ["The rain left puddles on the hard courts. Grab the squeegee and dry {c1} and {c2}."],
+        "steps": [
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Grab the squeegee from the equipment shed."
+          },
+          { "action": "goTo", "target": "c1", "prompt": "Squeegee {c1}." },
+          { "action": "goTo", "target": "c2", "prompt": "Squeegee {c2}." },
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Tell Hank the hard courts are dry.",
+            "lines": [{ "*": "Dry already? Rain is just the sky watering the crops. You are the harvest. Good work." }]
+          }
+        ]
+      },
+      {
+        "id": "rain_towels",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "afterRain": true,
+        "roles": {
+          "item": { "item": ["towels"] },
+          "from": { "area": ["lockerRoom", "poolHouse", "proShop"] },
+          "place": { "area": ["clubhouseLobby", "fitnessCenter", "memberLounge", "cafe"], "not": ["from"] },
+          "member": { "npc": "member" }
+        },
+        "client": "member",
+        "key": ["place"],
+        "title": ["Towels for the drips", "Soggy members at {place.label}"],
+        "description": ["Members ducked in out of the rain and are dripping on the floor at {place}."],
+        "steps": [
+          {
+            "action": "pickup",
+            "item": "item",
+            "location": "from",
+            "prompt": "Grab a stack of towels at {from}."
+          },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Bring towels to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Check on {member.first}.",
+            "lines": [
+              {
+                "entitled": "Look at me. Drenched. Towels are the least this club can do.",
+                "*": "Oh, towels! Bless you. I look like a wet terrier."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "wind_debris",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "weather": ["windy"],
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "court": { "area": "court" },
+          "fan": { "npc": "member", "ids": ["babs_hendricks", "maria_santos", "mrs_wellington", "diane_ross"] }
+        },
+        "key": ["court"],
+        "title": ["Wind cleanup", "Leaves on {court.label}"],
+        "description": ["The wind has blown leaves and twigs all over. Clear the garden, the patio and {court}."],
+        "steps": [
+          { "action": "goTo", "target": "garden", "prompt": "Pick up branches in the garden." },
+          { "action": "goTo", "target": "patio", "prompt": "Rescue the patio napkins." },
+          { "action": "goTo", "target": "court", "prompt": "Clear the leaves off {court}." },
+          {
+            "action": "dialogue",
+            "npc": "fan",
+            "prompt": "Let {fan.first} know the flower beds survived.",
+            "lines": [
+              {
+                "entitled": "Finally. The wind is not an excuse for disorder.",
+                "*": "Oh, the hydrangeas made it! You are a hero of horticulture."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "heat_water",
+        "type": "errand",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 1,
+        "weather": ["sunny"],
+        "hours": [11, 17],
+        "roles": {
+          "item": { "item": ["water_bottles"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": {
+            "area": ["court1", "court2", "court3", "court4", "court5", "pool", "patio", "fitnessCenter"],
+            "not": ["from"]
+          },
+          "member": { "npc": "member" }
+        },
+        "client": "member",
+        "key": ["place"],
+        "title": ["Hot one: water to {place.label}", "Cooling run"],
+        "description": ["It is a scorcher. Get cold water out to {place} before somebody wilts."],
+        "steps": [
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab cold water at {from}." },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Get it to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Make sure {member.first} is drinking something.",
+            "lines": [
+              {
+                "entitled": "Water. At last. I was about to faint, which I would have mentioned to the board.",
+                "competitive": "Hydration is performance. Thank you.",
+                "junior": "It's SO hot. Thank you. Seriously.",
+                "*": "Oh, cold water! You are a saint."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "vip_escort",
+        "type": "escort",
+        "sources": ["taskBoard", "radio"],
+        "weight": 0.8,
+        "cooldownDays": 2,
+        "hours": [8, 17.5],
+        "minDay": 2,
+        "roles": {
+          "gate": { "npc": "staff", "ids": ["otis_grant"] },
+          "guest": {
+            "text": [
+              "Mr. Okonjo from the county tennis board",
+              "Ms. Laurent, a prospective member",
+              "the new sponsor from Harlan Motors",
+              "the mayor's chief of staff",
+              "a scout from the regional junior academy",
+              "a writer from Courtside Monthly",
+              "Dame Evelyn Price, a former Wimbledon doubles finalist"
+            ]
+          },
+          "host": { "npc": "member", "archetypes": ["entitled", "veteran", "social", "friendly", "competitive"] },
+          "sight": { "area": ["court1", "court2", "court3", "pool", "fitnessCenter", "garden"] }
+        },
+        "client": "host",
+        "key": ["guest"],
+        "title": ["Escort {guest}", "VIP tour for {host.first}'s guest"],
+        "description": ["{guest} is at the gate as a guest of {host}. Give them the tour."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "gate",
+            "prompt": "Meet Otis at the gate.",
+            "lines": [{ "*": "Report: {guest} is here. Guest of {host}. Looks important. I straightened my badge." }]
+          },
+          {
+            "action": "goTo",
+            "target": "clubhouseLobby",
+            "prompt": "Walk the guest through the clubhouse lobby."
+          },
+          { "action": "goTo", "target": "sight", "prompt": "Show off {sight}." },
+          { "action": "goTo", "target": "patio", "prompt": "Finish on the patio." },
+          {
+            "action": "dialogue",
+            "npc": "host",
+            "prompt": "Hand the guest over to {host.first}.",
+            "lines": [
+              {
+                "entitled": "You showed them {sight}? Good choice. It is the only thing I would have picked.",
+                "social": "They loved it! Of course they did. I knew you were the right one.",
+                "veteran": "A proper tour. Like the old days. I am impressed, and I am rarely impressed.",
+                "*": "They had a wonderful time. Thank you, really."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "tournament_director",
+        "type": "director",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 2,
+        "minRank": 4,
+        "roles": {
+          "pro": { "npc": "staff", "ids": ["rafa_ibarra"] },
+          "ca": { "area": "court" },
+          "cb": { "area": "court", "not": ["ca"] },
+          "a": { "npc": "member", "archetypes": ["competitive", "entitled", "veteran"] },
+          "b": { "related": "a", "rel": ["rival", "friend", "acquaintance", "spouse"] }
+        },
+        "key": ["a", "b"],
+        "title": ["Director: seed the draw", "Tournament desk: {a.first} vs {b.first}"],
+        "description": ["As Head of Grounds you run the club draw. Walk {ca} and {cb}, then settle the seeding dispute."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "pro",
+            "prompt": "Get the draw sheet from Rafa.",
+            "lines": [
+              {
+                "*": "Director. The draw is yours now. {a.first} and {b.first} both want the top seed. Walk the courts first. A calm head chooses well."
+              }
+            ]
+          },
+          { "action": "goTo", "target": "ca", "prompt": "Inspect {ca}." },
+          { "action": "goTo", "target": "cb", "prompt": "Inspect {cb}." },
+          {
+            "action": "dialogue",
+            "npc": "a",
+            "prompt": "Hear {a.first}'s case for the top seed.",
+            "lines": [{ "*": "Top seed. Me. Obviously. Ask anyone. Except {b.first}." }]
+          },
+          {
+            "action": "choose",
+            "prompt": "Who gets the top seed?",
+            "choices": [
+              {
+                "label": "Seed by ladder rating",
+                "result": "The numbers decide. Nobody can argue with a spreadsheet, though {b.first} tries.",
+                "reactions": { "a": "satisfied", "b": "neutral" }
+              },
+              {
+                "label": "Give it to {b.first}",
+                "result": "{b.first} is thrilled. {a.first} vows to win it from the bottom half.",
+                "reactions": { "a": "unsatisfied", "b": "satisfied" }
+              },
+              {
+                "label": "Draw lots at the pro shop",
+                "result": "A coin flip in front of witnesses. Grumbling, but fair.",
+                "reactions": { "a": "neutral", "b": "neutral" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "staff_relay",
+        "type": "social",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.5,
+        "cooldownDays": 2,
+        "minRank": 2,
+        "roles": {
+          "a": { "npc": "staff" },
+          "b": { "npc": "staff", "not": ["a"] },
+          "place": { "area": "staffArea", "of": "b" },
+          "topic": {
+            "text": [
+              "the delivery schedule",
+              "next week's rota",
+              "a leak by the ice machine",
+              "the new ball order",
+              "who borrowed the good ladder",
+              "the fire drill on Thursday"
+            ]
+          }
+        },
+        "key": ["a", "b"],
+        "title": ["Staff relay: {a.first} to {b.first}", "Coordinate {topic}"],
+        "description": ["As a senior attendant you keep the staff in sync. {a} needs {b} to hear about {topic}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "a",
+            "prompt": "Talk to {a.first}.",
+            "lines": [
+              {
+                "*": "Can you tell {b.first} about {topic}? I cannot leave my post and the radio is full of Chad."
+              }
+            ]
+          },
+          { "action": "goTo", "target": "place", "prompt": "Head to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "b",
+            "prompt": "Pass the word to {b.first}.",
+            "lines": [{ "*": "{Topic}? Right. Tell {a.first} I have it. Thanks for running it over." }]
+          }
+        ]
+      },
+      {
+        "id": "member_checkin",
+        "type": "social",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": { "random": 1, "*": 1 },
+        "cooldownDays": 3,
+        "roles": { "m": { "npc": "member" }, "place": { "area": "npcArea", "of": "m" } },
+        "client": "m",
+        "trigger": "m",
+        "key": ["m"],
+        "title": ["Check in with {m.first}", "Member care: {m.first}"],
+        "description": ["The manager wants you to make sure {m} is enjoying the club. Try {place}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "m",
+            "prompt": "Find {m.first} (try {place}).",
+            "greet": true,
+            "idle": true
+          },
+          {
+            "action": "choose",
+            "prompt": "How do you follow up?",
+            "choices": [
+              {
+                "label": "Offer a court booking",
+                "result": "You pencil {m.first} in for tomorrow. They look pleased.",
+                "reactions": { "m": "satisfied" }
+              },
+              {
+                "label": "Recommend a lesson with Rafa",
+                "result": "{m.first} considers it. \"Maybe. If he is not too zen about it.\"",
+                "reactions": { "m": "neutral" }
+              },
+              {
+                "label": "Just listen",
+                "result": "Ten minutes of club gossip later, {m.first} says you are their favourite attendant.",
+                "reactions": { "m": "satisfied" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rainy_lounge",
+        "type": "social",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": 3,
+        "cooldownDays": 1,
+        "weather": ["rainy"],
+        "roles": {
+          "m": { "npc": "member" },
+          "room": { "area": ["memberLounge", "cafe", "clubhouseLobby", "fitnessCenter"] }
+        },
+        "client": "m",
+        "trigger": "m",
+        "key": ["m"],
+        "title": ["Rain-day blues at {room.label}", "Cheer up {m.first}"],
+        "description": ["Stuck inside by the rain, {m} is bored at {room}. Think of something."],
+        "steps": [
+          { "action": "goTo", "target": "room", "prompt": "Head to {room}." },
+          {
+            "action": "dialogue",
+            "npc": "m",
+            "prompt": "Talk to {m.first}.",
+            "lines": [
+              {
+                "entitled": "Rain. Again. And nothing to do but watch it. Is there no entertainment committee?",
+                "friendly": "Rain day! I don't mind, really. Well. A little. Any ideas?",
+                "competitive": "Two hours of lost training. I am losing my mind. Suggestions?",
+                "junior": "This is SO boring. Can you make it stop raining? No? Okay.",
+                "*": "Stuck inside. Anything happening today?"
+              }
+            ]
+          },
+          {
+            "action": "choose",
+            "prompt": "What do you suggest?",
+            "choices": [
+              {
+                "label": "Put the classic finals on the lounge TV",
+                "result": "Twenty minutes later a small crowd is shouting at a 1980 line call.",
+                "reactions": { "m": "satisfied" }
+              },
+              {
+                "label": "A stretching session with Marcus",
+                "result": "{m.first} heads to the gym. Marcus's cheer can be heard from the car park.",
+                "reactions": { "m": "neutral" }
+              },
+              {
+                "label": "Card table in the café",
+                "result": "Gus deals. Someone cheats. Everyone has a lovely time.",
+                "reactions": { "m": "satisfied" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ball_kid",
+        "type": "event",
+        "sources": ["taskBoard", "radio"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "events": ["tournament"],
+        "roles": {
+          "court": { "area": "court" },
+          "item": { "item": ["ball_hopper"] },
+          "from": { "area": "itemSource", "of": "item", "not": ["court"] },
+          "player": { "npc": "member", "archetypes": ["competitive", "entitled", "veteran", "friendly", "junior"] }
+        },
+        "client": "player",
+        "key": ["court", "player"],
+        "title": ["Ball kid on {court.label}", "Tournament: balls to {court.label}"],
+        "description": ["Tournament day! {court} is out of balls between rounds and {player} is waiting."],
+        "steps": [
+          {
+            "action": "pickup",
+            "item": "item",
+            "location": "from",
+            "prompt": "Grab a full hopper at {from}."
+          },
+          { "action": "deliver", "item": "item", "location": "court", "prompt": "Run it out to {court}." },
+          {
+            "action": "dialogue",
+            "npc": "player",
+            "prompt": "Tell {player.first} the new balls are out.",
+            "lines": [
+              {
+                "competitive": "New balls. Good. Now nobody can blame the equipment.",
+                "entitled": "New balls. The tournament committee might learn something from you.",
+                "*": "Fresh balls! Now it is a real tournament."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "tournament_water",
+        "type": "event",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "events": ["tournament", "ladies_doubles"],
+        "roles": {
+          "item": { "item": ["water_bottles", "towels"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "court": { "area": "court", "not": ["from"] },
+          "host": { "npc": "staff", "ids": ["rafa_ibarra", "jess_nakamura"] }
+        },
+        "key": ["court", "item"],
+        "title": ["Courtside {item.label} on {court.label}", "Keep {court.label} stocked"],
+        "description": ["Between matches, {court} needs {item}. {host.first} is keeping score."],
+        "steps": [
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "court", "prompt": "Stock {court}." },
+          {
+            "action": "dialogue",
+            "npc": "host",
+            "prompt": "Report to {host.first}.",
+            "lines": [
+              {
+                "rafa_ibarra": "Bueno. A stocked court is a quiet court.",
+                "*": "Stocked. Noted. You are faster than the scoreboard."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "clinic_hopper",
+        "type": "event",
+        "sources": ["taskBoard", "radio"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "events": ["junior_clinic"],
+        "roles": {
+          "coach": { "npc": "staff", "ids": ["rafa_ibarra"] },
+          "kid": { "npc": "member", "archetypes": ["junior", "clueless"] },
+          "item": { "item": ["ball_hopper", "water_bottles"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "court": { "area": "court", "not": ["from"] }
+        },
+        "client": "coach",
+        "key": ["kid", "court"],
+        "title": ["Clinic: {item.label} to {court.label}", "Junior clinic station"],
+        "description": ["Junior Clinic! Rafa is running stations and {court} needs {item} for {kid.first}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "coach",
+            "prompt": "Get your station from Rafa.",
+            "lines": [
+              {
+                "*": "Station three is {court}. {Kid.first} is there. They need {item}. Children are like clay: shape them early, and water them."
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "court", "prompt": "Set up {court}." },
+          {
+            "action": "dialogue",
+            "npc": "kid",
+            "prompt": "Cheer on {kid.first}.",
+            "lines": [
+              {
+                "junior": "Did you see that one? Did you? Okay, the one before it was bad, but that one!",
+                "clueless": "Is this the beginner station? Please say this is the beginner station.",
+                "*": "Thanks! This is actually really fun."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "social_setup",
+        "type": "event",
+        "sources": ["taskBoard", "radio"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "events": ["ladies_doubles", "twilight_mixer"],
+        "roles": {
+          "host": { "npc": "member", "ids": ["babs_hendricks", "harper_brandt", "maria_santos", "gloria_castellano"] },
+          "item": { "item": ["towels", "water_bottles"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": { "area": ["patio", "garden", "memberLounge"], "not": ["from"] }
+        },
+        "client": "host",
+        "key": ["host", "place"],
+        "title": ["Set up {place.label} for the social", "{host.first}'s party prep"],
+        "description": ["{host} is hosting today. {Place} needs {item} before the guests arrive."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "host",
+            "prompt": "Get the plan from {host.first}.",
+            "lines": [
+              {
+                "social": "Okay! {Place}, {item}, arranged like you mean it. Guests in an hour. Go go go!",
+                "veteran": "{Item} to {place}, darling. The ladies notice everything.",
+                "*": "Could you put {item} out at {place}? We start soon!"
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Set it out at {place}." },
+          {
+            "action": "dialogue",
+            "npc": "host",
+            "prompt": "Show {host.first} the setup.",
+            "lines": [{ "*": "Oh, it is perfect. Nobody will notice it was done in fifteen minutes." }],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "pool_party_run",
+        "type": "event",
+        "sources": ["taskBoard", "radio", "random"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "events": ["pool_party"],
+        "roles": {
+          "staff": { "npc": "staff", "ids": ["dani_kowalski", "gus_papadakis"] },
+          "item": { "item": ["towels", "water_bottles"] },
+          "from": { "area": ["lockerRoom", "poolHouse", "cafe", "proShop"] },
+          "place": { "area": ["pool", "poolHouse", "patio"], "not": ["from"] },
+          "guest": { "npc": "member" }
+        },
+        "client": "guest",
+        "trigger": "guest",
+        "key": ["guest", "place"],
+        "title": ["Pool party: {item} to {place.label}", "Poolside with {staff.first}"],
+        "description": ["Pool Party! {staff} needs {item} at {place}, and {guest} is waiting."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "staff",
+            "prompt": "Check in with {staff.first}.",
+            "lines": [
+              {
+                "dani_kowalski": "Pool party! Walking feet! {Item} to {place}, one, two, three, go!",
+                "gus_papadakis": "Boss. Party special today: {item}, delivered to {place}. Extra hot. It is not hot. Just go.",
+                "*": "{Item} to {place}, please!"
+              }
+            ]
+          },
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab {item} at {from}." },
+          { "action": "deliver", "item": "item", "location": "place", "prompt": "Bring it to {place}." },
+          {
+            "action": "dialogue",
+            "npc": "guest",
+            "prompt": "Hand {guest.first} their share.",
+            "lines": [
+              {
+                "entitled": "A pool party. At a tennis club. Well. The towels are acceptable.",
+                "junior": "CANNONBALL. Oh. Sorry. Thank you!",
+                "*": "Best party of the summer! Thank you!"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "inspection_walk",
+        "type": "event",
+        "sources": ["taskBoard", "radio"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "events": ["board_inspection"],
+        "roles": {
+          "inspector": { "npc": "member", "ids": ["frank_deluca", "diane_ross", "mrs_wellington"] },
+          "place": { "area": ["proShop", "patio", "lockerRoom", "garden", "memberLounge", "pool", "cafe"] },
+          "flaw": {
+            "text": [
+              "a scuffed skirting board",
+              "a wobbly table",
+              "three leaves on the floor",
+              "a bin that is 60% full",
+              "a crooked painting",
+              "a sign in the wrong font"
+            ]
+          }
+        },
+        "key": ["inspector", "place"],
+        "title": ["Inspection: {place.label}", "{inspector.first} is inspecting"],
+        "description": ["Board Inspection day. {inspector} is at {place} with a clipboard."],
+        "steps": [
+          { "action": "goTo", "target": "place", "prompt": "Meet the inspector at {place}." },
+          {
+            "action": "dialogue",
+            "npc": "inspector",
+            "prompt": "Face {inspector.first}'s clipboard.",
+            "lines": [
+              {
+                "veteran": "Section 4.2, son. {Flaw}. Explain yourself.",
+                "entitled": "I have found {flaw}. On inspection day. Do you know what that says about this club?",
+                "*": "There is {flaw} here. Explain."
+              }
+            ]
+          },
+          {
+            "action": "choose",
+            "prompt": "How do you answer?",
+            "choices": [
+              {
+                "label": "Fix it on the spot",
+                "result": "Thirty seconds, one sleeve, problem gone. {inspector.first} writes something. It looks positive.",
+                "reactions": { "inspector": "satisfied" }
+              },
+              {
+                "label": "Blame the wind",
+                "result": "{inspector.first} looks outside. It is perfectly still.",
+                "reactions": { "inspector": "unsatisfied" }
+              },
+              {
+                "label": "Promise a full report",
+                "result": "{inspector.first} likes reports. A nod, and on to the next room.",
+                "reactions": { "inspector": "neutral" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "inspection_groom",
+        "type": "maintenance",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "events": ["board_inspection", "maintenance_monday"],
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "inspector": { "npc": "any", "ids": ["frank_deluca", "diane_ross", "hank_morris"] },
+          "court": { "area": "court", "surface": "clay" }
+        },
+        "key": ["inspector"],
+        "title": ["Clay for the inspectors", "Groom for {inspector.first}"],
+        "description": ["{inspector} will judge the clay courts today. Excellent grooming pays double."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "inspector",
+            "prompt": "Talk to {inspector.first}.",
+            "lines": [
+              {
+                "veteran": "The clay, son. I will be walking every line. In these shoes.",
+                "hank_morris": "Board is walking the clay today. Drag it like you mean it. Crops do not grow on promises.",
+                "*": "The courts will be inspected. I expect perfection."
+              }
+            ]
+          },
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Hitch the drag brush at the equipment shed."
+          },
+          { "action": "groom", "target": "court", "prompt": "Groom the clay courts to inspection standard." },
+          {
+            "action": "dialogue",
+            "npc": "inspector",
+            "prompt": "Show {inspector.first} the result.",
+            "lines": [{ "*": "Hm. Acceptable. More than acceptable. Do not let it go to your head." }]
+          }
+        ]
+      },
+      {
+        "id": "vip_hospitality",
+        "type": "escort",
+        "sources": ["taskBoard", "radio"],
+        "weight": 4,
+        "cooldownDays": 0,
+        "events": ["vip_visit"],
+        "roles": {
+          "host": { "npc": "member", "archetypes": ["entitled", "veteran", "social"] },
+          "item": { "item": ["towels", "water_bottles"] },
+          "from": { "area": "itemSource", "of": "item" },
+          "place": { "area": ["memberLounge", "patio", "court1", "court2", "pool"], "not": ["from"] }
+        },
+        "client": "host",
+        "key": ["host", "place"],
+        "title": ["VIP comfort: {place.label}", "Make {place.label} VIP-ready"],
+        "description": ["The VIP is touring with {host}. {Place} needs {item}, and it needs to look effortless."],
+        "steps": [
+          { "action": "pickup", "item": "item", "location": "from", "prompt": "Grab {item} at {from}." },
+          {
+            "action": "deliver",
+            "item": "item",
+            "location": "place",
+            "prompt": "Arrange it at {place}, discreetly."
+          },
+          {
+            "action": "dialogue",
+            "npc": "host",
+            "prompt": "Signal {host.first} that {place} is ready.",
+            "lines": [
+              {
+                "entitled": "Seamless. The VIP did not even see you. That is the highest compliment I give.",
+                "social": "They noticed! They asked who you were! I said you were mine. Figuratively.",
+                "*": "Perfect timing. They were impressed."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "monday_repairs",
+        "type": "maintenance",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "events": ["maintenance_monday"],
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "a": { "area": "court" },
+          "b": { "area": ["garden", "patio", "pool", "equipmentShed"] },
+          "job": {
+            "text": [
+              "tighten the net straps",
+              "check the fence ties",
+              "reset the line tapes",
+              "oil the gate hinges",
+              "swap the windscreen clips"
+            ]
+          }
+        },
+        "key": ["a"],
+        "title": ["Maintenance Monday: {a.label}", "Hank's list: {job}"],
+        "description": ["Maintenance Monday. Hank wants you to {job} on {a}, then check {b}."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Get the list from Hank.",
+            "lines": [{ "*": "Monday. Quiet day, good day. {Job} on {a}, then walk {b}. Measure twice, drag once." }]
+          },
+          { "action": "goTo", "target": "a", "prompt": "{Job} on {a}." },
+          { "action": "goTo", "target": "b", "prompt": "Walk {b} and look for problems." },
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Report back to Hank.",
+            "lines": [{ "*": "Done already? Good hands. Most folks have two left ones." }]
+          }
+        ]
+      },
+      {
+        "id": "member_request",
+        "builder": "request",
+        "type": "errand",
+        "sources": ["random", "taskBoard", "radio"],
+        "weight": { "random": 4, "*": 2.5 },
+        "cooldownDays": 3,
+        "roles": { "member": { "npc": "any" } },
+        "title": "Request"
+      }
     ]
   },
 
@@ -1280,6 +2846,394 @@
           "dialogueKey": "staff_security_lost_racket_2"
         }
       ]
+    },
+    {
+      "id": "story_cup_signup",
+      "type": "story",
+      "title": "The Greenbriar Cup",
+      "description": "Rafa is launching the club championship. Get the sign-up sheet posted at the pro shop.",
+      "source": "random",
+      "triggerNpc": "rafa_ibarra",
+      "minDay": 3,
+      "hours": [8, 16],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "rafa_ibarra",
+          "prompt": "Talk to Rafa about the Cup.",
+          "dialogueKey": "cup_signup_1"
+        },
+        { "action": "goTo", "target": "proShop", "prompt": "Take the sign-up sheet to the pro shop." },
+        {
+          "action": "dialogue",
+          "npcId": "jess_nakamura",
+          "prompt": "Hand the sheet to Jess.",
+          "dialogueKey": "cup_signup_2"
+        }
+      ]
+    },
+    {
+      "id": "story_cup_seeding",
+      "type": "story",
+      "title": "Cup Seeding Showdown",
+      "description": "Chad and Nate both claim the top seed for the Greenbriar Cup. Settle it on Court 1.",
+      "source": "radio",
+      "requires": ["story_cup_signup"],
+      "minDay": 5,
+      "hours": [9, 17],
+      "steps": [
+        { "action": "goTo", "target": "court1", "prompt": "Head to Court 1." },
+        {
+          "action": "dialogue",
+          "npcId": "chad_blake",
+          "prompt": "Hear Chad's pitch.",
+          "dialogueKey": "cup_seeding_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "nate_okafor",
+          "prompt": "Hear Nate's numbers.",
+          "dialogueKey": "cup_seeding_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "Who gets the top seed?",
+          "choices": [
+            {
+              "label": "Nate: the ladder says so",
+              "result": "Nate nods once. Chad announces he prefers being the underdog anyway. Loudly.",
+              "reactions": { "nate_okafor": "satisfied", "chad_blake": "unsatisfied" }
+            },
+            {
+              "label": "Chad: he won last summer",
+              "result": "Chad does a victory lap of Court 1. Nate updates a spreadsheet, calmly, forever.",
+              "reactions": { "chad_blake": "satisfied", "nate_okafor": "unsatisfied" }
+            },
+            {
+              "label": "Let them play a tiebreak for it",
+              "result": "Seven points later Nate is top seed, Chad wants best of three, and the crowd loves it.",
+              "reactions": { "chad_blake": "neutral", "nate_okafor": "satisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "story_cup_final",
+      "type": "story",
+      "title": "Cup Final Day",
+      "description": "The Greenbriar Cup final is on Court 1. Balls, water, and Mrs. Wellington presents the trophy.",
+      "source": "taskBoard",
+      "client": "mrs_wellington",
+      "requires": ["story_cup_seeding"],
+      "minDay": 7,
+      "minRank": 1,
+      "hours": [9, 17.5],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "rafa_ibarra",
+          "prompt": "Get the final-day plan from Rafa.",
+          "dialogueKey": "cup_final_1"
+        },
+        {
+          "action": "pickup",
+          "location": "equipmentShed",
+          "item": "ball_hopper",
+          "prompt": "Grab fresh balls at the equipment shed."
+        },
+        {
+          "action": "deliver",
+          "location": "court1",
+          "item": "ball_hopper",
+          "prompt": "Set them out on Court 1."
+        },
+        {
+          "action": "pickup",
+          "location": "proShop",
+          "item": "water_bottles",
+          "prompt": "Pick up water at the pro shop."
+        },
+        {
+          "action": "deliver",
+          "location": "court1",
+          "item": "water_bottles",
+          "prompt": "Water for the finalists on Court 1."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "mrs_wellington",
+          "prompt": "Escort Mrs. Wellington to present the trophy.",
+          "dialogueKey": "cup_final_2"
+        }
+      ]
+    },
+    {
+      "id": "story_hank_roller",
+      "type": "story",
+      "title": "Hank's Old Roller",
+      "description": "Hank has something on his mind, and something in the shed he wants you to see.",
+      "source": "random",
+      "triggerNpc": "hank_morris",
+      "minDay": 4,
+      "minRank": 1,
+      "hours": [8, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Talk to Hank.",
+          "dialogueKey": "hank_roller_1"
+        },
+        { "action": "goTo", "target": "equipmentShed", "prompt": "Meet Hank at the equipment shed." },
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Hear Hank out.",
+          "dialogueKey": "hank_roller_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "What do you tell Hank?",
+          "choices": [
+            {
+              "label": "The club needs you",
+              "result": "Hank grunts. \"Club needed rain in 1987 too. Got by.\" But he stands a little straighter.",
+              "reactions": { "hank_morris": "neutral" }
+            },
+            {
+              "label": "Teach me everything first",
+              "result": "A long look. \"Tuesday. Six sharp. Bring gloves.\" That is a yes.",
+              "reactions": { "hank_morris": "satisfied" }
+            },
+            {
+              "label": "You've earned a rest",
+              "result": "\"Earned. Hm.\" He pats the roller like an old horse. \"Maybe.\"",
+              "reactions": { "hank_morris": "satisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "story_hank_apprentice",
+      "type": "maintenance",
+      "title": "Hank's Apprentice",
+      "description": "Hank wants to watch you groom the clay, start to finish. No pressure. Lots of pressure.",
+      "source": "taskBoard",
+      "client": "hank_morris",
+      "requires": ["story_hank_roller"],
+      "minDay": 6,
+      "minRank": 2,
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Report to Hank for your lesson.",
+          "dialogueKey": "hank_apprentice_1"
+        },
+        {
+          "action": "goTo",
+          "target": "equipmentShed",
+          "prompt": "Hitch the drag brush at the equipment shed."
+        },
+        { "action": "groom", "target": "court3", "prompt": "Groom the clay courts while Hank watches." },
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Get Hank's verdict.",
+          "dialogueKey": "hank_apprentice_2"
+        }
+      ]
+    },
+    {
+      "id": "story_hank_party",
+      "type": "story",
+      "title": "Forty Years of Hank",
+      "description": "Gus is throwing Hank a surprise party for forty years at Greenbriar. Hank must not find out.",
+      "source": "random",
+      "triggerNpc": "gus_papadakis",
+      "client": "hank_morris",
+      "requires": ["story_hank_apprentice"],
+      "minDay": 9,
+      "minRank": 3,
+      "hours": [10, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "gus_papadakis",
+          "prompt": "Talk to Gus, quietly.",
+          "dialogueKey": "hank_party_1"
+        },
+        {
+          "action": "pickup",
+          "location": "poolHouse",
+          "item": "water_bottles",
+          "prompt": "Pick up Gus's lemonade at the pool house."
+        },
+        {
+          "action": "deliver",
+          "location": "patio",
+          "item": "water_bottles",
+          "prompt": "Set up the party table on the patio."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "babs_hendricks",
+          "prompt": "Check the decorations with Babs.",
+          "dialogueKey": "hank_party_2"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "hank_morris",
+          "prompt": "Bring Hank to the patio, casually.",
+          "dialogueKey": "hank_party_3"
+        }
+      ]
+    },
+    {
+      "id": "story_kevin_doubles",
+      "type": "story",
+      "title": "Kevin Needs a Partner",
+      "description": "Kevin wants to enter the doubles ladder but is too nervous to ask anyone.",
+      "source": "random",
+      "triggerNpc": "kevin_park",
+      "client": "kevin_park",
+      "minDay": 2,
+      "hours": [8, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "kevin_park",
+          "prompt": "Talk to Kevin.",
+          "dialogueKey": "kevin_doubles_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "priya_sharma",
+          "prompt": "Ask Priya if she would partner Kevin.",
+          "dialogueKey": "kevin_doubles_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you set it up?",
+          "choices": [
+            {
+              "label": "Introduce them properly",
+              "result": "Kevin and Priya discover they both read the rulebook for fun. A team is born.",
+              "reactions": { "kevin_park": "satisfied", "priya_sharma": "satisfied" }
+            },
+            {
+              "label": "Book them a practice court",
+              "result": "Court 2, Thursday at five. Kevin has already set three reminders.",
+              "reactions": { "kevin_park": "satisfied", "priya_sharma": "neutral" }
+            },
+            {
+              "label": "Suggest a lesson with Rafa first",
+              "result": "Sensible. Slightly deflating. They both agree anyway.",
+              "reactions": { "kevin_park": "neutral", "priya_sharma": "neutral" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "story_kevin_frank",
+      "type": "conflict",
+      "title": "Section 7.3",
+      "description": "Frank has written Kevin up again. Time to broker a peace at the pro shop.",
+      "source": "radio",
+      "requires": ["story_kevin_doubles"],
+      "minDay": 5,
+      "hours": [8, 17],
+      "steps": [
+        { "action": "goTo", "target": "proShop", "prompt": "Head to the pro shop." },
+        {
+          "action": "dialogue",
+          "npcId": "frank_deluca",
+          "prompt": "Hear Frank's complaint.",
+          "dialogueKey": "kevin_frank_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "kevin_park",
+          "prompt": "Get Kevin's side.",
+          "dialogueKey": "kevin_frank_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you settle it?",
+          "choices": [
+            {
+              "label": "Frank mentors Kevin on the rules",
+              "result": "Frank lights up. Kevin gets a laminated copy of the bylaws. Both are strangely happy.",
+              "reactions": { "frank_deluca": "satisfied", "kevin_park": "neutral" }
+            },
+            {
+              "label": "The rule is out of date",
+              "result": "Frank goes pale. Kevin is vindicated. The bylaws committee will hear of this.",
+              "reactions": { "frank_deluca": "unsatisfied", "kevin_park": "satisfied" }
+            },
+            {
+              "label": "Get them on court together",
+              "result": "One set of doubles later, Frank calls Kevin \"son\". It is a compliment.",
+              "reactions": { "frank_deluca": "satisfied", "kevin_park": "satisfied" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "story_board_offer",
+      "type": "story",
+      "title": "The Board's Offer",
+      "description": "The club board has asked to see the Head of Grounds in the members' lounge.",
+      "source": "taskBoard",
+      "requires": ["story_hank_party"],
+      "minDay": 10,
+      "minRank": 4,
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "diane_ross",
+          "prompt": "Diane has news from the board.",
+          "dialogueKey": "board_offer_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "frank_deluca",
+          "prompt": "Frank wants a word too.",
+          "dialogueKey": "board_offer_2"
+        },
+        { "action": "goTo", "target": "memberLounge", "prompt": "Head to the members' lounge." },
+        {
+          "action": "dialogue",
+          "npcId": "mrs_wellington",
+          "prompt": "Meet Mrs. Wellington in the lounge.",
+          "dialogueKey": "board_offer_3"
+        },
+        {
+          "action": "choose",
+          "prompt": "Your answer to the board?",
+          "choices": [
+            {
+              "label": "Accept: Director of Grounds",
+              "result": "A handshake, a brass nameplate and, somewhere, Hank laughing. The courts are yours.",
+              "reactions": { "mrs_wellington": "satisfied", "diane_ross": "satisfied", "frank_deluca": "satisfied" }
+            },
+            {
+              "label": "Stay on the courts, where the work is",
+              "result": "\"Stubborn,\" says Mrs. Wellington. \"Good.\" Frank salutes. Diane pretends not to be touched.",
+              "reactions": { "mrs_wellington": "neutral", "diane_ross": "neutral", "frank_deluca": "satisfied" }
+            },
+            {
+              "label": "Negotiate: a new cart first",
+              "result": "Diane quotes the budget from memory. You get the cart. And the title.",
+              "reactions": { "mrs_wellington": "satisfied", "diane_ross": "neutral", "frank_deluca": "neutral" }
+            }
+          ]
+        }
+      ]
     }
   ],
 
@@ -1491,6 +3445,93 @@
       { "speaker": "Jess Nakamura", "text": "A racket. From the fence. Of course." },
       { "speaker": "Jess Nakamura", "text": "Fifty-two pounds, cross strings a little loose. That's Rafa's backup. He's been looking for it since Tuesday." },
       { "speaker": "Jess Nakamura", "text": "Tell Otis thanks. I'm adding him to the chart. The good chart." }
+    ],
+    "cup_signup_1": [
+      { "speaker": "Coach Rafa Ibarra", "text": "Ah, just the person. The board has approved the Greenbriar Cup. Singles, all levels, one trophy." },
+      { "speaker": "Coach Rafa Ibarra", "text": "A tournament is like bread. It needs a starter. Take this sign-up sheet to Jess at the pro shop." },
+      { "speaker": "Coach Rafa Ibarra", "text": "And watch Chad. He will try to sign up twice." }
+    ],
+    "cup_signup_2": [
+      { "speaker": "Jess Nakamura", "text": "The Cup sheet. Great. I will pin it by the register." },
+      { "speaker": "Jess Nakamura", "text": "Chad already emailed asking if he can be seeded first \"by vibes\". I replied with a blank email." },
+      { "speaker": "Jess Nakamura", "text": "Thanks. That is one less thing between me and my lunch." }
+    ],
+    "cup_seeding_1": [
+      { "speaker": "Chad Blake", "text": "Okay. Okay. Top seed. ME. I won the summer social. I have a signature fist pump. Seeds are about ENERGY." },
+      { "speaker": "Chad Blake", "text": "Nate is great. Nate is a spreadsheet with legs. You cannot seed a spreadsheet." }
+    ],
+    "cup_seeding_2": [
+      { "speaker": "Nate Okafor", "text": "Ladder rating: me, 1480. Chad, 1391. Head to head: four and two." },
+      { "speaker": "Nate Okafor", "text": "I respect the fist pump. I respect math more. Your call." }
+    ],
+    "cup_final_1": [
+      { "speaker": "Coach Rafa Ibarra", "text": "Final day. The court must be ready like a table before guests. Balls, water, nothing on the lines." },
+      { "speaker": "Coach Rafa Ibarra", "text": "When it is done, bring Mrs. Wellington. She presents the trophy. Her grandfather bought it." }
+    ],
+    "cup_final_2": [
+      { "speaker": "Mrs. Wellington", "text": "The Greenbriar Cup. My grandfather commissioned it in 1961. It has never looked so clean." },
+      { "speaker": "Mrs. Wellington", "text": "The court is immaculate. The water is cold. I have no complaints, which I find unsettling." },
+      { "speaker": "Mrs. Wellington", "text": "Thank you, attendant. No. Thank you, by name. I shall learn it." }
+    ],
+    "hank_roller_1": [
+      { "speaker": "Hank Morris", "text": "Got a minute? Walk with me to the shed. Something I want you to see." },
+      { "speaker": "Hank Morris", "text": "Do not look at me like that. It is not a body. It is a roller." }
+    ],
+    "hank_roller_2": [
+      { "speaker": "Hank Morris", "text": "First roller this club ever bought. 1983. I rolled every court with her until my knees filed a union grievance." },
+      { "speaker": "Hank Morris", "text": "Board asked if I am thinking of retiring. I said I would think about it. Now I cannot stop thinking about it." },
+      { "speaker": "Hank Morris", "text": "You are good on the clay. Better than I was at your age. So. What do you reckon?" }
+    ],
+    "hank_apprentice_1": [
+      { "speaker": "Hank Morris", "text": "Lesson day. I watch, you drag. Perimeter first, then the nets, then the middles." },
+      { "speaker": "Hank Morris", "text": "If you miss a corner I will say nothing. Silence is worse. Off you go." }
+    ],
+    "hank_apprentice_2": [
+      { "speaker": "Hank Morris", "text": "Hm." },
+      { "speaker": "Hank Morris", "text": "That is the best \"hm\" I have given in twenty years. Do not tell anyone." },
+      { "speaker": "Hank Morris", "text": "Crops come up straight when the soil is right. You are right. Good." }
+    ],
+    "hank_party_1": [
+      { "speaker": "Gus Papadakis", "text": "Boss. Come here. Closer. Hank has been at this club forty years this week." },
+      { "speaker": "Gus Papadakis", "text": "We are doing a party. Surprise. Lemonade is in the pool house. Patio table, discreet." },
+      { "speaker": "Gus Papadakis", "text": "If he asks, you are \"checking umbrellas\". He hates umbrellas. He will not follow you." }
+    ],
+    "hank_party_2": [
+      { "speaker": "Babs Hendricks", "text": "Honey, the banner says \"FORTY YEARS OF HANK\" in gold, and I did not ask anyone first, and I regret nothing." },
+      { "speaker": "Babs Hendricks", "text": "Bob made a toast. It is eleven minutes long. I cut it to nine. Go get the man!" }
+    ],
+    "hank_party_3": [
+      { "speaker": "Hank Morris", "text": "Patio? Why would I go to the... what is all this." },
+      { "speaker": "Hank Morris", "text": "..." },
+      { "speaker": "Hank Morris", "text": "Forty years. Huh. Somebody pass me a lemonade before I say something soft." }
+    ],
+    "kevin_doubles_1": [
+      { "speaker": "Kevin Park", "text": "Hi! Um. So the doubles ladder opens this week, and I would really like to join, and you need a partner, and..." },
+      { "speaker": "Kevin Park", "text": "...I have made a list of possible partners. It is one person. Priya. Could you... ask her? For me? Sorry." }
+    ],
+    "kevin_doubles_2": [
+      { "speaker": "Priya Sharma", "text": "Kevin wants to play doubles with me? Oh! Sorry, one more thing: is he good? Does it matter? I am not good either." },
+      { "speaker": "Priya Sharma", "text": "Yes. Tell him yes. Wait. How do you think we should start?" }
+    ],
+    "kevin_frank_1": [
+      { "speaker": "Frank DeLuca", "text": "Son, Kevin Park has violated section 7.3 for the fourth time. Untucked shirt. On a Tuesday." },
+      { "speaker": "Frank DeLuca", "text": "I have written a memo. I have written a memo about the memo. Standards, son." }
+    ],
+    "kevin_frank_2": [
+      { "speaker": "Kevin Park", "text": "I tucked it! It came untucked during a serve. I think that is just physics? Sorry." },
+      { "speaker": "Kevin Park", "text": "He is kind of scary but he also taught me how to hold a volley once, so I do not know how to feel." }
+    ],
+    "board_offer_1": [
+      { "speaker": "Diane Ross", "text": "Excuse me. A moment. The board met on Tuesday. Item seven was you." },
+      { "speaker": "Diane Ross", "text": "Courts at ninety percent or better for a month. Member complaints down. Babs is happy, which is statistically improbable." }
+    ],
+    "board_offer_2": [
+      { "speaker": "Frank DeLuca", "text": "Son. At ease. The board would like to offer you a position. With a title. And a desk." },
+      { "speaker": "Frank DeLuca", "text": "I voted for you. Twice. The second vote did not count, but I wanted it on the record." }
+    ],
+    "board_offer_3": [
+      { "speaker": "Mrs. Wellington", "text": "Sit. The board wishes to name you Director of Grounds. My grandfather created the post. It has been empty since 1994." },
+      { "speaker": "Mrs. Wellington", "text": "Hank recommended you. Hank has never recommended anyone. So. Your answer?" }
     ]
   }
 }

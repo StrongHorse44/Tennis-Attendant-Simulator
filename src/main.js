@@ -6,6 +6,8 @@ import { InputSystem } from './systems/InputSystem.js';
 import { WeatherSystem } from './systems/WeatherSystem.js';
 import { DialogueSystem } from './systems/DialogueSystem.js';
 import { MissionSystem } from './systems/MissionSystem.js';
+import { MissionGenerator } from './systems/MissionGenerator.js';
+import { EventSystem } from './systems/EventSystem.js';
 import { InventorySystem } from './systems/InventorySystem.js';
 import { SoundSystem } from './systems/SoundSystem.js';
 import { World } from './world/World.js';
@@ -234,6 +236,12 @@ class Game {
     // Load data
     const loader = new AssetLoader();
     const data = await loader.loadAllData();
+    // Optional data (never fatal): the daily events calendar, and the court schedule so today's
+    // event can merge its matches in (EventSystem → MatchSystem.setSchedule)
+    const optionalJSON = async (n) => {
+      try { return await loader.loadJSON(`${import.meta.env.BASE_URL}data/${n}`); } catch (e) { console.warn(`${n} unavailable:`, e.message || e); return null; }
+    };
+    [this.eventData, this.scheduleData] = await Promise.all([optionalJSON('events.json'), optionalJSON('schedule.json')]);
     this.mapData = data.mapData;
     this.npcData = data.npcData;
     this.missionData = data.missionData;
@@ -291,10 +299,13 @@ class Game {
 
     // Setup mission system (only missions whose every step works in this world are offered)
     this.missionSystem = new MissionSystem(this.missionData, this.dialogueSystem, this.inventory);
-    this.missionSystem.setWorldFacts(
-      buildWorldFacts({ map: this.mapData, npcs: this.npcData, missions: this.missionData, items: ITEMS }),
-      this._buildTargetPoints()
-    );
+    const worldFacts = buildWorldFacts({ map: this.mapData, npcs: this.npcData, missions: this.missionData, items: ITEMS });
+    this.missionSystem.setWorldFacts(worldFacts, this._buildTargetPoints());
+    // Procedural missions from missions.json → templates (validated against the same facts)
+    this.missionSystem.setGenerator(new MissionGenerator({
+      templates: this.missionData.templates, npcs: this.npcData, map: this.mapData,
+      schedule: this.scheduleData, items: ITEMS, facts: worldFacts,
+    }));
     this.missionMarkers = new MissionMarkers(this.scene, this.missionSystem);
     this.missionSystem.describePlace = (npc) => this._describePlace(npc);
 
@@ -304,6 +315,13 @@ class Game {
 
     // Setup HUD
     this.hud = new HUD(this.weather, this.missionSystem, this.inventory);
+
+    // Progression gates (minDay / minRank) and the daily events calendar (events.json)
+    this.missionSystem.getDay = () => this.weather.day || 1;
+    this.missionSystem.getRankIndex = () => this.shift.rankIndex;
+    this.events = new EventSystem(this.eventData, { missions: this.missionSystem, shift: this.shift, weather: this.weather });
+    this.shift.getEvent = () => this.events.describe();
+    this.events.onEventChange = () => { if (this.hud && this.hud.setEventLabel) this.hud.setEventLabel(this.events.describe()); };
 
     // Setup court maintenance system
     this.courtMaintenance = new CourtMaintenanceSystem(
@@ -385,7 +403,13 @@ class Game {
       weather: this.weather, missions: this.missionSystem, maintenance: this.courtMaintenance,
       sound: this.sound, camera: this.camera, waypoints: this.mapData.waypoints,
     });
-    this.matches.load();
+    // Today's event merges extra matches into schedule.json (at day start / load only)
+    this.events.onScheduleChange = (sched) => {
+      this.matches.setSchedule(sched);
+      if (this.missionSystem.generator) this.missionSystem.generator.setSchedule(sched);
+    };
+    if (this.scheduleData) this.events.setBaseSchedule(this.scheduleData);
+    else this.matches.load();
 
     // Radio dispatch: a card with "On it" / "Busy" (Busy just passes, no penalty)
     this.missionSystem.onRadioDispatch = (mission) => {
@@ -662,12 +686,16 @@ class Game {
     const shift = this.shift;
     shift.getCourtQuality = () => (this.courtMaintenance ? this.courtMaintenance.getAverageCleanliness() : null);
     shift.onClockInPrompt = (day) => {
+      // Today's club event (events.json) is announced with the clock-in call
+      const ev = this.events ? this.events.describe() : null;
+      const themed = !!(ev && ev.id !== 'regular');
+      if (ev && this.hud.setEventLabel) this.hud.setEventLabel(ev);
       this.sound.playRadioChirp();
       this.hud.showRadioCard({
         kind: 'clockIn',
         channel: shift.data.manager || 'Club Manager',
-        title: `Good morning! Day ${day} starts now.`,
-        text: 'Shift runs 7 AM to 7 PM. Opening checklist first.',
+        title: themed ? `Day ${day}, ${ev.weekday}: ${ev.icon ? ev.icon + ' ' : ''}${ev.title}` : `Good morning! Day ${day} starts now.`,
+        text: themed ? `${ev.announce} Opening checklist first.` : 'Shift runs 7 AM to 7 PM. Opening checklist first.',
         actions: [{ label: 'Clock in', primary: true, onClick: () => this.clockIn() }],
       });
     };
@@ -1412,6 +1440,7 @@ class Game {
     this.missionMarkers.update(dt, playerWorldPos, this.camera.position);
     if (this.itemProps) this.itemProps.update(dt);
     this.shift.update(dt, !this.dialogueSystem.isActive() && !this.courtMaintenance.isGrooming());
+    if (this.events) this.events.update(dt);
 
     // Update HUD
     this.hud.updateTimeWeather();

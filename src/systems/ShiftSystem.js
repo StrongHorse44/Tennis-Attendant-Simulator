@@ -109,6 +109,11 @@ export class ShiftSystem {
     this.shift = createShiftCounters();
     this.lastReport = null;
     this._rush = null;
+    // Today's club event (EventSystem sets these each day; 1 = no change)
+    this.eventTipMultiplier = 1;
+    this.eventGroomBonusMultiplier = 1;
+    /** () => { title, icon, ... } | null: today's event for the report card (set by Game). */
+    this.getEvent = null;
 
     this.onClockInPrompt = null;
     this.onClockedIn = null;
@@ -287,6 +292,7 @@ export class ShiftSystem {
       points: prog.points,
       pointsGained: prog.points - s.startPoints,
       frac: prog.frac,
+      event: this.getEvent ? this.getEvent() : null,
     };
   }
 
@@ -346,7 +352,7 @@ export class ShiftSystem {
     const lo = Number(range[0]) || 0;
     const hi = Math.max(lo, Number(range[1]) || lo);
     const base = lo + this.rand() * (hi - lo);
-    const bonus = 1 + (this.getPerks().tipBonus || 0);
+    const bonus = (1 + (this.getPerks().tipBonus || 0)) * (this.eventTipMultiplier || 1);
     return Math.max(1, Math.round(base * (m.amount ?? 1) * bonus));
   }
 
@@ -363,7 +369,7 @@ export class ShiftSystem {
     const pay = this.missions.getBaseReward(mission);
     let bonus = 0;
     if (mission.type === 'maintenance' && s.lastGroomRating) {
-      bonus = this.data.groomBonus[s.lastGroomRating] || 0;
+      bonus = Math.round((this.data.groomBonus[s.lastGroomRating] || 0) * (this.eventGroomBonusMultiplier || 1));
       s.lastGroomRating = null;
     }
     if (pay + bonus > 0) {
