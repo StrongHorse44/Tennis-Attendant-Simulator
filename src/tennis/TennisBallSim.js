@@ -42,6 +42,9 @@ export const SPIN = {
   lob: { g: 1.15, e: 0.76, kh: 0.66, g2: 1.0 },
   serve: { g: 1.1, e: 0.7, kh: 0.74, g2: 1.0 },
   kick: { g: 1.4, e: 0.82, kh: 0.72, g2: 1.06 },
+  drop: { g: 0.86, e: 0.42, kh: 0.5, g2: 0.96 },   // heavy backspin: floats, then dies
+  smash: { g: 1.12, e: 0.76, kh: 0.82, g2: 1.0 },   // overhead, hit down: big high bounce
+  slicesrv: { g: 0.92, e: 0.6, kh: 0.84, g2: 0.94 }, // slice serve: low, skidding, away
   feed: { g: 1.1, e: 0.74, kh: 0.72, g2: 1.0 },
   dead: { g: 1.0, e: 0.6, kh: 0.7, g2: 1.0 },
 };

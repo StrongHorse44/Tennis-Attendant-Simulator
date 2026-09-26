@@ -1658,6 +1658,7 @@ class Game {
     this.paused = true;
     this.pauseReason = reason;
     this._pausedAt = performance.now();
+    if (this.tennis && this.tennis.active) this.tennis.onPause();
     this.input.setEnabled(false);
     this.sound.setPaused(true);
     if (this.dialogueBox && this.dialogueBox.setPaused) this.dialogueBox.setPaused(true);
