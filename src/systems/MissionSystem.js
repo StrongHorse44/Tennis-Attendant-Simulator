@@ -1,6 +1,8 @@
 import { GAME } from '../utils/Constants.js';
 import { ITEMS } from './InventorySystem.js';
 import { missionErrors } from './MissionValidation.js';
+import { pickSmallTalk } from './SmallTalk.js';
+import { EnvState } from '../graphics/EnvState.js';
 
 /** Unbiased in-place Fisher-Yates shuffle. */
 export function shuffleInPlace(arr, rand = Math.random) {
@@ -31,6 +33,7 @@ const RADIO_RETRY_WHEN_FULL = 20;
  *   onDispatchClosed(mission, accepted)  – the card should go away (answered or timed out)
  *   onMissionComplete(mission)           – fired once per completion; mission.reactions = { npcId: mood }
  *   onReaction(npcId, mood)              – each NPC reaction to a choice
+ *   onItemDelivered(mission, item, loc)  – an errand item was handed over (ItemProps sets it down)
  */
 export class MissionSystem {
   constructor(missionData, dialogueSystem, inventorySystem) {
@@ -63,6 +66,7 @@ export class MissionSystem {
     this.onDispatchClosed = null;
     this.onMissionComplete = null;
     this.onReaction = null;
+    this.onItemDelivered = null;
 
     this.npcsMap = new Map();
     this._templatesById = new Map();
@@ -158,7 +162,24 @@ export class MissionSystem {
 
   _isOfferable(m, source) {
     return m && m.source === source && !this.completedMissionIds.has(m.id) && !this._isActive(m.id) &&
-      this.isCompletable(m);
+      this._storyReady(m) && this.isCompletable(m);
+  }
+
+  /**
+   * Member storylines: `requires` (mission ids completed first) and `hours` ([from, to) in-game
+   * hours) gate when a mission can be OFFERED. Once active it runs to the end at any hour.
+   */
+  _storyReady(m) {
+    const req = m.requires;
+    if (Array.isArray(req)) {
+      for (let i = 0; i < req.length; i++) if (!this.completedMissionIds.has(req[i])) return false;
+    }
+    const h = m.hours;
+    if (Array.isArray(h) && h.length === 2) {
+      const t = EnvState.timeOfDay;
+      if (!(t >= h[0] && t < h[1])) return false;
+    }
+    return true;
   }
 
   _notifyUpdate() {
@@ -168,9 +189,12 @@ export class MissionSystem {
 
   registerNPCs(npcs) {
     this.npcsMap.clear();
+    const colors = new Map(); // speaker name → dialogue colour (multi-speaker mission scripts)
     for (const npc of npcs) {
       this.npcsMap.set(npc.id, npc);
+      if (npc.name && npc.dialogueColor) colors.set(npc.name, npc.dialogueColor);
     }
+    if (this.dialogueSystem) this.dialogueSystem.speakerColors = colors;
     this.refreshNPCMarkers();
   }
 
@@ -499,14 +523,16 @@ export class MissionSystem {
       this.refreshNPCMarkers();
     }
 
-    // 3. Small talk: a greeting, or a line matching how they feel about you
-    const data = npc.data || {};
-    const pool = data.dialoguePool || {};
-    let lines = Array.isArray(data.greetings) && data.greetings.length ? data.greetings : ['Hello there!'];
-    const moodLines = pool[npc.mood];
-    if (Array.isArray(moodLines) && moodLines.length && Math.random() < 0.5) lines = moodLines;
-    else if (Array.isArray(pool.idle) && pool.idle.length && Math.random() < 0.3) lines = pool.idle;
-    const text = lines[Math.floor(Math.random() * lines.length)];
+    // 3. Small talk (SmallTalk.js): a greeting the first time in a while, then personality,
+    //    time-of-day and weather lines, or how they feel about you after a mission reaction
+    const now = EnvState.time;
+    const firstChat = npc._smallTalkAt == null || now - npc._smallTalkAt > 600;
+    const text = pickSmallTalk(npc.data, {
+      mood: npc.mood, moodSet: !!npc.moodSet, firstChat,
+      hour: EnvState.timeOfDay, weather: EnvState.weather, last: npc._smallTalkLast,
+    });
+    npc._smallTalkAt = now;
+    npc._smallTalkLast = text;
     this.dialogueSystem.startDialogue(npc, [{ speaker: npc.name, text }], onComplete);
     return true;
   }
@@ -590,6 +616,9 @@ export class MissionSystem {
         if (item && this.inventory.hasItem(item.id)) {
           this.inventory.removeItem(item.id);
           this.advanceMissionStep(mission.id);
+          if (this.onItemDelivered) {
+            try { this.onItemDelivered(mission, item, location); } catch (e) { console.warn('onItemDelivered failed:', e); }
+          }
           return { mission, item };
         }
       }

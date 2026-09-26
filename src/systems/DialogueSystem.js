@@ -15,6 +15,8 @@ export class DialogueSystem {
     this.onChoiceMade = null;
     this._choices = null;       // choices currently on screen (keyboard 1-9 selects)
     this._warnedKeys = new Set();
+    /** Map speaker name → name colour (set by MissionSystem.registerNPCs from each NPC's archetype). */
+    this.speakerColors = null;
   }
 
   /** True while the choice buttons are showing (Space/Enter must not advance past them). */
@@ -130,12 +132,13 @@ export class DialogueSystem {
     }
 
     const line = this.queue[this.queueIndex];
-    const nameColor = this.currentNPC && this.currentNPC.data ?
-      this.currentNPC.data.archetype === 'entitled' ? '#E74C3C' :
-      this.currentNPC.data.archetype === 'friendly' ? '#27AE60' : '#3498DB'
-      : '#fff';
-
     const speaker = line.speaker || (this.currentNPC ? this.currentNPC.name : '');
+    // Colour by who is speaking (scripts can hand the line to another member), else the NPC we talk to
+    const npc = this.currentNPC;
+    const nameColor = (this.speakerColors && this.speakerColors.get(speaker)) ||
+      (npc && (npc.dialogueColor || (npc.data && npc.data.archetype === 'entitled' ? '#E74C3C'
+        : npc.data && npc.data.archetype === 'friendly' ? '#27AE60' : npc.data ? '#3498DB' : null))) || '#fff';
+
     this.dialogueBox.show(speaker, line.text, nameColor);
   }
 

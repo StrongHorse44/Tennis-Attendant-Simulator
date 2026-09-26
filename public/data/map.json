@@ -94,7 +94,7 @@
       "bounds": { "width": 18, "depth": 18 },
       "fountain": { "x": -15, "y": 0, "z": -10 },
       "hedges": [
-        { "x": -22, "z": -4, "width": 1, "depth": 8 },
+        { "x": -22, "z": -6.2, "width": 1, "depth": 3.8 },
         { "x": -8, "z": -4, "width": 1, "depth": 8 },
         { "x": -17.75, "z": -18, "width": 8.5, "depth": 1 }
       ],
@@ -116,9 +116,9 @@
       "center": { "x": -20, "y": 0, "z": 5 },
       "bounds": { "width": 18, "depth": 8 },
       "seating": [
-        { "x": -26, "z": 4, "type": "table" },
-        { "x": -20, "z": 4, "type": "table" },
-        { "x": -14, "z": 4, "type": "table" },
+        { "x": -26.4, "z": 4, "type": "table" },
+        { "x": -23.1, "z": 4, "type": "table" },
+        { "x": -16.4, "z": 4, "type": "table" },
         { "x": -26, "z": 8, "type": "bench" },
         { "x": -14, "z": 8, "type": "bench" }
       ],
@@ -126,8 +126,62 @@
         "center": { "x": -20, "y": 0, "z": 0 },
         "width": 18,
         "depth": 8,
-        "height": 3.5
+        "height": 3.5,
+        "_comment": "Rooms: lounge | lobby | café are the west/centre/east thirds; the locker wing (corridor on its east side, men's north half, women's south half) opens off the lounge.",
+        "wing": { "center": { "x": -33, "y": 0, "z": -6.5 }, "width": 8, "depth": 11, "height": 3.2 }
       }
+    },
+    "clubhouseLobby": {
+      "label": "Clubhouse Lobby",
+      "center": { "x": -20, "y": 0, "z": 0 },
+      "bounds": { "width": 5.8, "depth": 7.7 },
+      "indoor": true,
+      "markerHeight": 6.6
+    },
+    "memberLounge": {
+      "label": "Members' Lounge",
+      "center": { "x": -26, "y": 0, "z": 0 },
+      "bounds": { "width": 5.8, "depth": 7.7 },
+      "indoor": true,
+      "markerHeight": 6.2
+    },
+    "cafe": {
+      "label": "Café & Bar",
+      "center": { "x": -14, "y": 0, "z": 0 },
+      "bounds": { "width": 5.8, "depth": 7.7 },
+      "indoor": true,
+      "markerHeight": 6.2
+    },
+    "lockerRoom": {
+      "label": "Locker Rooms",
+      "center": { "x": -34, "y": 0, "z": -6.5 },
+      "bounds": { "width": 5.8, "depth": 10.7 },
+      "indoor": true,
+      "markerHeight": 6.0
+    },
+    "fitnessCenter": {
+      "label": "Fitness & Wellness",
+      "center": { "x": 10, "y": 0, "z": 44 },
+      "bounds": { "width": 15.7, "depth": 9.7 },
+      "building": { "width": 16, "depth": 10, "height": 3.8 },
+      "indoor": true,
+      "markerHeight": 7.2
+    },
+    "poolHouse": {
+      "label": "Pool House",
+      "center": { "x": -53, "y": 0, "z": -28 },
+      "bounds": { "width": 9.7, "depth": 5.7 },
+      "building": { "width": 10, "depth": 6, "height": 3.2 },
+      "indoor": true,
+      "markerHeight": 6.2
+    },
+    "pool": {
+      "label": "Pool",
+      "center": { "x": -53, "y": 0, "z": -14.5 },
+      "bounds": { "width": 16, "depth": 21 },
+      "water": { "x": -53, "z": -14.5, "width": 6, "length": 12 },
+      "gate": { "side": "east", "a": -16, "b": -13 },
+      "markerHeight": 3.2
     }
   },
 
@@ -231,10 +285,18 @@
       "points": [
         { "x": -8, "z": -14 },
         { "x": -18, "z": -25 },
-        { "x": -25, "z": -38 },
-        { "x": -27, "z": -38 }
+        { "x": -24, "z": -32 },
+        { "x": -30, "z": -32 }
       ],
       "width": 2.5
+    },
+    {
+      "id": "shed_apron",
+      "points": [
+        { "x": -30, "z": -32 },
+        { "x": -30, "z": -35.4 }
+      ],
+      "width": 4.6
     },
     {
       "id": "entrance_loop",
@@ -297,8 +359,8 @@
     {
       "id": "perimeter_to_shed",
       "points": [
-        { "x": -42, "z": -38 },
-        { "x": -33, "z": -38 }
+        { "x": -42, "z": -32 },
+        { "x": -30, "z": -32 }
       ],
       "width": 2.5
     },
@@ -317,11 +379,77 @@
         { "x": 45, "z": 5 }
       ],
       "width": 3
+    },
+    {
+      "id": "bldg_fitness_link",
+      "points": [
+        { "x": 14.2, "z": 35 },
+        { "x": 14.2, "z": 38.3 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "bldg_wing_to_pool",
+      "points": [
+        { "x": -30.05, "z": -12.4 },
+        { "x": -30.05, "z": -14.5 },
+        { "x": -42, "z": -14.5 }
+      ],
+      "width": 2.2
+    },
+    {
+      "id": "bldg_pool_link",
+      "points": [
+        { "x": -42, "z": -14.5 },
+        { "x": -45.3, "z": -14.5 }
+      ],
+      "width": 3
+    },
+    {
+      "id": "bldg_club_back",
+      "points": [
+        { "x": -19.2, "z": -4.35 },
+        { "x": -15.2, "z": -4.2 }
+      ],
+      "width": 1.8
     }
   ],
 
+  "itemSpots": {
+    "_comment": "Where errand items rest: <area>_<pickup|deliver>[_<itemId>] = { x, y (surface top), z, ry }. Missing spots fall back to a safe point near the area.",
+    "clubhouseLobby_pickup": { "x": -20.55, "y": 1.18, "z": -2.1, "ry": 0.1 },
+    "clubhouseLobby_deliver": { "x": -22.62, "y": 0.66, "z": -0.45, "ry": 1.5708 },
+    "memberLounge_pickup": { "x": -26.2, "y": 0.54, "z": 1.8, "ry": 0.4 },
+    "memberLounge_deliver": { "x": -25.1, "y": 0.87, "z": -2.2, "ry": 0.2 },
+    "cafe_pickup": { "x": -15.2, "y": 1.2, "z": -2.1, "ry": 0 },
+    "cafe_deliver": { "x": -12.3, "y": 0.88, "z": 0.35, "ry": 0.3 },
+    "lockerRoom_pickup": { "x": -35.07, "y": 0.59, "z": -4.0, "ry": 1.5708 },
+    "lockerRoom_deliver": { "x": -35.07, "y": 0.59, "z": -4.0, "ry": 1.5708 },
+    "fitnessCenter_pickup": { "x": 17.3, "y": 1.16, "z": 41.2, "ry": 1.5708 },
+    "fitnessCenter_deliver": { "x": 17.3, "y": 1.16, "z": 41.2, "ry": 1.5708 },
+    "poolHouse_pickup": { "x": -53.38, "y": 0.55, "z": -27.6, "ry": 1.5708 },
+    "poolHouse_deliver": { "x": -51.3, "y": 1.075, "z": -25.5, "ry": 0 },
+    "pool_pickup": { "x": -49.8, "y": 0.07, "z": -22.9, "ry": 0.3 },
+    "pool_deliver": { "x": -49.8, "y": 0.07, "z": -22.9, "ry": 0.3 },
+    "proShop_pickup": { "x": -17.78, "y": 1.12, "z": 23.12, "ry": 0.08 },
+    "proShop_pickup_water_bottles": { "x": -19.6, "y": 1.12, "z": 23.08, "ry": 0 },
+    "proShop_deliver": { "x": -16.12, "y": 1.12, "z": 22.98, "ry": 1.5708 },
+    "garden_pickup": { "x": -21.0, "y": 0.0, "z": -8.45, "ry": 0.3 },
+    "court1_pickup": { "x": -3.55, "y": 0.15, "z": 8.55, "ry": 1.9 },
+    "court2_deliver": { "x": 34.1, "y": 0.15, "z": 6.6, "ry": 0.2 },
+    "court4_deliver": { "x": 22.3, "y": 0.15, "z": -24.2, "ry": 0.4 },
+    "patio_deliver": { "x": -22.78, "y": 0.877, "z": 5.55, "ry": 0.15 },
+    "court1_deliver": { "x": -4.1, "y": 0.15, "z": 1.3, "ry": 0.2 },
+    "court2_pickup": { "x": 33.5, "y": 0.15, "z": 3.55, "ry": 1.8 },
+    "court3_deliver": { "x": -13.5, "y": 0.0, "z": -23.5, "ry": 0.3 },
+    "court4_pickup": { "x": 8.5, "y": 0.15, "z": -23.5, "ry": -0.2 },
+    "court5_pickup": { "x": 44.1, "y": 0.04, "z": -23.55, "ry": 1.7 },
+    "garden_deliver": { "x": -21.0, "y": 0.0, "z": -11.55, "ry": -0.2 },
+    "equipmentShed_deliver": { "x": -28.4, "y": 0.08, "z": -37.0, "ry": 0.25 }
+  },
+
   "waypoints": {
-    "entrance": { "x": -35, "y": 0, "z": 35 },
+    "entrance":{ "x": -35, "y": 0, "z": 35 },
     "parking": { "x": -35, "y": 0, "z": 42 },
     "proShopDoor": { "x": -20, "y": 0, "z": 30 },
     "proShopInside": { "x": -20, "y": 0, "z": 26 },
@@ -346,6 +474,19 @@
     "junction_3_4": { "x": 7, "y": 0, "z": -25 },
     "patio_center": { "x": -18, "y": 0, "z": 6.5 },
     "proShop_marker": { "x": -20, "y": 0, "z": 30.5 },
-    "junction_4_5": { "x": 23, "y": 0, "z": -25 }
+    "junction_4_5": { "x": 23, "y": 0, "z": -25 },
+    "clubhouseLobby1": { "x": -20, "y": 0, "z": 1.8 },
+    "memberLounge1": { "x": -26.8, "y": 0, "z": -0.9 },
+    "memberLounge2": { "x": -25.3, "y": 0, "z": 3.3 },
+    "cafe1": { "x": -14.2, "y": 0, "z": -0.6 },
+    "cafe2": { "x": -14.3, "y": 0, "z": 2.6 },
+    "lockerRoom1": { "x": -32.6, "y": 0, "z": -9.2 },
+    "lockerRoom2": { "x": -32.8, "y": 0, "z": -4.2 },
+    "fitnessCenter1": { "x": 8.0, "y": 0, "z": 43.0 },
+    "fitnessCenter2": { "x": 14.0, "y": 0, "z": 41.8 },
+    "pool1": { "x": -53, "y": 0, "z": -6 },
+    "pool2": { "x": -57.6, "y": 0, "z": -17.5 },
+    "pool3": { "x": -50.6, "y": 0, "z": -23.4 },
+    "poolHouse1": { "x": -55.2, "y": 0, "z": -28.6 }
   }
 }

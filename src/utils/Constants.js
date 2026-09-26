@@ -179,6 +179,8 @@ export const SIZES = {
   // Camera
   cameraDistance: 8,
   cameraHeight: 5,
+  cameraIndoorDistance: 4.6,   // follow distance while the player is inside a building (cutaway view)
+  cameraIndoorHeight: 7.8,     // camera height indoors: steep enough to see over the cut walls
   cameraLerpSpeed: 3,
   cameraLookAhead: 2,
 };

@@ -307,7 +307,7 @@ export class MatchSystem {
     return {
       npc, side, idx, scale,
       yaw: frame.r + (side > 0 ? Math.PI : 0),
-      skill: 0.35 + hashString(npc.id + ':tennis') * 0.5,
+      skill: this._skillOf(npc),
       fh: getClipEventRacketPoint('forehand'),
       bh: getClipEventRacketPoint('backhand'),
       route: [], ri: 0, arrived: false, endYaw: null, walkT: 0, stuckT: 0, bestD: INF,
@@ -315,6 +315,21 @@ export class MatchSystem {
       mx: 0, mz: 0, mSpeed: 3, clip: 'forehand', aim: false,
       rx: 0, rz: 0, done: false,
     };
+  }
+
+  /** Rally skill 0..1: npcs.json tennis.skill (clamped to 0.15..0.95), else a stable per-id value. */
+  _skillOf(npc) {
+    const t = npc.data && npc.data.tennis;
+    const v = t && Number(t.skill);
+    if (Number.isFinite(v)) return Math.max(0.15, Math.min(0.95, v));
+    return 0.35 + hashString(npc.id + ':tennis') * 0.5;
+  }
+
+  /** A member's own post-match line (npcs.json matchLines.win / lose), else the fallback. */
+  _matchLine(npc, kind, fallback) {
+    const ml = npc.data && npc.data.matchLines;
+    const arr = ml && Array.isArray(ml[kind]) ? ml[kind] : null;
+    return arr && arr.length ? String(arr[Math.floor(Math.random() * arr.length)]) : fallback;
   }
 
   /** Plan a walking route for a player (fence / net aware). */
@@ -1101,7 +1116,7 @@ export class MatchSystem {
     const x = Math.random();
     if (m.shot.outcome === 'winner' && x < 0.4) W.npc.showReaction(x < 0.2 ? '👍' : '😊');
     else if ((m.shot.outcome === 'net' || m.shot.outcome === 'out') && x < 0.35) {
-      L.npc.showReaction(L.npc.archetype === 'entitled' ? '😤' : '🤷');
+      L.npc.showReaction(L.npc.soreLoser ? '😤' : '🤷');
     }
 
     sc.pts[w]++;
@@ -1170,10 +1185,10 @@ export class MatchSystem {
       const L = m.winner >= 0 ? m.players[1 - m.winner] : null;
       if (W) {
         W.npc.showReaction('🎉');
-        this._say(W, 'Good match!', 1.8);
-        const sore = L.npc.archetype === 'entitled';
+        this._say(W, this._matchLine(W.npc, 'win', 'Good match!'), 1.8);
+        const sore = !!L.npc.soreLoser;
         L.npc.showReaction(sore ? '😤' : '🤷');
-        if (Math.random() < 0.6) this._say(L, sore ? 'Hmph. Rematch.' : 'Well played!', 1.8);
+        if (Math.random() < 0.6) this._say(L, this._matchLine(L.npc, 'lose', sore ? 'Hmph. Rematch.' : 'Well played!'), 1.8);
       } else {
         for (const p of m.players) p.npc.showReaction('😊');
         this._say(a, 'A draw!', 1.6);

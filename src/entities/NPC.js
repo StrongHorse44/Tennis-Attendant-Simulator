@@ -8,6 +8,7 @@ import {
   Character, BlobShadows, CameraTracker, hashString, SKIN_TONES, HAIR_COLORS,
 } from './CharacterModel.js';
 import { findSeats, claimSeat, releaseSeat, SIT_SEAT_HEIGHT } from './Seats.js';
+import { planRoute } from '../world/NavRooms.js';
 
 /**
  * Hand-authored looks for the shipped NPCs (keyed by npcs.json id). NPCs not listed here get a
@@ -54,12 +55,108 @@ const NPC_STYLES = {
   },
   hank_morris: {
     skin: SKIN_TONES[3], hair: 'short', hairColor: HAIR_COLORS.grey, hat: 'bucket', hatColor: 0xB9A77A, hatBrim: 0xA8966A,
-    bottom: 'pants', bottomColor: 0x6B6452, brows: 'stern', mouth: 'smile', mustache: true, racket: null,
-    shoes: 0x6A4A2E, shoeSole: 0x3A2A1C, shoeAccent: 0x5A3E26, collar: 0xD9CDA8, belt: 0x3B2A1E, scale: 0.9,
+    bottom: 'pants', bottomColor: 0x6B6452, brows: 'stern', mouth: 'smile', mustache: true, racket: null, staff: true,
+    shoes: 0x6A4A2E, shoeSole: 0x3A2A1C, shoeAccent: 0x5A3E26, collar: 0xD9CDA8, belt: 0x3B2A1E, scale: 0.9, build: 1.08,
+  },
+  // Head pro: navy staff polo, white cap, shades, lefty red racket
+  rafa_ibarra: {
+    skin: SKIN_TONES[2], hair: 'short', hairColor: HAIR_COLORS.black, hat: 'cap', hatColor: 0xF4F1EA, hatBrim: 0x1F3A68,
+    hatLogo: 0xC0392B, sunglasses: true, bottom: 'shorts', bottomColor: 0xF2EFE8, brows: 'soft', mouth: 'smile',
+    racket: 0xC0392B, staff: true, collar: 0xF4F1EA, wristband: 0xF4F1EA, shoeAccent: 0x1F3A68, belt: null, scale: 0.9,
+  },
+  // Pro shop manager: club-green staff polo, black bob, charcoal slacks, deadpan
+  jess_nakamura: {
+    skin: SKIN_TONES[1], hair: 'bob', hairColor: HAIR_COLORS.black, hat: null, bottom: 'pants', bottomColor: 0x33363D,
+    brows: 'stern', mouth: 'flat', racket: null, staff: true, collar: 0xF4E8C1, belt: 0x1C1D1F,
+    shoes: 0x2B2B2B, shoeSole: 0xE8E4DA, shoeAccent: 0xD9A441, socks: 0x2B2B2B, scale: 0.83, build: 0.95,
+  },
+  // Teen phenom: tennis whites with the family purple, swept auburn hair, sulky
+  theo_wellington: {
+    skin: SKIN_TONES[0], hair: 'swept', hairColor: HAIR_COLORS.auburn, hat: null, bottom: 'shorts', bottomColor: 0x2B2F4A,
+    brows: 'worried', mouth: 'flat', racket: 0x6B3F8E, collar: 0x6B3F8E, sleeveTrim: 0x6B3F8E, wristband: 0x6B3F8E,
+    shoeAccent: 0x6B3F8E, belt: null, scale: 0.77, build: 0.92,
+  },
+  // Ten-year-old: pink tee, yellow visor + ponytail tie, junior racket
+  lily_santos: {
+    skin: SKIN_TONES[2], hair: 'ponytail', hairColor: HAIR_COLORS.brown, tieColor: 0xF4D03F, hat: 'visor', hatColor: 0xF4D03F,
+    hatBrim: 0xF4D03F, bottom: 'skirt', bottomColor: 0xF2EFE8, brows: 'soft', mouth: 'grin', blush: true, polo: false,
+    racket: 0xF4D03F, shoeAccent: 0xF06292, socks: 0xF8BBD0, belt: null, scale: 0.63, build: 1.02,
+  },
+  // College captain: slate crew with a gold stripe, black shorts, tall and lean
+  nate_okafor: {
+    skin: SKIN_TONES[4], hair: 'short', hairColor: HAIR_COLORS.black, hat: null, bottom: 'shorts', bottomColor: 0x1C1D1F,
+    brows: 'stern', mouth: 'flat', polo: false, stripe: 0xF1C40F, racket: 0xF1C40F, wristband: 0xF1C40F,
+    shoes: 0x1C1D1F, shoeSole: 0xF2F0EA, shoeAccent: 0xF1C40F, belt: null, scale: 0.96, build: 0.93,
+  },
+  // Social chair: mauve polo, white bun, sunglasses, gold necklace, forever mid-gasp
+  babs_hendricks: {
+    skin: SKIN_TONES[0], hair: 'bun', hairColor: HAIR_COLORS.white, hat: null, sunglasses: true, necklace: 0xC9A24A,
+    bottom: 'skirt', bottomColor: 0xF2EFE8, brows: 'soft', mouth: 'o', blush: true, racket: null, collar: 0xF4F1EA,
+    sleeveTrim: 0xF4F1EA, scale: 0.82, build: 1.08,
+  },
+  // 1960s whites, long silver hair, green sweatband, wooden racket
+  gloria_castellano: {
+    skin: SKIN_TONES[2], hair: 'long', hairColor: HAIR_COLORS.silver, hat: 'headband', hatColor: 0x2D5A3D,
+    bottom: 'skirt', bottomColor: 0xF2EFE8, brows: 'haughty', mouth: 'grin', racket: 0x9A6A3A, collar: 0x2D5A3D,
+    sleeveTrim: 0x2D5A3D, wristband: 0x2D5A3D, belt: null, scale: 0.8, build: 0.93,
+  },
+  // Retired colonel: grey polo, navy cap with gold emblem, cream slacks, ramrod straight
+  frank_deluca: {
+    skin: SKIN_TONES[1], hair: 'bald', hairColor: HAIR_COLORS.grey, hat: 'cap', hatColor: 0x1F2A44, hatBrim: 0x1F2A44,
+    hatLogo: 0xD9A441, bottom: 'pants', bottomColor: 0xE3DAC2, brows: 'stern', mouth: 'flat', racket: 0x1F2A44,
+    collar: 0xECEAE4, belt: 0x2B1F16, shoes: 0xF2F0EA, shoeAccent: 0x1F2A44, scale: 0.91, build: 1.06,
+  },
+  // Pilot: lime polo + forward white cap, swept brown hair, intense
+  leo_brandt: {
+    skin: SKIN_TONES[0], hair: 'swept', hairColor: HAIR_COLORS.chestnut, hat: 'cap', hatColor: 0xF4F1EA, hatBrim: 0x6F8F1E,
+    bottom: 'shorts', bottomColor: 0x1F3A68, brows: 'stern', mouth: 'grin', racket: 0x6F8F1E, collar: 0xF4F1EA,
+    wristband: 0xA3CB38, shoeAccent: 0xA3CB38, scale: 0.93, build: 1.03,
+  },
+  // Event planner: coral polo, long blonde hair, lime headband (matches Leo), navy skirt
+  harper_brandt: {
+    skin: SKIN_TONES[1], hair: 'long', hairColor: HAIR_COLORS.blonde, hat: 'headband', hatColor: 0xA3CB38,
+    bottom: 'skirt', bottomColor: 0x1F3A68, brows: 'soft', mouth: 'smile', blush: true, racket: 0xA3CB38,
+    collar: 0xF4F1EA, shoeAccent: 0xFF6F61, belt: null, scale: 0.84,
+  },
+  // Surgeon: burgundy polo, swept black hair, khaki shorts, worried brows (the pager)
+  vik_rao: {
+    skin: SKIN_TONES[3], hair: 'swept', hairColor: HAIR_COLORS.black, hat: null, bottom: 'shorts', bottomColor: 0xC9B98E,
+    brows: 'worried', mouth: 'smile', racket: 0x2B2B2B, collar: 0xF2EFE8, belt: 0x3B2A1E, shoeAccent: 0x7B241C,
+    scale: 0.89,
   },
 };
 
-const ARCH_ACCENT = { entitled: '#E74C3C', friendly: '#27AE60', clueless: '#3498DB' };
+/**
+ * Archetype look & feel. Colours can be overridden per archetype in npcs.json
+ * (archetypes.<id>.nameTagColor / dialogueColor / soreLoser) via configureArchetypes().
+ *   tag       name-tag dot colour        dialogue  dialogue name colour (legacy hex values are
+ *   idle      idle-variant clips                    re-themed by DialogueBox)
+ *   brows / mouth  defaults for derived looks      soreLoser  sulks after losing a match
+ */
+const ARCHETYPES = {
+  entitled: { tag: '#E74C3C', dialogue: '#E74C3C', idle: ['idle_watch', 'idle_watch', 'idle_look', 'idle_shift'], brows: 'haughty', mouth: 'flat', soreLoser: true },
+  friendly: { tag: '#27AE60', dialogue: '#27AE60', idle: ['idle_look', 'idle_shift', 'idle_look'], brows: 'soft', mouth: 'smile' },
+  clueless: { tag: '#3498DB', dialogue: '#3498DB', idle: ['idle_look', 'idle_look', 'idle_shift', 'idle_watch'], brows: 'worried', mouth: 'o' },
+  competitive: { tag: '#E67E22', dialogue: '#F2A65A', idle: ['idle_shift', 'idle_shift', 'idle_watch', 'idle_look'], brows: 'stern', mouth: 'flat', soreLoser: true },
+  social: { tag: '#E84393', dialogue: '#F29CC4', idle: ['idle_look', 'idle_look', 'idle_shift'], brows: 'soft', mouth: 'smile' },
+  veteran: { tag: '#C9C7C2', dialogue: '#D8D4CB', idle: ['idle_look', 'idle_shift', 'idle_watch'], brows: 'stern', mouth: 'flat' },
+  junior: { tag: '#F4D03F', dialogue: '#F7DC6F', idle: ['idle_shift', 'idle_look', 'idle_shift', 'idle_look'], brows: 'soft', mouth: 'grin' },
+  staff: { tag: '#D9A441', dialogue: '#E6C170', idle: ['idle_look', 'idle_watch', 'idle_shift'], brows: 'stern', mouth: 'smile' },
+};
+const ARCH_FALLBACK = { tag: '#C9A24A', dialogue: null, idle: ARCHETYPES.friendly.idle, brows: 'soft', mouth: 'smile' };
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+/** Apply npcs.json archetype overrides (call before spawning NPCs). Unknown archetypes are added. */
+export function configureArchetypes(defs) {
+  if (!defs || typeof defs !== 'object') return;
+  for (const [id, d] of Object.entries(defs)) {
+    if (!d || typeof d !== 'object') continue;
+    const a = ARCHETYPES[id] || (ARCHETYPES[id] = { ...ARCH_FALLBACK });
+    if (HEX_RE.test(d.nameTagColor || '')) a.tag = d.nameTagColor;
+    if (HEX_RE.test(d.dialogueColor || '')) a.dialogue = d.dialogueColor;
+    if (typeof d.soreLoser === 'boolean') a.soreLoser = d.soreLoser;
+  }
+}
 
 // Name tag fade distances (camera -> tag)
 const TAG_FAR_FULL = 11;
@@ -78,13 +175,6 @@ const REACTION_CLIPS = {
   '\uD83E\uDD37': 'shrug', '\uD83E\uDD14': 'shrug',
 };
 const MOOD_CLIPS = { satisfied: 'react_happy', unsatisfied: 'react_annoyed', neutral: 'shrug' };
-
-// Idle variants per archetype (entitled members check their watch a lot)
-const IDLE_VARIANTS = {
-  entitled: ['idle_watch', 'idle_watch', 'idle_look', 'idle_shift'],
-  friendly: ['idle_look', 'idle_shift', 'idle_look'],
-  clueless: ['idle_look', 'idle_look', 'idle_shift', 'idle_watch'],
-};
 
 const WALK_STRIDE = 1.45;   // model units per walk cycle (CLIP_DEFS.walk.stride)
 const RUN_STRIDE = 2.4;
@@ -121,7 +211,14 @@ export class NPC {
     this.id = data.id;
     this.name = data.name;
     this.archetype = data.archetype;
-    this.shirtColor = parseInt(data.shirtColor.replace('#', ''), 16);
+    this.shirtColor = parseInt(String(data.shirtColor || '#3A7BD5').replace('#', ''), 16) || 0x3A7BD5;
+    const arch = ARCHETYPES[this.archetype] || ARCH_FALLBACK;
+    this.arch = arch;
+    /** Name-tag dot colour and dialogue name colour (archetype). */
+    this.tagColor = arch.tag;
+    this.dialogueColor = arch.dialogue || arch.tag;
+    /** Sulks after losing a match (per-NPC `soreLoser` in npcs.json beats the archetype). */
+    this.soreLoser = typeof data.soreLoser === 'boolean' ? data.soreLoser : !!arch.soreLoser;
 
     this.mesh = null;
     this.body = null;
@@ -132,7 +229,9 @@ export class NPC {
     this.currentTarget = null;
     this.wanderTimer = Math.random() * 5 + 2;
     this.hasRequest = false;
-    this.mood = 'neutral';
+    this._mood = 'neutral';
+    /** True once something (a mission reaction / client verdict) has set the mood. */
+    this.moodSet = false;
     this.animTime = 0;
     this._markerTime = 0;
     this._moving = 0;
@@ -170,6 +269,10 @@ export class NPC {
     this._createNameTag();
     this._createExclamation();
   }
+
+  /** How this member feels about you ('neutral' | 'satisfied' | 'unsatisfied' …); drives small talk. */
+  get mood() { return this._mood; }
+  set mood(v) { this._mood = v; this.moodSet = true; }
 
   /** Mark an area id (e.g. 'court3') as busy so wandering NPCs pick other destinations. */
   static setAreaBusy(areaId, busy) {
@@ -217,8 +320,8 @@ export class NPC {
     const hairs = female ? ['bob', 'ponytail', 'bun', 'long'] : ['short', 'swept', 'bald', 'short'];
     const hats = [null, 'cap', 'visor', 'headband'];
     const hairKeys = Object.keys(HAIR_COLORS);
-    const brows = { entitled: 'haughty', friendly: 'soft', clueless: 'worried' }[this.archetype] || 'soft';
-    const mouth = { entitled: 'flat', friendly: 'smile', clueless: 'o' }[this.archetype] || 'smile';
+    const brows = this.arch.brows || 'soft';
+    const mouth = this.arch.mouth || 'smile';
     return {
       female,
       skin: SKIN_TONES[Math.floor(h('s') * SKIN_TONES.length)],
@@ -229,7 +332,7 @@ export class NPC {
       bottom: female && h('b') < 0.7 ? 'skirt' : 'shorts',
       bottomColor: h('bc') < 0.6 ? 0xF2EFE8 : 0x2F3440,
       brows, mouth,
-      blush: this.archetype === 'friendly',
+      blush: this.archetype === 'friendly' || this.archetype === 'social' || this.archetype === 'junior',
       racket: h('r') < 0.6 ? 0x2B2B2B : null,
       polo: h('p') < 0.6,
       scale: 0.83 + h('sc') * 0.09,
@@ -245,9 +348,11 @@ export class NPC {
     this.style = style;
 
     this.character = new Character(style, `npc:${this.id}:${this.data.shirtColor}`);
-    this.character.anim.idleVariants = IDLE_VARIANTS[this.archetype] || IDLE_VARIANTS.friendly;
+    this.character.anim.idleVariants = this.arch.idle || ARCH_FALLBACK.idle;
     const s = style.scale ?? 0.87;
-    this.character.root.scale.setScalar(s);
+    // build: body width/depth relative to height (stocky > 1 > slim); kept subtle so rackets still line up
+    const bw = Math.max(0.85, Math.min(1.15, style.build ?? 1));
+    this.character.root.scale.set(s * bw, s, s * bw);
     this.mesh.add(this.character.root);
     this.modelScale = s;
 
@@ -305,7 +410,7 @@ export class NPC {
     ctx.roundRect(x0 + 2.5, y0 + 2.5, pillW - 5, ph - 5, r - 2.5);
     ctx.stroke();
     // Archetype dot
-    ctx.fillStyle = ARCH_ACCENT[this.archetype] || '#C9A24A';
+    ctx.fillStyle = this.tagColor || '#C9A24A';
     ctx.beginPath();
     ctx.arc(x0 + 22, y0 + ph / 2, 7, 0, Math.PI * 2);
     ctx.fill();
@@ -590,9 +695,21 @@ export class NPC {
       return;
     }
 
-    const dx = this.currentTarget.x - this.body.position.x;
-    const dz = this.currentTarget.z - this.body.position.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    // Route around walls toward the target (planned once per target; each node reached resets
+    // the stuck timer). Steering aims at the next node, arrival is judged on the real target.
+    if (this._routeFor !== this.currentTarget) this._planWanderRoute();
+    const route = this._route;
+    while (route && route.length > 1) {
+      const ex = route[0].x - this.body.position.x, ez = route[0].z - this.body.position.z;
+      if (ex * ex + ez * ez > 0.36) break;
+      route.shift();
+      this._wanderTime = 0;
+    }
+    const aim = route && route.length > 1 ? route[0] : this.currentTarget;
+    const dx = aim.x - this.body.position.x;
+    const dz = aim.z - this.body.position.z;
+    const gx = this.currentTarget.x - this.body.position.x, gz = this.currentTarget.z - this.body.position.z;
+    const dist = Math.sqrt(gx * gx + gz * gz);
     const seat = this._seatTarget;
 
     if ((seat && dist < 0.22) || (!seat && dist < 1.5)) {
@@ -612,7 +729,7 @@ export class NPC {
 
     let speed = SIZES.npcSpeed;
     if (seat) speed = Math.min(speed, 0.35 + dist * 1.4); // settle precisely in front of the seat
-    this._walkStep(dx, dz, dist, speed, dt);
+    this._walkStep(dx, dz, Math.max(0.01, Math.sqrt(dx * dx + dz * dz)), speed, dt);
 
     // Face movement direction (smoothly)
     this._turnToward(Math.atan2(dx, dz), dt, 8);
@@ -621,6 +738,17 @@ export class NPC {
     this._moving = 1;
     const cps = (speed / this.modelScale) / WALK_STRIDE;
     this.character.setLocomotion(speed > 0.05 ? 1 : 0, cps, 0);
+  }
+
+  _planWanderRoute() {
+    this._routeFor = this.currentTarget;
+    const t = this.currentTarget;
+    try {
+      // Through building doors / around the club buildings (world/NavRooms.js); straight otherwise
+      this._route = planRoute(this.body.position.x, this.body.position.z, t.x, t.z, this._route || []);
+    } catch (e) {
+      this._route = null;
+    }
   }
 
   _cancelSeatTarget() {

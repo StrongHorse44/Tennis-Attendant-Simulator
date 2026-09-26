@@ -40,7 +40,11 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   ├── world/
 │   │   ├── World.js        # Ground, paths, courts, buildings, garden, shed, patio, parking, perimeter, trees, lamps, night lights
 │   │   ├── Court.js        # Shader-painted court surface (zones, lines, clay paint mask), groomStroke / wearAt, net, fence, lights, props, physics
-│   │   ├── Building.js     # Pro shop (interior, roof cutaway) and clubhouse structures
+│   │   ├── Building.js     # Enterable building base: door gaps, rooms, roof/upper-wall cutaway, indoor camera; pro shop + clubhouse
+│   │   ├── ClubBuildings.js# Clubhouse (lobby, lounge, café, locker wing), fitness & wellness centre, pool house + pool deck
+│   │   ├── InteriorArt.js  # Shared interior furnishing builders (merged by material)
+│   │   ├── NavRooms.js     # Room/door nav graph so NPCs route through doorways
+│   │   ├── ItemProps.js    # Visible errand items: waiting at pickup spots, carried (hand bones / cart), set down on delivery
 │   │   ├── Garden.js       # Paver walks, hedges, flower beds, animated fountain
 │   │   └── Scenery.js      # Instanced trees/grass/flowers/benches/lamps/blob shadows + wind sway
 │   ├── entities/
@@ -59,6 +63,7 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 │   │   ├── MissionSystem.js# Task board, radio dispatch (On it / Busy), random encounters, shift routines, step logic, goTo arrival
 │   │   ├── MissionValidation.js # Pure "can this mission be completed?" + schedule checks (runtime + `npm run validate`), parseHour
 │   │   ├── MissionMarkers.js # Floating gold objective markers for place-based steps (pooled)
+│   │   ├── SmallTalk.js    # Per-member small-talk selector (greeting, personality, time-of-day, weather, mood lines)
 │   │   ├── ShiftSystem.js  # Daily loop: clock-in, checklist, rush windows, closing, report; wallet, tips, rank + perks
 │   │   ├── MatchSystem.js  # Scheduled member tennis matches (schedule.json): walk-in, rallies, scoring, rain, clay wear
 │   │   ├── RoutePlanner.js # A* over static physics boxes for scripted NPC walks (match walk-in / walk-off / rain shelter)
@@ -129,6 +134,12 @@ There are no unit tests, linters or formatters. The deploy workflow runs `npm ru
 - **Player/Cart interaction**: `Player.enterCart()` seats the player mesh in the cart's driver seat (parented to the cart, `drive` clip ticked from the mesh's `onBeforeRender`), disables collision and hands movement to the cart. `getPosition()` then returns the cart position. `Player.exitCart()` places the player beside the cart and re-enables collision. The cart uses velocity-based driving (`currentSpeed` toward `SIZES.cartMaxSpeed × cart.maxSpeedScale`), not force-based; contacts are frictionless (see Physics). Body roll, pitch, bump, wheel steer, lights and brush dust are visual only and don't touch physics. Player and cart meshes are scaled down (`SIZES.playerScale` = 0.85, `SIZES.cartScale` = 0.75) to fit the court sizes.
 - **Court collisions**: Nets and back fences have static CANNON.Box physics bodies, preventing the cart and player from driving through them. Net collision spans the full width at net height. Fence collision spans behind each baseline.
 - **Perimeter path**: A golf cart path runs around the entire map perimeter, connecting to existing court and entrance paths for a continuous driving loop. The perimeter fence (stone piers, iron pickets, gated north entrance) keeps the original 2 m physics walls.
+
+### Club expansion (members, buildings, errand props)
+
+- **Members**: 20 in `public/data/npcs.json`. Beyond `entitled`/`friendly`/`clueless` there are `competitive`, `social`, `veteran`, `junior` and `staff` archetypes; each archetype's name-tag/dialogue colors and tip settings live in `npcs.json` (`archetypes`). Each member has a bio, quirks, voice, relationships (validated as two-sided), preferred time, tennis level/skill, greetings, small talk, mood/time/weather lines and post-match lines. Looks are hand-authored in `NPC_STYLES` (`NPC.js`). Missions may declare `requires` (prerequisite mission ids) and `hours` ([start, end]) — these gate *offering* only.
+- **Enterable buildings**: every building except the equipment shed (a drive-in bay for the cart) can be entered on foot. Walls are merged with the upper band after the lower band in the same mesh, so the indoor cutaway draws fewer indices instead of adding draw calls. Interiors are hidden beyond 32 m from the camera. Indoor areas (`clubhouseLobby`, `memberLounge`, `cafe`, `lockerRoom`, `fitnessCenter`, `poolHouse`) and `pool` are detected before the patio in `Game._detectCurrentArea` and are valid mission targets (`INDOOR_AREAS` / `OUTDOOR_EXTRA_AREAS` in `MissionValidation.js`). NPCs route through doors via `NavRooms.js`.
+- **Errand props**: `ItemProps` shows each pickup item at its spot while the step is current, attaches carried items to the player's hand bones (or the cart's bag rack/seat), and sets items down at the delivery spot for 20 s. Resting spots are data in `map.json` → `itemSpots`, keyed `<area>_<pickup|deliver>[_<itemId>]` with `x, y, z, rot`. If you move a counter, table or bench, move its spot too.
 
 ### Shift loop (`systems/ShiftSystem.js`, `ui/ShiftReport.js`)
 

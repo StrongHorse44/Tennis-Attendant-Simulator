@@ -13,13 +13,20 @@ export const SUPPORTED_ACTIONS = ['goTo', 'dialogue', 'pickup', 'deliver', 'choo
 export const MISSION_SOURCES = ['taskBoard', 'radio', 'random', 'shift'];
 
 /** Non-court areas Game._detectCurrentArea recognises (court ids are recognised too). */
-export const DETECTABLE_AREAS = ['proShop', 'patio', 'garden', 'equipmentShed'];
+export const DETECTABLE_AREAS = ['proShop', 'patio', 'garden', 'equipmentShed',
+  'clubhouseLobby', 'memberLounge', 'cafe', 'lockerRoom', 'fitnessCenter', 'poolHouse', 'pool'];
+
+/** Rooms inside club buildings: checked first (no padding) so they win over the patio around them. */
+export const INDOOR_AREAS = ['clubhouseLobby', 'memberLounge', 'cafe', 'lockerRoom', 'fitnessCenter', 'poolHouse'];
+
+/** Outdoor areas checked after the original ones (1 m padding). */
+export const OUTDOOR_EXTRA_AREAS = ['pool'];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * World facts a mission can reference, derived from map.json + npcs.json + missions.json.
- * @returns {{ areaIds:Set<string>, clayCourtIds:Set<string>, courtIds:Set<string>, npcIds:Set<string>, dialogueKeys:Set<string>, itemIds:Set<string> }}
+ * @returns {{ areaIds:Set<string>, clayCourtIds:Set<string>, courtIds:Set<string>, npcIds:Set<string>, dialogueKeys:Set<string>, itemIds:Set<string>, missionIds:Set<string> }}
  */
 export function buildWorldFacts({ map, npcs, missions, items }) {
   const areaIds = new Set();
@@ -40,7 +47,9 @@ export function buildWorldFacts({ map, npcs, missions, items }) {
   for (const n of (isObj(npcs) && Array.isArray(npcs.npcs)) ? npcs.npcs : []) if (isObj(n) && n.id) npcIds.add(n.id);
   const dialogueKeys = new Set(isObj(missions) && isObj(missions.dialogues) ? Object.keys(missions.dialogues) : []);
   const itemIds = new Set(isObj(items) ? Object.keys(items) : []);
-  return { areaIds, clayCourtIds, courtIds, npcIds, dialogueKeys, itemIds };
+  const missionIds = new Set();
+  for (const m of (isObj(missions) && Array.isArray(missions.missions)) ? missions.missions : []) if (isObj(m) && m.id) missionIds.add(m.id);
+  return { areaIds, clayCourtIds, courtIds, npcIds, dialogueKeys, itemIds, missionIds };
 }
 
 /** Does the map have somewhere to put a pin / marker for this area id? */
@@ -67,7 +76,22 @@ export function validateMission(m, facts = {}, taskTypes = null) {
   if (!m.title) warn('missing "title"');
   if (!MISSION_SOURCES.includes(m.source)) err(`unknown source "${m.source}" (expected ${MISSION_SOURCES.join('/')})`);
   if (taskTypes && !taskTypes[m.type]) warn(`type "${m.type}" has no taskTypes entry (no pay)`);
-  const { areaIds, clayCourtIds, npcIds, dialogueKeys, itemIds } = facts;
+  const { areaIds, clayCourtIds, npcIds, dialogueKeys, itemIds, missionIds } = facts;
+  // Storyline gates (MissionSystem._storyReady): requires = mission ids done first, hours = [from, to)
+  if (m.requires !== undefined) {
+    if (!Array.isArray(m.requires)) err('"requires" must be an array of mission ids');
+    else for (const r of m.requires) {
+      if (typeof r !== 'string' || !r) err('"requires" entries must be mission ids');
+      else if (r === m.id) err('"requires" lists the mission itself');
+      else if (missionIds && !missionIds.has(r)) err(`requires "${r}", which is not in missions.json`);
+    }
+  }
+  if (m.hours !== undefined) {
+    const h = m.hours;
+    if (!Array.isArray(h) || h.length !== 2 || !h.every(Number.isFinite) || !(h[0] >= 0 && h[0] < h[1] && h[1] <= 24)) {
+      err('"hours" must be [from, to] in-game hours with 0 <= from < to <= 24');
+    } else if (h[1] - h[0] < 2) warn('"hours" window under 2 game hours (the task board refreshes every ~2.4)');
+  }
   if (m.source === 'random') {
     if (!m.triggerNpc) err('random mission needs "triggerNpc"');
     else if (npcIds && !npcIds.has(m.triggerNpc)) err(`triggerNpc "${m.triggerNpc}" is not in npcs.json`);

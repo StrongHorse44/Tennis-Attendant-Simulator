@@ -29,6 +29,12 @@
       "icon": "clipboard",
       "baseReward": 8,
       "estimatedTime": 60
+    },
+    "story": {
+      "label": "Member Story",
+      "icon": "clipboard",
+      "baseReward": 12,
+      "estimatedTime": 150
     }
   },
 
@@ -466,10 +472,716 @@
           "prompt": "Cash out the register at the Pro Shop."
         }
       ]
+    },
+    {
+      "id": "story_theo_secret_practice",
+      "type": "story",
+      "title": "Theo's Secret Practice",
+      "description": "Theo Wellington is skipping etiquette lunch to practise serves. He needs a ball hopper on Court 1, quietly.",
+      "source": "random",
+      "triggerNpc": "theo_wellington",
+      "client": "theo_wellington",
+      "hours": [8, 14],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "theo_wellington",
+          "prompt": "Hear Theo out.",
+          "dialogueKey": "theo_practice_1"
+        },
+        {
+          "action": "pickup",
+          "location": "garden",
+          "item": "ball_hopper",
+          "prompt": "Grab a ball hopper from the garden storage."
+        },
+        {
+          "action": "deliver",
+          "location": "court1",
+          "item": "ball_hopper",
+          "prompt": "Sneak the hopper onto Court 1."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "theo_wellington",
+          "prompt": "Let Theo know his hopper is ready.",
+          "dialogueKey": "theo_practice_2"
+        }
+      ]
+    },
+    {
+      "id": "story_theo_grandmother",
+      "type": "story",
+      "title": "A Word with Grandmother",
+      "description": "Theo wants to enter the junior championship. Someone has to tell Mrs. Wellington. Apparently that's you.",
+      "source": "random",
+      "triggerNpc": "theo_wellington",
+      "requires": ["story_theo_secret_practice"],
+      "hours": [11, 17.5],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "theo_wellington",
+          "prompt": "Talk to Theo.",
+          "dialogueKey": "theo_grandma_1"
+        },
+        {
+          "action": "goTo",
+          "target": "patio",
+          "prompt": "Head to the patio, where Mrs. Wellington holds court."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "mrs_wellington",
+          "prompt": "Bring up Theo's tennis with Mrs. Wellington.",
+          "dialogueKey": "theo_grandma_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "What do you tell Mrs. Wellington?",
+          "choices": [
+            {
+              "label": "The truth: he's good, and he loves it",
+              "result": "Mrs. Wellington is quiet for a long moment. \"His grandfather played like that,\" she says at last. \"I shall... consider it.\"",
+              "reactions": {
+                "mrs_wellington": "neutral",
+                "theo_wellington": "satisfied"
+              }
+            },
+            {
+              "label": "Suggest Coach Rafa assesses him",
+              "result": "An expert opinion suits her perfectly. She books Coach Rafa for a \"proper assessment\" this evening. Theo looks like he might faint.",
+              "reactions": {
+                "mrs_wellington": "satisfied",
+                "theo_wellington": "satisfied"
+              }
+            },
+            {
+              "label": "Stay out of family business",
+              "result": "You make polite noises about the weather. Mrs. Wellington signs Theo up for another lunch. Theo sees it all from behind the fountain.",
+              "reactions": {
+                "mrs_wellington": "neutral",
+                "theo_wellington": "unsatisfied"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "story_theo_exhibition",
+      "type": "story",
+      "title": "Theo's Exhibition Set",
+      "description": "Coach Rafa has arranged an exhibition set for Theo on Court 1 and Mrs. Wellington is coming to watch. Set the court up properly.",
+      "source": "random",
+      "triggerNpc": "rafa_ibarra",
+      "client": "mrs_wellington",
+      "requires": ["story_theo_grandmother"],
+      "hours": [15, 19.5],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "rafa_ibarra",
+          "prompt": "Talk to Coach Rafa about the exhibition.",
+          "dialogueKey": "theo_exhibition_1"
+        },
+        {
+          "action": "pickup",
+          "location": "proShop",
+          "item": "towels",
+          "prompt": "Collect fresh towels from the pro shop."
+        },
+        {
+          "action": "deliver",
+          "location": "court1",
+          "item": "towels",
+          "prompt": "Lay the towels out on Court 1."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "theo_wellington",
+          "prompt": "Wish Theo luck.",
+          "dialogueKey": "theo_exhibition_2"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "mrs_wellington",
+          "prompt": "Check in with Mrs. Wellington after the set.",
+          "dialogueKey": "theo_exhibition_3"
+        }
+      ]
+    },
+    {
+      "id": "conflict_brandt_line_call",
+      "type": "conflict",
+      "title": "The Brandt Line Call",
+      "description": "Newlyweds Leo and Harper Brandt need a neutral party for a disputed line call on Court 2. It's 'for the marriage'.",
+      "source": "radio",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "court2",
+          "prompt": "Head to Court 2."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "leo_brandt",
+          "prompt": "Hear Leo's side.",
+          "dialogueKey": "brandt_call_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "harper_brandt",
+          "prompt": "Hear Harper's side.",
+          "dialogueKey": "brandt_call_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "Make the call.",
+          "choices": [
+            {
+              "label": "It clipped the line. In.",
+              "result": "Harper cheers. Leo stares at the line for a long time, then laughs. \"Okay, counsel. Your point.\"",
+              "reactions": {
+                "harper_brandt": "satisfied",
+                "leo_brandt": "neutral"
+              }
+            },
+            {
+              "label": "Out, by a hair.",
+              "result": "Leo pumps his fist like he won Wimbledon. Harper narrows her eyes and adds a tally mark to her spreadsheet.",
+              "reactions": {
+                "leo_brandt": "satisfied",
+                "harper_brandt": "unsatisfied"
+              }
+            },
+            {
+              "label": "Too close to call. Play a let.",
+              "result": "They replay the point. Harper lobs him again, clearly in this time. Leo applauds. Both look delighted.",
+              "reactions": {
+                "leo_brandt": "satisfied",
+                "harper_brandt": "satisfied"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "story_brandt_anniversary",
+      "type": "story",
+      "title": "Six-Month Anniversary",
+      "description": "Harper is planning a surprise picnic by the fountain for her and Leo's six-month anniversary. Leo thinks she forgot.",
+      "source": "random",
+      "triggerNpc": "harper_brandt",
+      "client": "harper_brandt",
+      "requires": ["conflict_brandt_line_call"],
+      "hours": [12, 18.5],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "harper_brandt",
+          "prompt": "Hear Harper's plan.",
+          "dialogueKey": "brandt_anniv_1"
+        },
+        {
+          "action": "pickup",
+          "location": "proShop",
+          "item": "water_bottles",
+          "prompt": "Pick up the sparkling water Jess is hiding at the pro shop."
+        },
+        {
+          "action": "deliver",
+          "location": "garden",
+          "item": "water_bottles",
+          "prompt": "Set up the picnic by the garden fountain."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "leo_brandt",
+          "prompt": "Casually steer Leo toward the garden.",
+          "dialogueKey": "brandt_anniv_2"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "harper_brandt",
+          "prompt": "Tell Harper he's on his way.",
+          "dialogueKey": "brandt_anniv_3"
+        }
+      ]
+    },
+    {
+      "id": "conflict_flower_committee",
+      "type": "conflict",
+      "title": "The Flower Bed Feud",
+      "description": "Babs Hendricks and Diane Ross are at war over the garden beds: hydrangeas versus roses. The garden committee wants it settled.",
+      "source": "taskBoard",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "garden",
+          "prompt": "Head to the garden."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "babs_hendricks",
+          "prompt": "Talk to Babs about the flower beds.",
+          "dialogueKey": "flower_feud_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "diane_ross",
+          "prompt": "Get Diane's side.",
+          "dialogueKey": "flower_feud_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you settle the flower beds?",
+          "choices": [
+            {
+              "label": "Split the bed down the middle",
+              "result": "Roses on the north side, hydrangeas on the south. Both women inspect the border line with a ruler. Peace, of a kind.",
+              "reactions": {
+                "babs_hendricks": "neutral",
+                "diane_ross": "neutral"
+              }
+            },
+            {
+              "label": "Let Maria decide as co-chair",
+              "result": "Maria, delighted to be asked, picks hydrangeas \"for the koi\". Babs beams. Diane writes something in her notebook.",
+              "reactions": {
+                "babs_hendricks": "satisfied",
+                "diane_ross": "unsatisfied",
+                "maria_santos": "satisfied"
+              }
+            },
+            {
+              "label": "Roses were there first",
+              "result": "Diane nods as if this were obvious. Babs says \"Mm-hmm\" in a way that promises the story will be all over the patio by lunch.",
+              "reactions": {
+                "babs_hendricks": "unsatisfied",
+                "diane_ross": "satisfied"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errand_gloria_wood_racket",
+      "type": "errand",
+      "title": "Gloria's Wooden Racket",
+      "description": "Gloria Castellano's 1968 wooden racket snapped a string. It's on the Court 5 bench and it needs Jess, carefully.",
+      "source": "random",
+      "triggerNpc": "gloria_castellano",
+      "client": "gloria_castellano",
+      "hours": [7, 13],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "gloria_castellano",
+          "prompt": "Talk to Gloria.",
+          "dialogueKey": "gloria_racket_1"
+        },
+        {
+          "action": "pickup",
+          "location": "court5",
+          "item": "racket",
+          "prompt": "Collect Gloria's wooden racket from Court 5. Gently."
+        },
+        {
+          "action": "deliver",
+          "location": "proShop",
+          "item": "racket",
+          "prompt": "Take the racket to Jess at the pro shop."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "jess_nakamura",
+          "prompt": "Hand the racket over to Jess.",
+          "dialogueKey": "gloria_racket_2"
+        }
+      ]
+    },
+    {
+      "id": "conflict_dress_code",
+      "type": "conflict",
+      "title": "Section 7.3",
+      "description": "Frank DeLuca has cited Kevin Park under bylaw 7.3, 'appropriate tennis attire'. Again. Kevin is hiding by the pro shop.",
+      "source": "random",
+      "triggerNpc": "frank_deluca",
+      "hours": [7, 14],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "frank_deluca",
+          "prompt": "Hear Frank's report.",
+          "dialogueKey": "dress_code_1"
+        },
+        {
+          "action": "dialogue",
+          "npcId": "kevin_park",
+          "prompt": "Find Kevin and hear his side.",
+          "dialogueKey": "dress_code_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you handle the dress code dispute?",
+          "choices": [
+            {
+              "label": "Loan Kevin whites from the pro shop",
+              "result": "Kevin emerges in head-to-toe whites, looking like a 1978 tournament poster. Frank salutes. Kevin isn't sure how to feel.",
+              "reactions": {
+                "frank_deluca": "satisfied",
+                "kevin_park": "neutral"
+              }
+            },
+            {
+              "label": "Point out 7.3 was amended in 2009",
+              "result": "Frank checks his binder. Then checks it again. \"Amended,\" he says, like a man betrayed. Kevin does a very small victory dance.",
+              "reactions": {
+                "frank_deluca": "unsatisfied",
+                "kevin_park": "satisfied"
+              }
+            },
+            {
+              "label": "Compromise: tuck the shirt in",
+              "result": "Kevin tucks. Frank inspects. \"Marginal,\" he says, and walks off. From Frank, that's practically a hug.",
+              "reactions": {
+                "frank_deluca": "neutral",
+                "kevin_park": "neutral"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errand_lily_ball_bucket",
+      "type": "errand",
+      "title": "Barbara the Ball Bucket",
+      "description": "Lily Santos has collected 47 stray balls in a hopper she named Barbara. Barbara is too heavy, and belongs in the equipment shed.",
+      "source": "random",
+      "triggerNpc": "lily_santos",
+      "client": "lily_santos",
+      "hours": [9.5, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "lily_santos",
+          "prompt": "Meet Lily. And Barbara.",
+          "dialogueKey": "lily_balls_1"
+        },
+        {
+          "action": "pickup",
+          "location": "court4",
+          "item": "ball_hopper",
+          "prompt": "Pick up Barbara (the ball hopper) at Court 4."
+        },
+        {
+          "action": "deliver",
+          "location": "equipmentShed",
+          "item": "ball_hopper",
+          "prompt": "Give Barbara a home in the equipment shed."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "maria_santos",
+          "prompt": "Let Maria know where her daughter has been.",
+          "dialogueKey": "lily_balls_2"
+        }
+      ]
+    },
+    {
+      "id": "errand_vik_paged",
+      "type": "errand",
+      "title": "Paged Mid-Serve",
+      "description": "Dr. Rao was paged to the hospital in the middle of his hit with Nate. His racket is still on Court 2, and Nate is still warmed up.",
+      "source": "random",
+      "triggerNpc": "vik_rao",
+      "client": "vik_rao",
+      "hours": [10, 17],
+      "steps": [
+        {
+          "action": "dialogue",
+          "npcId": "vik_rao",
+          "prompt": "Talk to Dr. Rao before he runs.",
+          "dialogueKey": "vik_paged_1"
+        },
+        {
+          "action": "pickup",
+          "location": "court2",
+          "item": "racket",
+          "prompt": "Collect Dr. Rao's racket from Court 2."
+        },
+        {
+          "action": "deliver",
+          "location": "proShop",
+          "item": "racket",
+          "prompt": "Leave the racket at the pro shop for safekeeping."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "nate_okafor",
+          "prompt": "Break the news to Nate.",
+          "dialogueKey": "vik_paged_2"
+        },
+        {
+          "action": "choose",
+          "prompt": "Nate's warmed up with nobody to hit with.",
+          "choices": [
+            {
+              "label": "Find Theo for him",
+              "result": "Theo arrives so fast he forgets to be cool. Nate grins and hands him the first serve.",
+              "reactions": {
+                "nate_okafor": "satisfied",
+                "theo_wellington": "satisfied"
+              }
+            },
+            {
+              "label": "Feed him balls on your break",
+              "result": "You feed forty forehands. Nate thanks you politely and logs it as \"sub-optimal, appreciated\".",
+              "reactions": {
+                "nate_okafor": "neutral"
+              }
+            },
+            {
+              "label": "Suggest he call it a day",
+              "result": "Nate looks at you like you suggested he skip a banana. He goes for a run instead.",
+              "reactions": {
+                "nate_okafor": "unsatisfied"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errand_rafa_lesson_setup",
+      "type": "errand",
+      "title": "Lesson Setup",
+      "description": "Coach Rafa needs a ball hopper on Court 3 for Priya's lesson.",
+      "source": "taskBoard",
+      "repeatable": true,
+      "client": "rafa_ibarra",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "garden",
+          "item": "ball_hopper",
+          "prompt": "Grab a ball hopper from the garden storage."
+        },
+        {
+          "action": "deliver",
+          "location": "court3",
+          "item": "ball_hopper",
+          "prompt": "Set the hopper on Court 3 for the lesson."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "priya_sharma",
+          "prompt": "Let Priya know her lesson is ready.",
+          "dialogueKey": "lesson_setup_1"
+        }
+      ]
+    },
+    {
+      "id": "bldg_locker_towels",
+      "type": "errand",
+      "title": "Locker Room Linens",
+      "description": "The locker rooms are out of towels. Collect a fresh stack from the pool house laundry and restock the clubhouse locker rooms.",
+      "source": "taskBoard",
+      "repeatable": true,
+      "client": "jess_nakamura",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "poolHouse",
+          "item": "towels",
+          "prompt": "Grab fresh towels from the pool house (west of the clubhouse, past the locker wing)."
+        },
+        {
+          "action": "deliver",
+          "location": "lockerRoom",
+          "item": "towels",
+          "prompt": "Restock the clubhouse locker rooms (through the lounge, down the photo corridor)."
+        }
+      ]
+    },
+    {
+      "id": "bldg_gym_hydration",
+      "type": "errand",
+      "title": "Gym Hydration",
+      "description": "The fitness centre's water cooler is empty and the spin crowd is parched. Bring water bottles over from the café.",
+      "source": "radio",
+      "repeatable": true,
+      "client": "nate_okafor",
+      "steps": [
+        {
+          "action": "pickup",
+          "location": "cafe",
+          "item": "water_bottles",
+          "prompt": "Pick up a case of water from the clubhouse café bar."
+        },
+        {
+          "action": "deliver",
+          "location": "fitnessCenter",
+          "item": "water_bottles",
+          "prompt": "Deliver the water to the Fitness & Wellness centre by the front lot."
+        }
+      ]
+    },
+    {
+      "id": "bldg_lounge_fireplace",
+      "type": "conflict",
+      "title": "Fireside Seats",
+      "description": "A dispute over the armchairs by the lounge fireplace. Sort it out before it becomes club lore.",
+      "source": "taskBoard",
+      "client": "gloria_castellano",
+      "steps": [
+        {
+          "action": "goTo",
+          "target": "memberLounge",
+          "prompt": "Head to the members' lounge in the clubhouse."
+        },
+        {
+          "action": "dialogue",
+          "npcId": "gloria_castellano",
+          "prompt": "Hear Gloria out about the fireside armchairs.",
+          "dialogueKey": "bldg_lounge_fireplace_1"
+        },
+        {
+          "action": "choose",
+          "prompt": "How do you settle the seating?",
+          "choices": [
+            {
+              "label": "Reserve the chairs for the champions",
+              "result": "You put a brass 'Club Champions' card on the armchairs. Gloria beams; the juniors grumble.",
+              "reactions": { "gloria_castellano": "satisfied", "theo_wellington": "unsatisfied" }
+            },
+            {
+              "label": "First come, first served",
+              "result": "You remind everyone the lounge is for all members. Gloria sniffs, but agrees it's fair.",
+              "reactions": { "gloria_castellano": "neutral" }
+            },
+            {
+              "label": "Bring in a third armchair",
+              "result": "You drag a spare armchair over from the card table. Suddenly there's room for everyone.",
+              "reactions": { "gloria_castellano": "satisfied" }
+            }
+          ]
+        }
+      ]
     }
   ],
 
   "dialogues": {
+    "theo_practice_1": [
+      { "speaker": "Theo Wellington", "text": "Hey. Okay, so. I'm supposed to be at etiquette lunch right now." },
+      { "speaker": "Theo Wellington", "text": "But the junior championship is in three weeks and my second serve is a disaster. I need a ball hopper on Court 1." },
+      { "speaker": "Theo Wellington", "text": "Quietly. If Grandma sees a hopper with my name near it, I'm doing napkin folding until I'm thirty." }
+    ],
+    "theo_practice_2": [
+      { "speaker": "Theo Wellington", "text": "You got it? No way. Thanks. Seriously." },
+      { "speaker": "Theo Wellington", "text": "Nate says you need five hundred second serves a week. I'm at forty. ...Don't tell anyone I said thanks." }
+    ],
+    "theo_grandma_1": [
+      { "speaker": "Theo Wellington", "text": "So... I signed up for the junior championship. With my allowance. Grandma doesn't know." },
+      { "speaker": "Theo Wellington", "text": "She's on the patio. She likes you. Well, she hasn't complained about you in, like, two days." },
+      { "speaker": "Theo Wellington", "text": "Could you... bring it up? Casually? I'll be behind the fountain. Not hiding. Just... near the fountain." }
+    ],
+    "theo_grandma_2": [
+      { "speaker": "Mrs. Wellington", "text": "The attendant. You have the expression of someone about to say something I won't like." },
+      { "speaker": "Mrs. Wellington", "text": "Theodore? Tennis? He has etiquette lunch. He has sailing. He has Latin." },
+      { "speaker": "Mrs. Wellington", "text": "...His grandfather used to sneak off to play, too. Well? Out with it." }
+    ],
+    "theo_exhibition_1": [
+      { "speaker": "Coach Rafa Ibarra", "text": "Ah, my friend. You have heard? Theo plays an exhibition set on Court 1. His grandmother will watch." },
+      { "speaker": "Coach Rafa Ibarra", "text": "Whatever you told her, it worked. She asked me what 'topspin' is. I told her it is a way of life." },
+      { "speaker": "Coach Rafa Ibarra", "text": "Bring fresh towels from the shop. If Mrs. Wellington sits on a damp bench, Theo's career is over before it begins." }
+    ],
+    "theo_exhibition_2": [
+      { "speaker": "Theo Wellington", "text": "She's actually here. In the front row. With a cushion she brought from home." },
+      { "speaker": "Theo Wellington", "text": "Okay. Okay. Five hundred second serves. The ball has no memory. I can do this." },
+      { "speaker": "Theo Wellington", "text": "...Thanks for everything today. Like, actually." }
+    ],
+    "theo_exhibition_3": [
+      { "speaker": "Mrs. Wellington", "text": "Six games to two. He served eleven aces. I counted. Rafa told me what an ace is." },
+      { "speaker": "Mrs. Wellington", "text": "I have informed the etiquette instructor that Theodore will be unavailable on tournament weekends." },
+      { "speaker": "Mrs. Wellington", "text": "You were... helpful today, attendant. Do not let it go to your head." }
+    ],
+    "brandt_call_1": [
+      { "speaker": "Leo Brandt", "text": "Oh good, a neutral party. Harper lobbed me on set point. It landed behind the baseline. OUT." },
+      { "speaker": "Leo Brandt", "text": "I had a perfect sightline. Pilots have excellent depth perception. It's literally tested." }
+    ],
+    "brandt_call_2": [
+      { "speaker": "Harper Brandt", "text": "Okay but he was running BACKWARDS. His depth perception was aimed at the fence." },
+      { "speaker": "Harper Brandt", "text": "It clipped the line. There's a mark. I'd like the mark entered into evidence." },
+      { "speaker": "Harper Brandt", "text": "Whatever you decide, he's going to bring it up at Thanksgiving. So, you know. No pressure." }
+    ],
+    "brandt_anniv_1": [
+      { "speaker": "Harper Brandt", "text": "Psst! Okay, so today's our six-month anniversary, and Leo thinks I forgot. I did not forget." },
+      { "speaker": "Harper Brandt", "text": "I'm doing a surprise picnic by the fountain. Jess is hiding sparkling water behind the stringing machine for me." },
+      { "speaker": "Harper Brandt", "text": "Can you set it up in the garden, then steer Leo over? He'll be the one in lime, arguing with something." }
+    ],
+    "brandt_anniv_2": [
+      { "speaker": "Leo Brandt", "text": "Hey. Have you seen Harper? She's been weird all day. Weird-happy. Should I be worried?" },
+      { "speaker": "Leo Brandt", "text": "The garden? Why would I... oh. OH. Is today... It's today. I'm going. I'm going right now." }
+    ],
+    "brandt_anniv_3": [
+      { "speaker": "Harper Brandt", "text": "He's coming? Did he remember? He didn't remember. It's okay, that's the whole point of surprises!" },
+      { "speaker": "Harper Brandt", "text": "Thank you! You're getting the first slice of cake. Unless Leo eats it. He stress-eats when he's grateful." }
+    ],
+    "flower_feud_1": [
+      { "speaker": "Babs Hendricks", "text": "Oh, honey, thank goodness. You won't BELIEVE what Diane did to my hydrangeas." },
+      { "speaker": "Babs Hendricks", "text": "She pulled up two of them and planted roses. ROSES. Lily saw the whole thing. She's a very reliable witness. She's ten." },
+      { "speaker": "Babs Hendricks", "text": "Hydrangeas are the club flower. Well, they're MY flower. Same thing." }
+    ],
+    "flower_feud_2": [
+      { "speaker": "Diane Ross", "text": "That bed has had roses since 1987. I planted them. As president. Of the club. For six terms." },
+      { "speaker": "Diane Ross", "text": "Babs slipped her hydrangeas in while I was at the dentist. That's not gardening. That's a coup." }
+    ],
+    "gloria_racket_1": [
+      { "speaker": "Gloria Castellano", "text": "Darling. My racket has broken a string. The racket is from 1968. So am I, spiritually." },
+      { "speaker": "Gloria Castellano", "text": "It's on the Court 5 bench. Carry it like a newborn. Jess is the only person I trust to restring it." },
+      { "speaker": "Gloria Castellano", "text": "And if Frank asks, I'm not forfeiting. I'm merely... pausing my dominance." }
+    ],
+    "gloria_racket_2": [
+      { "speaker": "Jess Nakamura", "text": "Oh. The Maxply. Hi, old friend." },
+      { "speaker": "Jess Nakamura", "text": "Gut strings, 50 pounds, hand-knotted. Tell Gloria tomorrow morning. Tell her I said 'with respect'. She'll know." }
+    ],
+    "dress_code_1": [
+      { "speaker": "Frank DeLuca", "text": "Attendant. Report. The Park boy is in violation of section 7.3, appropriate tennis attire." },
+      { "speaker": "Frank DeLuca", "text": "Cargo shorts, son. With eight pockets. I counted. Nobody needs eight pockets on a tennis court." },
+      { "speaker": "Frank DeLuca", "text": "I'm not unreasonable. I'm by the book. Take care of it." }
+    ],
+    "dress_code_2": [
+      { "speaker": "Kevin Park", "text": "Is he gone? Oh no, he sent you. Okay. Okay." },
+      { "speaker": "Kevin Park", "text": "They're technical shorts! The pockets are for my phone, my backup phone, and my serve notebook." },
+      { "speaker": "Kevin Park", "text": "Priya says the dress code was changed years ago, but I can't find it anywhere. Nobody tells us anything..." }
+    ],
+    "lily_balls_1": [
+      { "speaker": "Lily Santos", "text": "HI! This is Barbara! She's a ball bucket! She has FORTY-SEVEN balls in her!" },
+      { "speaker": "Lily Santos", "text": "I found them in the hedges and under benches and one was in the fountain, but Gerald didn't want it." },
+      { "speaker": "Lily Santos", "text": "Barbara's at Court 4 and she's too heavy now. Can you take her to the shed? She needs a home. A good home." }
+    ],
+    "lily_balls_2": [
+      { "speaker": "Maria Santos", "text": "Forty-seven balls? From the hedges? That explains the scratches on her arms. And the leaves in her hair." },
+      { "speaker": "Maria Santos", "text": "Thank you for humoring her. She's going to tell everyone Barbara lives in the shed now. Hank will love that." }
+    ],
+    "vik_paged_1": [
+      { "speaker": "Dr. Vik Rao", "text": "I am so sorry, I have to go. Compound fracture. Mid-serve, again. The pager has impeccable timing." },
+      { "speaker": "Dr. Vik Rao", "text": "My racket's on Court 2. Could you get it to the pro shop? Jess keeps it safe from Chad." },
+      { "speaker": "Dr. Vik Rao", "text": "And tell Nate I'm sorry. He was warmed up. He hates wasting a warm-up. Medically, he's right." }
+    ],
+    "vik_paged_2": [
+      { "speaker": "Nate Okafor", "text": "Paged again? That's fifteen this season." },
+      { "speaker": "Nate Okafor", "text": "I'm fully warmed up. Heart rate's in the zone. It'd be a shame to waste it." }
+    ],
+    "lesson_setup_1": [
+      { "speaker": "Priya Sharma", "text": "Oh, the hopper's out already? Thank you! Rafa says today is 'the day of the backhand'." },
+      { "speaker": "Priya Sharma", "text": "Last week was 'the day of the split step'. I split-stepped into the net. He said it was 'progress, in a way'." }
+    ],
     "opening_briefing": [
       { "speaker": "Hank Morris", "text": "Morning! Clay took a beating yesterday, so keep an eye on Courts 3 to 5." },
       { "speaker": "Hank Morris", "text": "Rush hours are mid-morning and late afternoon. The radio gets busy then, so pace yourself." }
@@ -519,6 +1231,11 @@
     "morning_prep_done": [
       { "speaker": "Hank Morris", "text": "All three courts done? Let me see..." },
       { "speaker": "Hank Morris", "text": "Looking sharp! The members are going to love playing on that surface today. Good job." }
+    ],
+    "bldg_lounge_fireplace_1": [
+      { "speaker": "Gloria Castellano", "text": "Thirty years I have sat in that chair by the fire. Thirty years!" },
+      { "speaker": "Gloria Castellano", "text": "And today some teenager is doing his homework in it with a smoothie. On the leather." },
+      { "speaker": "Gloria Castellano", "text": "I'm not asking for a plaque, dear. Although a plaque would be lovely." }
     ]
   }
 }
