@@ -52,6 +52,21 @@ export class AssetLoader {
     return data;
   }
 
+  /**
+   * An optional data file (public/data/<name>): the parsed object, or null (with a console
+   * warning) when it is missing or invalid — never throws. For features that simply stay off
+   * without their data (e.g. tour.json: the Junior Tour).
+   */
+  async loadOptional(name) {
+    const path = `${import.meta.env.BASE_URL}data/${name}`;
+    try {
+      return await this.loadJSON(path);
+    } catch (err) {
+      console.warn(`${name} unavailable (${err && err.message ? err.message : err}); that feature stays off.`);
+      return null;
+    }
+  }
+
   async loadAllData() {
     const base = import.meta.env.BASE_URL;
     const names = ['map.json', 'npcs.json', 'missions.json'];

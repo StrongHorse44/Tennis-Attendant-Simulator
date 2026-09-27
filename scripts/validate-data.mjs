@@ -15,7 +15,12 @@
  * `bounds` and the sunken stadium court (validateGround): validateStadiumMap (StadiumLayout.js:
  * config ranges + the selfCheck invariants), court heights, paths / waypoints / item spots /
  * staff posts against the bowl's cut and footprint, the stadium court's own waypoints, preferred
- * areas that only name spots inside the bowl. Exits 1 on any error (warnings don't fail).
+ * areas that only name spots inside the bowl. tour.json (the Junior Tour): validateTour (TourField.js:
+ * tiers, venues and their looks, tournaments, styles, names, club juniors and adults against
+ * npcs.json, the home court against map.json), then a headless 12-week run of the TourSystem (the
+ * player entering and playing, walkovers, week rollovers, a save round trip) whose rankings and
+ * draws must stay well-formed, and tour opponents' AI tables (TourDifficulty) must stay sane.
+ * Exits 1 on any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +31,8 @@ import { MissionGenerator, validateTemplatesShape, COURT_SURFACES } from '../src
 import { validateEvents } from '../src/systems/EventSystem.js';
 import { validateShop } from '../src/systems/ShopSystem.js';
 import { validateStadiumMap, findStadiumCourt, computeStadiumLayout } from '../src/world/StadiumLayout.js';
+import { validateTour, RING, roundsOf, matchOffset, matchesIn, drawParticipants } from '../src/systems/TourField.js';
+import { TourSystem, sanitizeTour } from '../src/systems/TourSystem.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -503,8 +510,134 @@ if (shop && npcs) {
   }
 }
 
+// tour.json (the Junior Tour): schema, then a headless run of the real TourSystem
+const tour = load('tour.json');
+let tourLine = '';
+if (tour && npcs && map) {
+  const npcIds = new Set((npcs.npcs || []).filter(n => n && n.id).map(n => n.id));
+  const courts = (map.areas && Array.isArray(map.areas.courts) ? map.areas.courts : []).filter(c => c && c.id).map(c => ({ id: c.id, type: c.type }));
+  const sc = findStadiumCourt(map);
+  const found = validateTour(tour, { npcIds, courts, stadiumCourtId: sc ? sc.id : null });
+  for (const p of found) (p.level === 'error' ? errors : warnings).push(`tour.json ${p.msg}`);
+  if (!found.some(p => p.level === 'error')) {
+    try { tourLine = await simulateTour(tour, npcs); } catch (e) { errors.push(`tour.json sanity run crashed: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`); }
+  }
+}
+
+/**
+ * The TourSystem headless for 12 weeks on a fake game (clock, wallet, wins): the player accepts,
+ * enters every event they may, wins / loses / skips matches in a fixed pattern. After every day the
+ * ranking must be well-formed (ranks 1..n, unique, points never rising down the list, finite) and
+ * every draw consistent (a winner is always one of the match's two players); a save round trip must
+ * give the same hub. Well under a second.
+ */
+async function simulateTour(data, npcData) {
+  const t0 = Date.now();
+  const bad = (m) => errors.push(`tour.json sanity run: ${m}`);
+  const makeGame = (day, wallet = 100000) => {
+    const shift = { wallet, earnPrize(a) { this.wallet += a; }, refund(a) { this.wallet += a; } };
+    const record = { wins: 3 };
+    const profile = { record, get wallet() { return shift.wallet; }, spend(a) { if (shift.wallet < a) return false; shift.wallet -= a; return true; }, onChange() {} };
+    return { weather: { day }, shift, profile, npcData };
+  };
+  const game = makeGame(3);
+  const t = new TourSystem(data, game);
+  if (!t.available) { bad('the tour is unavailable with this data'); return ''; }
+  t.seed = 20260927;
+  if (!t.accept('debug')) { bad('accept() failed'); return ''; }
+  let played = 0, walkovers = 0, entries = 0, titles = 0, k = 0, maxState = 0;
+  const checkRanking = (label) => {
+    const list = t._ranking().list;
+    const ids = new Set();
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.rank !== i + 1) { bad(`${label}: rank ${e.rank} at position ${i + 1}`); return; }
+      if (ids.has(e.id)) { bad(`${label}: ${e.id} ranked twice`); return; }
+      ids.add(e.id);
+      if (!Number.isFinite(e.pts) || e.pts <= 0) { bad(`${label}: ${e.id} has ${e.pts} points`); return; }
+      if (i > 0 && e.pts > list[i - 1].pts) { bad(`${label}: points rise from #${i} to #${i + 1}`); return; }
+    }
+    if (list.length < 20) bad(`${label}: only ${list.length} players ranked`);
+  };
+  const checkDraw = (label) => {
+    const d = t.draw;
+    if (!d) return;
+    for (let r = 0; r < roundsOf(d.size); r++) {
+      for (let i = 0; i < matchesIn(d.size, r); i++) {
+        const res = d.res[matchOffset(d.size, r) + i];
+        const [a, b] = drawParticipants(d, r, i);
+        if (res[0] >= 0 && (a === undefined || b === undefined)) { bad(`${label}: round ${r} match ${i} decided before its players were known`); return; }
+        if (res[0] >= 0 && (a || b) && !(res[0] === 0 ? a : b) && !(a === null || b === null)) { bad(`${label}: round ${r} match ${i} has no winner`); return; }
+      }
+    }
+  };
+  checkRanking('after accepting');
+  const startWeek = t.curWeek;
+  while (t.curWeek < startWeek + 12 && k < 200) {
+    k++;
+    const f = t.featuredFor(t.curWeek);
+    if (f && t._entryInfo(f).ok && t.enter(f.id).ok) entries++;
+    const spec = t.getTonight();
+    if (spec) {
+      if (!spec.opponent || !Number.isFinite(spec.opponent.effRating) || !['short', 'set', 'bo3'].includes(spec.format)) bad(`day ${game.weather.day}: a bad match spec`);
+      if (k % 5 === 3) walkovers++;           // skip it: a walkover tomorrow
+      else {
+        const r = t.debugPlayTonight(k % 3 !== 0);
+        if (!r) bad(`day ${game.weather.day}: onMatchResult refused tonight's match`);
+        else { played++; if (r.title) titles++; }
+      }
+    }
+    game.weather.day++;
+    t.onNewDay(game.weather.day);
+    checkRanking(`day ${game.weather.day}`);
+    checkDraw(`day ${game.weather.day}`);
+    maxState = Math.max(maxState, JSON.stringify(t.getState()).length);
+    if (errors.length > 20) break;
+  }
+  // Save round trip: the same hub from a fresh system
+  const clean = sanitizeTour(JSON.parse(JSON.stringify(t.getState())));
+  const t2 = new TourSystem(data, makeGame(game.weather.day, game.shift.wallet));
+  t2.setState(clean);
+  const h1 = t.getHub(), h2 = t2.getHub();
+  const diff = Object.keys(h1).filter(kk => JSON.stringify(h1[kk]) !== JSON.stringify(h2[kk]));
+  if (diff.length) bad(`the hub differs after a save round trip (${diff.join(', ')})`);
+  if (maxState > 25000) warnings.push(`tour.json sanity run: the tour save section reached ${maxState} bytes (budget ~25 KB)`);
+  if (t.me.ring.length !== RING) bad('the player points ring has the wrong size');
+  // Tour opponents' AI tables (TourDifficulty imports TennisAI → three; skipped when unavailable)
+  let aiNote = '';
+  try {
+    const { tourOpponentDifficulty } = await import('../src/systems/TourDifficulty.js');
+    let prevReact = Infinity;
+    for (const rating of [950, 1100, 1300, 1450, 1600, 1750, 1900, 2050]) {
+      for (const [style, s] of Object.entries(t.data.styles)) {
+        const d = tourOpponentDifficulty({ rating, effRating: rating, style, styleMods: s.ai, short: 'X' }, 'clay');
+        const walk = (o, at) => {
+          for (const [kk, v] of Object.entries(o)) {
+            if (typeof v === 'number' && !Number.isFinite(v)) bad(`TourDifficulty ${style} @${rating}: ${at}${kk} is ${v}`);
+            else if (Array.isArray(v)) v.forEach((x, i) => { if (typeof x === 'number' && !Number.isFinite(x)) bad(`TourDifficulty ${style} @${rating}: ${at}${kk}[${i}]`); });
+            else if (v && typeof v === 'object') walk(v, `${at}${kk}.`);
+          }
+        };
+        walk(d, '');
+        if (!(d.err >= 0 && d.react > 0 && d.speed > 0)) bad(`TourDifficulty ${style} @${rating}: err ${d.err}, react ${d.react}, speed ${d.speed}`);
+      }
+      const base = tourOpponentDifficulty({ rating, effRating: rating }, 'hard');
+      if (base.react > prevReact + 1e-9) bad(`TourDifficulty: reaction time rises from rating ${rating - 150} to ${rating}`);
+      prevReact = base.react;
+    }
+    aiNote = ', opponent AI tables sane';
+  } catch (e) {
+    if (e && /Cannot find (package|module) 'three'/.test(String(e.message))) warnings.push('tour.json: TourDifficulty not checked (three.js is not installed)');
+    else bad(`TourDifficulty crashed: ${e && e.message}`);
+  }
+  const ms = Date.now() - t0;
+  if (ms > 1500) warnings.push(`tour.json sanity run took ${ms} ms (meant to be well under a second)`);
+  return `tour: ${t.data.tournaments.length} tournaments, ${t.data.venues.length} venues, ${t.field.players.size} players; 12-week run: ${entries} entries, ${played} matches, ${walkovers} walkovers, ${titles} titles, state ≤ ${(maxState / 1024).toFixed(1)} KB${aiNote} (${ms} ms)`;
+}
+
 for (const w of warnings) console.warn('warn  ' + w);
 console.log(`validate-data: ${nTemplates} mission templates (${nSamples} sampled missions${stadiumId ? `; ${stadiumTemplates.size} can target ${stadiumId}: ${[...stadiumTemplates].join(', ')}` : ''}), ${nEvents} events checked`);
+if (tourLine) console.log(`validate-data: ${tourLine}`);
 for (const e of errors) console.error('ERROR ' + e);
 const n = map && missions && Array.isArray(missions.missions) ? missions.missions.length : 0;
 console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches, ${nShop} shop items checked, ${errors.length} error(s), ${warnings.length} warning(s)`);

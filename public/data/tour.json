@@ -1,0 +1,429 @@
+{
+  "_comment": [
+    "Junior Tennis Tour (src/systems/TourSystem.js, checked by `npm run validate` → validateTour). Hand-editable.",
+    "unlock.rafaWins: after-hours match wins over Coach Rafa (any difficulty) before he offers to coach you.",
+    "hank: npc id, rank = tour ranking at or better than this makes Hank ask 'play or take over my role', askAgainDays after 'Let me think'; the lines he says (ask / pro / grounds farewell / think / retired small talk on the grounds path).",
+    "careers: what each answer to Hank gives. pro: report-card title, gearDiscount (Jess's sponsorship on tennis gear, paid back at the till), sponsoredFees (the club pays entry fees; the Pro Circuit opens). grounds: title, wageMul and groomBonusMul (ShiftSystem multipliers; the data and Constants are never changed).",
+    "rafa: npc id and his offer lines (offer = multi-line dialogue, the last line gets the choices; session = the one line he says on the court).",
+    "ranking: best `bestOf` weekly results of the last `window` weeks (the current week included); ties by rating; unranked until the first points.",
+    "tiers: label; points per finishing round (W = title, F = runner-up, SF/QF/R16/R32 = lost in that round); prize ($ per finishing round, null = none); fee ($ to enter; the club pays it on the pro path); cutoff (the ranking you need to enter, null = open; home events always give the player a wildcard); formats per round ('short' = one set to 4, 'set' = one set to 6, 'bo3' = best of three); draws (draw sizes this tier may use: 8, 16 or 32); careers (who may enter: omit = everyone); juniors (pro tier: how many junior slots its draws keep, the rest are adults).",
+    "week: background event sizes per tier (the rest of the field plays these satellite events every week, simulated), backgroundPoints (their share of the tier points table), restChance (a player skips a week), jitter (how loosely players are sorted into events by ranking).",
+    "field: generated juniors (count, rating spread, ages), femaleShare (girls in the mixed field), weekly form spread, the surface preference bonus / weak-surface malus (rating points), rating drift per result (Elo K for the generated field) and the sim (serveBase = serve-point win chance between equal juniors, proServeBase for adults, k = logit per rating point).",
+    "venues: the six remote clubs (ids are fixed: the venues stream builds each from its `look`). look: court / surround / fenceColor / ground colours; fence 'chainlink' | 'windscreen' | 'hedge'; backdrop 'city' | 'forest' | 'harbor' | 'lawn' | 'campus' | 'night'; stands { rows, sides[], material?, covered? }; clubhouse { style 'shed' | 'lodge' | 'boathouse' | 'pavilion' | 'modern' | 'arena', color, roof, side, clock? }; trees { kind 'pine' | 'maple' | 'oak' | 'none', count, autumn? }; lights (floodlights); scoreboard?; sponsors (banner texts); crowd 0..1.",
+    "homeVenue: the club itself (the home event is played on the club's own court, no travel).",
+    "tournaments: the weekly rotation. circuit 'amateur' (default) rotates by weekSlot from the week you join the tour; circuit 'pro' events alternate with it once you choose the pro path. home: the club's own event (you always get a wildcard). wind overrides the venue's.",
+    "styles: play styles. sim = point-simulation edges (serve / return point chance, rating points per surface); ai = modifiers on Rafa's DIFFICULTY table for a tour opponent (a number adds, { mul } multiplies, { set } replaces; nested objects for serve / ret; arrays change every element); scout = the hub's scouting report.",
+    "names / clubs / shirtColors: pools for the generated players (firstM / firstF: first names by gender; a plain `first` list reads as they / them). clubJuniors: members of the club who play the tour (npc = npcs.json id, gender 'm' | 'f'). adults: the Pro Circuit's adult players (named ones are club members) plus `count` generated ones.",
+    "Texts about a player (scout lines, notes) write pronouns as tokens so they fit every opponent: {he} {him} {his} {he's} {himself} ({He} … at the start of a sentence)."
+  ],
+  "version": 1,
+  "unlock": { "rafaWins": 3 },
+  "rafa": {
+    "npc": "rafa_ibarra",
+    "offer": [
+      "Three times you beat me. Three! After the second one I stopped pretending I was tired.",
+      "I have coached many juniors. You have something. You should play competitively: there is a Junior Tour, with tournaments at other clubs, real draws and a real ranking.",
+      "Let me be your coach. What do you say?"
+    ],
+    "session": "Three wins against me. Three! You should play competitively. Let me coach you.",
+    "accept": [
+      "Vamos! Every week there is a tournament somewhere. You enter, you travel after your shift, you play under the lights.",
+      "Start with the local events. Win some matches, the ranking comes. I will be in your box."
+    ],
+    "later": ["Bueno. The offer stands. Come and find me when you are ready."],
+    "remind": [
+      "The Junior Tour is still waiting for you. My offer stands.",
+      "So? Are you ready to play for real?"
+    ]
+  },
+  "hank": {
+    "npc": "hank_morris",
+    "rank": 10,
+    "askAgainDays": 3,
+    "ask": [
+      "Kid. Gloria showed me the junior rankings in the paper. Top ten. Top ten!",
+      "Here's the thing. I'm not getting any younger, and the board wants to know who takes over the grounds when I hang up the rake. I told them I know somebody.",
+      "But you've got a real shot at the tennis too. Can't do both properly. So what's it going to be?"
+    ],
+    "choices": ["Play competitive tennis", "Take over your role", "Let me think"],
+    "pro": [
+      "Then go and play. Properly. The club's putting its name behind you: your entry fees are on us from now on.",
+      "And Jess says she'll sponsor your gear. Twenty-five percent off the tennis wall. Don't make me watch you lose on the telly."
+    ],
+    "grounds": [
+      "Well. Twenty-two years.",
+      "Here. The shed keys. The big one's the shed, the little one's the drag brush padlock, the green one... nobody knows. Keep it anyway.",
+      "The clay knows your hands now. Water it less than Rafa says and more than Frank says.",
+      "I'll still be around. Somebody's got to tell the Head Groundskeeper when the courts are too wet."
+    ],
+    "think": ["Take your time. Clay's not going anywhere. I'll ask you again in a few days."],
+    "retired": [
+      "Morning, boss. Don't mind me. Just making sure you brush the lines last.",
+      "Retirement's great. I still wake up at five and smell the clay.",
+      "Gloria says I'm supervising. I'm not supervising. I'm observing. Loudly.",
+      "Court 4 looks good. Court 5... we'll talk.",
+      "Twenty-two years and I never once sat on this bench at noon. Nice bench.",
+      "You're doing fine, kid. Better than fine. Don't tell anyone I said that.",
+      "Frank still sends me the divot memos. I forward them to you now. That's retirement.",
+      "Still play on the tour? Good. The grounds can spare you for an evening."
+    ]
+  },
+  "careers": {
+    "pro": { "title": "Touring Pro", "gearDiscount": 0.25, "sponsoredFees": true },
+    "grounds": { "title": "Head Groundskeeper", "wageMul": 1.25, "groomBonusMul": 1.5 }
+  },
+  "ranking": { "bestOf": 6, "window": 8 },
+  "tiers": {
+    "local": {
+      "label": "Local",
+      "points": { "W": 100, "F": 65, "SF": 40, "QF": 22, "R16": 10, "R32": 5 },
+      "prize": null,
+      "fee": 20,
+      "cutoff": null,
+      "formats": { "R32": "short", "R16": "short", "QF": "short", "SF": "set", "F": "set" },
+      "draws": [8, 16, 32]
+    },
+    "regional": {
+      "label": "Regional",
+      "points": { "W": 250, "F": 160, "SF": 100, "QF": 55, "R16": 28, "R32": 14 },
+      "prize": { "W": 250, "F": 150, "SF": 80, "QF": 40 },
+      "fee": 45,
+      "cutoff": 60,
+      "formats": { "R32": "short", "R16": "short", "QF": "set", "SF": "set", "F": "set" },
+      "draws": [16, 32]
+    },
+    "national": {
+      "label": "National",
+      "points": { "W": 500, "F": 320, "SF": 200, "QF": 110, "R16": 55, "R32": 28 },
+      "prize": { "W": 600, "F": 350, "SF": 200, "QF": 100, "R16": 50 },
+      "fee": 90,
+      "cutoff": 28,
+      "formats": { "R32": "short", "R16": "set", "QF": "set", "SF": "set", "F": "bo3" },
+      "draws": [16, 32]
+    },
+    "pro": {
+      "label": "Pro Circuit",
+      "points": { "W": 800, "F": 500, "SF": 300, "QF": 160, "R16": 80, "R32": 40 },
+      "prize": { "W": 2000, "F": 1100, "SF": 600, "QF": 320, "R16": 160, "R32": 80 },
+      "fee": 150,
+      "cutoff": null,
+      "formats": { "R32": "set", "R16": "set", "QF": "set", "SF": "set", "F": "bo3" },
+      "draws": [16, 32],
+      "careers": ["pro"],
+      "juniors": 6
+    }
+  },
+  "week": {
+    "background": { "national": 16, "regional": 32, "local": 16 },
+    "backgroundPoints": 0.6,
+    "restChance": 0.3,
+    "jitter": 3
+  },
+  "field": {
+    "juniors": 64,
+    "ratingMean": 1360,
+    "ratingSd": 170,
+    "ratingMin": 950,
+    "ratingMax": 1840,
+    "ages": [13, 18],
+    "formSd": 35,
+    "femaleShare": 0.5,
+    "prefBonus": 35,
+    "weakMalus": 30,
+    "drift": 6,
+    "sim": { "serveBase": 0.6, "proServeBase": 0.63, "k": 0.0008 }
+  },
+  "homeVenue": {
+    "id": "greenbriar",
+    "name": "Greenbriar Tennis & Social Club",
+    "short": "Greenbriar",
+    "court": "court6",
+    "courtLabel": "Centre Court",
+    "surface": "grass",
+    "wind": "calm",
+    "blurb": "Home. Your own Centre Court, your own members in the stands, and Hank's stripes on the grass."
+  },
+  "venues": [
+    {
+      "id": "cedar_park",
+      "name": "Cedar Park Public Courts",
+      "short": "Cedar Park",
+      "surface": "hard",
+      "wind": "calm",
+      "blurb": "City park courts: faded green paint, a chain-link cage, three rows of bleachers and apartment blocks behind the lights.",
+      "look": {
+        "court": "#5f8f6a",
+        "surround": "#4c7457",
+        "fence": "chainlink",
+        "fenceColor": "#3a4540",
+        "ground": "#7c9a5c",
+        "backdrop": "city",
+        "stands": { "rows": 3, "sides": ["west"], "material": "metal" },
+        "clubhouse": { "style": "shed", "color": "#bdb6a4", "roof": "#5a5f63", "side": "north" },
+        "trees": { "kind": "oak", "count": 14, "autumn": false },
+        "lights": true,
+        "scoreboard": false,
+        "sponsors": ["CEDAR PARK", "CITY PARKS & REC", "CORNER DELI"],
+        "crowd": 0.35
+      }
+    },
+    {
+      "id": "maple_hollow",
+      "name": "Maple Hollow Racquet Club",
+      "short": "Maple Hollow",
+      "surface": "clay",
+      "wind": "calm",
+      "blurb": "Red clay in a ring of maples, a white lodge clubhouse and wooden bleachers that creak on every big point.",
+      "look": {
+        "court": "#c1623a",
+        "surround": "#ad5530",
+        "fence": "windscreen",
+        "fenceColor": "#2f4a35",
+        "ground": "#6f8f4a",
+        "backdrop": "forest",
+        "stands": { "rows": 4, "sides": ["east"], "material": "wood" },
+        "clubhouse": { "style": "lodge", "color": "#f2efe6", "roof": "#3f4a3a", "side": "north" },
+        "trees": { "kind": "maple", "count": 26, "autumn": true },
+        "lights": false,
+        "scoreboard": false,
+        "sponsors": ["MAPLE HOLLOW RC", "RED LEAF BAKERY"],
+        "crowd": 0.45
+      }
+    },
+    {
+      "id": "harbor_point",
+      "name": "Harbor Point Tennis Center",
+      "short": "Harbor Point",
+      "surface": "hard",
+      "wind": "breeze",
+      "blurb": "A blue hard court on the water, a boathouse clubhouse and pines bent by the sea wind. The toss never goes where you put it.",
+      "look": {
+        "court": "#2f5f9e",
+        "surround": "#26476f",
+        "fence": "windscreen",
+        "fenceColor": "#1e3a5a",
+        "ground": "#6f9a52",
+        "backdrop": "harbor",
+        "stands": { "rows": 4, "sides": ["east", "west"], "material": "metal" },
+        "clubhouse": { "style": "boathouse", "color": "#e9e4d8", "roof": "#3b4a5a", "side": "north" },
+        "trees": { "kind": "pine", "count": 20, "autumn": false },
+        "lights": true,
+        "scoreboard": false,
+        "sponsors": ["HARBOR POINT", "BLUEWATER BANK", "TIDEWATER MARINE"],
+        "crowd": 0.6
+      }
+    },
+    {
+      "id": "ashford_lawn",
+      "name": "Ashford Lawn Tennis Club",
+      "short": "Ashford Lawn",
+      "surface": "grass",
+      "wind": "calm",
+      "blurb": "The oldest lawn club in the county: a white timber pavilion with a clock, clipped hedges and a covered stand full of panama hats.",
+      "look": {
+        "court": "#5f9a4a",
+        "surround": "#4f8a3d",
+        "fence": "hedge",
+        "fenceColor": "#2f5a2a",
+        "ground": "#6a9a4f",
+        "backdrop": "lawn",
+        "stands": { "rows": 5, "sides": ["south"], "material": "wood", "covered": true },
+        "clubhouse": { "style": "pavilion", "color": "#f5f2ea", "roof": "#2f5d44", "side": "north", "clock": true },
+        "trees": { "kind": "oak", "count": 18, "autumn": false },
+        "lights": false,
+        "scoreboard": true,
+        "sponsors": ["ASHFORD LAWN", "HOLLAND & REED", "ESTATE TEA CO."],
+        "crowd": 0.7
+      }
+    },
+    {
+      "id": "sunridge_academy",
+      "name": "Sunridge Tennis Academy",
+      "short": "Sunridge",
+      "surface": "hard",
+      "wind": "calm",
+      "blurb": "A teal show court at the region's big academy: a glass training centre, a big two-sided stand and a proper scoreboard.",
+      "look": {
+        "court": "#1f8a8a",
+        "surround": "#16606a",
+        "fence": "windscreen",
+        "fenceColor": "#12404a",
+        "ground": "#7a9a5a",
+        "backdrop": "campus",
+        "stands": { "rows": 8, "sides": ["east", "west"], "material": "metal" },
+        "clubhouse": { "style": "modern", "color": "#dfe7ea", "roof": "#2a3a44", "side": "north" },
+        "trees": { "kind": "none", "count": 0, "autumn": false },
+        "lights": true,
+        "scoreboard": true,
+        "sponsors": ["SUNRIDGE ACADEMY", "SOLSTICE SPORTS", "PEAK HYDRATION"],
+        "crowd": 0.8
+      }
+    },
+    {
+      "id": "metro_center",
+      "name": "Metro Tennis Center",
+      "short": "Metro Center",
+      "surface": "hard",
+      "wind": "calm",
+      "blurb": "A night stadium downtown. Pro events only: twelve rows all round, a glowing scoreboard and the city skyline over the lights.",
+      "look": {
+        "court": "#2a4f8a",
+        "surround": "#1c2f55",
+        "fence": "windscreen",
+        "fenceColor": "#101a2e",
+        "ground": "#3f5a3f",
+        "backdrop": "night",
+        "stands": { "rows": 12, "sides": ["north", "south", "east", "west"], "material": "metal" },
+        "clubhouse": { "style": "arena", "color": "#2b3240", "roof": "#1a1f28", "side": "north" },
+        "trees": { "kind": "none", "count": 0, "autumn": false },
+        "lights": true,
+        "scoreboard": true,
+        "sponsors": ["METRO TENNIS CENTER", "NIGHTLINE", "CITYLIGHT BANK", "VOLT ENERGY"],
+        "crowd": 1.0
+      }
+    }
+  ],
+  "tournaments": [
+    { "id": "cedar_open", "name": "Cedar Park Junior Open", "venue": "cedar_park", "tier": "local", "draw": 16, "weekSlot": 0,
+      "blurb": "Where everybody starts: sixteen juniors, the city park and whoever brought a lawn chair." },
+    { "id": "maple_clay_classic", "name": "Maple Hollow Clay Classic", "venue": "maple_hollow", "tier": "regional", "draw": 16, "weekSlot": 2,
+      "blurb": "Slow red clay and long rallies. Bring patience and spare socks." },
+    { "id": "harbor_invitational", "name": "Harbor Point Junior Invitational", "venue": "harbor_point", "tier": "local", "draw": 16, "weekSlot": 1,
+      "blurb": "A sea breeze across the court every evening: play with margin." },
+    { "id": "sunridge_challenger", "name": "Sunridge Academy Challenger", "venue": "sunridge_academy", "tier": "regional", "draw": 32, "weekSlot": 5,
+      "blurb": "Thirty-two juniors at the region's big academy, and every coach in the stand is scouting." },
+    { "id": "greenbriar_junior_open", "name": "Greenbriar Junior Open", "venue": "greenbriar", "tier": "regional", "draw": 16, "weekSlot": 6, "home": true,
+      "blurb": "Your own club's event on Centre Court. The members will be watching, and you always get a wildcard." },
+    { "id": "ashford_championships", "name": "Ashford Lawn Junior Championships", "venue": "ashford_lawn", "tier": "national", "draw": 32, "weekSlot": 3,
+      "blurb": "The grass-court nationals: low bounces, fast points and a very old trophy." },
+    { "id": "cedar_summer_slam", "name": "Cedar Park Summer Slam", "venue": "cedar_park", "tier": "local", "draw": 8, "weekSlot": 4,
+      "blurb": "An eight-player weekend shootout under the park lights." },
+    { "id": "maple_nationals", "name": "Maple Hollow Junior Nationals", "venue": "maple_hollow", "tier": "national", "draw": 32, "weekSlot": 7,
+      "blurb": "The clay-court nationals. The best juniors in the country, best-of-three final." },
+    { "id": "metro_open", "name": "Metro Tennis Center Open", "venue": "metro_center", "tier": "pro", "draw": 32, "weekSlot": 0, "circuit": "pro",
+      "blurb": "The Pro Circuit's night event downtown: adults, prize money and twelve rows of noise." },
+    { "id": "sunridge_pro_invitational", "name": "Sunridge Pro Invitational", "venue": "sunridge_academy", "tier": "pro", "draw": 16, "weekSlot": 1, "circuit": "pro",
+      "blurb": "Sixteen pros and a handful of juniors brave enough to play them." }
+  ],
+  "styles": {
+    "baseliner": {
+      "label": "Baseliner",
+      "weight": 3,
+      "blurb": "Grinds from the back with deep, heavy groundstrokes.",
+      "sim": { "serve": 0, "return": 0.01, "surface": { "clay": 20, "hard": 5, "grass": -15 } },
+      "ai": { "approach": -0.12, "patience": 0.12, "backDepth": 0.25, "depth": 0.3, "dropVolley": -0.05, "flat": 0.04 },
+      "scout": {
+        "strengths": ["Deep, heavy groundstrokes", "Rarely misses from the back of the court"],
+        "weaknesses": ["Uncomfortable at the net", "Short balls drag {him} out of {his} comfort zone"],
+        "plan": ["Bring {him} forward: short slices and the odd drop shot", "When {he} comes in, pass or lob {him}", "Don't trade twenty-ball rallies from the baseline: change pace"]
+      }
+    },
+    "counterpuncher": {
+      "label": "Counterpuncher",
+      "weight": 2,
+      "blurb": "Fast feet, gets everything back and waits for your mistake.",
+      "sim": { "serve": -0.015, "return": 0.025, "surface": { "clay": 25, "hard": 5, "grass": -20 } },
+      "ai": { "speed": { "mul": 1.07 }, "react": { "mul": 0.92 }, "pace": { "mul": 0.94 }, "err": { "mul": 0.82 }, "aggression": -0.18, "patience": 0.3, "lobDefend": 0.15, "approach": -0.15, "backDepth": 0.35 },
+      "scout": {
+        "strengths": ["Gets everything back", "Excellent defence and lobs"],
+        "weaknesses": ["Little pace of {his} own", "Can be pushed around by an aggressive first strike"],
+        "plan": ["Be patient: build the point, don't go for the lines too early", "Come forward behind deep approaches, {he} won't hurt you from far back", "Take {his} second serve early and attack"]
+      }
+    },
+    "bigServer": {
+      "label": "Big server",
+      "weight": 2,
+      "blurb": "Wins free points on serve and goes for everything.",
+      "sim": { "serve": 0.035, "return": -0.015, "surface": { "grass": 30, "hard": 15, "clay": -25 } },
+      "ai": { "serve": { "pace": { "mul": 1.12 }, "fault1": 0.05, "wide": 0.12, "slice1": 0.1 }, "pace": { "mul": 1.04 }, "err": { "mul": 1.12 }, "aggression": 0.12, "patience": -0.1, "speed": { "mul": 0.96 } },
+      "scout": {
+        "strengths": ["A huge first serve", "Big forehand on the first ball after the serve"],
+        "weaknesses": ["Loose in long rallies", "Slow around the court"],
+        "plan": ["Stand a step back on {his} first serve and just block it deep", "Make {him} play one more ball: long rallies are yours", "Move {him} side to side, {he} doesn't like running"]
+      }
+    },
+    "serveVolleyer": {
+      "label": "Serve-and-volleyer",
+      "weight": 1,
+      "blurb": "Serves and charges the net. Old school.",
+      "sim": { "serve": 0.025, "return": -0.01, "surface": { "grass": 40, "hard": 0, "clay": -35 } },
+      "ai": { "serve": { "serveVolley": 0.5, "slice1": 0.15, "pace": { "mul": 1.04 } }, "approach": 0.3, "netDepth": -0.35, "dropVolley": 0.15, "slice": 0.12, "backDepth": -0.2, "patience": -0.2 },
+      "scout": {
+        "strengths": ["Serve-and-volley and sharp volleys", "Takes time away from you"],
+        "weaknesses": ["Low returns at {his} feet", "Lobs over {his} backhand side"],
+        "plan": ["Return low at {his} feet, {he} has to volley up", "Pass {him} down the line, or lob when {he} crowds the net", "Get your first serve in: {he} attacks second serves"]
+      }
+    },
+    "moonballer": {
+      "label": "Moonballer",
+      "weight": 1,
+      "blurb": "Loops every ball high and deep and never gets bored.",
+      "sim": { "serve": -0.02, "return": 0.015, "surface": { "clay": 30, "hard": -5, "grass": -35 } },
+      "ai": { "pace": { "mul": 0.84 }, "spin": { "mul": 1.2 }, "flat": -0.12, "err": { "mul": 0.78 }, "aggression": -0.35, "patience": 0.4, "lobDefend": 0.25, "depth": 0.4, "safeV": 0.2, "approach": -0.2 },
+      "scout": {
+        "strengths": ["High, heavy, deep loops", "Almost never misses"],
+        "weaknesses": ["No pace to hurt you", "Uncomfortable when you take the ball in the air"],
+        "plan": ["Step in and take the high balls early, or volley them", "Come to the net: {he} can't pass you with loops", "Be patient, keep your own errors down"]
+      }
+    },
+    "allCourt": {
+      "label": "All-court",
+      "weight": 2,
+      "blurb": "A bit of everything: rallies, comes in, slices, drops.",
+      "sim": { "serve": 0.005, "return": 0.005, "surface": { "grass": 10, "hard": 10, "clay": 5 } },
+      "ai": { "approach": 0.12, "drop": 0.05, "dropVolley": 0.06, "openCourt": 0.08, "aggression": 0.05, "slice": 0.04 },
+      "scout": {
+        "strengths": ["Adapts to anything", "Good hands at the net"],
+        "weaknesses": ["No single big weapon", "Can be pinned deep on the backhand"],
+        "plan": ["Play to the backhand, deep", "Keep {him} back: deep balls stop {his} approaches", "Serve wide and go for the open court"]
+      }
+    }
+  },
+  "names": {
+    "firstM": [
+      "Mateo", "Aarav", "Kenji", "Luca", "Noah", "Diego", "Kwame", "Omar", "Tariq", "Jonah",
+      "Ravi", "Tomas", "Felix", "Hugo", "Oscar", "Ishaan", "Kofi", "Emil", "Arjun", "Mateus",
+      "Sven", "Jin", "Dmitri", "Joaquin", "Lukas", "Nikolai", "Bruno", "Teodor", "Malik", "Hiro",
+      "Idris", "Santiago"
+    ],
+    "firstF": [
+      "Sofia", "Amara", "Chloe", "Zara", "Ines", "Yuki", "Elena", "Freya", "Mei", "Anya",
+      "Lucia", "Ingrid", "Ayesha", "Nia", "Leila", "Marta", "Hana", "Valentina", "Saoirse", "Adaeze",
+      "Camila", "Olivia", "Sienna", "Keala", "Farah", "Imani", "Aroha", "Yasmin", "Wren", "Esme",
+      "Paloma", "Clara"
+    ],
+    "last": [
+      "Marquez", "Okonkwo", "Novak", "Tanaka", "Haddad", "Lindqvist", "O'Brien", "Kowalczyk", "Silva", "Mensah",
+      "Petrov", "Duarte", "Fischer", "Adeyemi", "Moreau", "Rossi", "Yamamoto", "Kaur", "Andersen", "Costa",
+      "Horvat", "Nguyen", "Delgado", "Ivanova", "Mbeki", "Larsen", "Quinn", "Aziz", "Sato", "Brennan",
+      "Herrera", "Vasquez", "Kim", "Achebe", "Laurent", "Bianchi", "Holm", "Rahman", "Oyelaran", "Carvalho",
+      "Sokolov", "Takahashi", "Mwangi", "Byrne", "Ferreira", "Nowak", "Hussain", "Lindgren", "Castillo", "Dubois",
+      "Mendes", "Koenig", "Ekstrom", "Farouk", "Popescu", "Reyes", "Akhtar", "Hale", "Iwu", "Jansen",
+      "Kahale", "Lombardi", "Murphy", "Ortega", "Pillai", "Rivera", "Salo", "Tembo", "Varga", "Walsh", "Zhou"
+    ]
+  },
+  "clubs": [
+    "Cedar Park TC", "Maple Hollow RC", "Harbor Point TC", "Ashford LTC", "Sunridge Academy", "Riverside Racquet Club",
+    "Northgate TC", "Westbrook Academy", "Pine Ridge TC", "Lakeview Tennis Center", "Oakmont Juniors", "Bayside TC",
+    "Hillcrest RC", "Summit Tennis Academy", "Elmwood Courts", "Kingsbury LTC"
+  ],
+  "shirtColors": [
+    "#c0392b", "#2e86c1", "#27ae60", "#8e44ad", "#f39c12", "#16a085", "#d35400", "#2c3e50",
+    "#e84393", "#0097a7", "#6d4c41", "#546e7a", "#7cb342", "#5e35b1", "#fdd835", "#ef6c00"
+  ],
+  "clubJuniors": [
+    { "npc": "theo_wellington", "gender": "m", "rating": 1650, "style": "baseliner", "age": 14, "surface": "hard", "club": "Greenbriar",
+      "note": "Flat two-handed backhand and a serve {he} copied from Nate.", "ai": { "flat": 0.1, "weakWing": 0.1 }, "home": true },
+    { "npc": "lily_santos", "gender": "f", "rating": 1050, "style": "counterpuncher", "age": 10, "surface": "clay", "club": "Greenbriar",
+      "note": "Ten years old and runs down every ball, occasionally the wrong one.", "localOnly": true, "wildcardChance": 0.75 }
+  ],
+  "adults": {
+    "count": 24,
+    "ratingRange": [1760, 2020],
+    "ages": [19, 31],
+    "named": [
+      { "npc": "nate_okafor", "gender": "m", "rating": 1905, "style": "bigServer", "age": 20, "surface": "hard", "club": "Greenbriar",
+        "note": "College captain, home for the summer. First-strike tennis: big serve, forehand, done." }
+    ]
+  }
+}
