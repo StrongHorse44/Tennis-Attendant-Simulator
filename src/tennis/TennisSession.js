@@ -19,6 +19,7 @@ import { TennisAudio } from './TennisAudio.js';
 import { TennisOcclusion } from './TennisOcclusion.js';
 import { TennisCrowd } from './TennisCrowd.js';
 import { TennisCoach } from './TennisCoach.js';
+import { TourMatch } from './TourMatch.js';
 
 /**
  * TennisSession — the after-hours tennis mode: an evening hit with Coach Rafa under the
@@ -218,6 +219,15 @@ export class TennisSession {
     this.frame = court ? new CourtFrame(court) : null;
     this.surface = surfaceOf(court);
     this.coachNpc = (game.npcs || []).find(n => n.id === 'rafa_ibarra') || null;
+    // The NPC across the net: Rafa, or a Junior Tour opponent while a tour match runs (this.tour:
+    // the TourMatch; crowdKeep / crowdStaff tell TennisCrowd who stays and whether the staff come)
+    this.oppNpc = this.coachNpc;
+    this.tour = null;
+    this.tourMatch = null;
+    this.crowdKeep = null;
+    this.crowdStaff = true;
+    this._clubSide = null;
+    this._bigPoint = false;
     // The flights' court (BallFlight env): the real one (the real wind), and the one a hitter
     // plans with (only the part of the wind he allows for)
     this._env = { surfY: SURF, frame: null, fence: null, surface: SURFACES.hard, wind: null, groundAt: null, net: true };
@@ -332,7 +342,8 @@ export class TennisSession {
       onMenu: () => this.openMenu(true),
       onRematch: () => this._rematch(),
       onChangeMode: () => this.openMenu(false),
-      onDone: () => this.end(),
+      onDone: () => this._resultsDone(),
+      onTour: () => { if (this.game.openTourHub) this.game.openTourHub({ tab: 'week' }); },
       getProfile: () => this.game.profile,
     });
     this._hudSwing = false;
@@ -503,8 +514,26 @@ export class TennisSession {
     NPC.setAreaBusy(this.frame.id, false);
     const npc = this.coachNpc;
     this.ai.reset();
-    npc.stopPlaying();
-    npc.fullRateAnim = false;
+    const tm = this.tour;
+    if (tm) {
+      // A Junior Tour match: Rafa back to his post, the opponent home (the visitor away), the
+      // venue hidden; the session's court, surface and wind back to the club's
+      this.tour = null;
+      tm.teardown();
+      this.oppNpc = npc;
+      this.oppStyle = null;
+      this.ai.attach(npc);
+      this.crowdKeep = null;
+      this.crowdStaff = true;
+      this._hudCall('setNames', null);
+      const cs = this._clubSide;
+      this._clubSide = null;
+      if (cs && cs.frame) { this.frame = cs.frame; this._applyCourtBase(); }
+      if (cs) { this._setSurfaceKey(cs.surface); this.windKey = cs.windKey; if (this.hud) this.hud.setConditions(null, cs.windKey); }
+    } else {
+      npc.stopPlaying();
+      npc.fullRateAnim = false;
+    }
     const p = g.player;
     p.character.setRacketVisible(false);
     p.character.setBallVisible(false);
@@ -515,8 +544,10 @@ export class TennisSession {
     const wps = g.mapData && g.mapData.waypoints;
     const ex = wps && wps[`${this.frame.id}_exit`];
     const wp = ex ? null : wps && wps[`${this.frame.id}_bench`];
-    const x = ex ? ex.x : wp ? wp.x - 1.2 : this.frame.wx(-9.5, 2), z = ex ? ex.z : wp ? wp.z : this.frame.wz(-9.5, 2);
-    const src = ex || wp;
+    const home = tm ? tm.clubSpot() : null;   // a tour match: back where you were at the club
+    const x = home ? home.x : ex ? ex.x : wp ? wp.x - 1.2 : this.frame.wx(-9.5, 2);
+    const z = home ? home.z : ex ? ex.z : wp ? wp.z : this.frame.wz(-9.5, 2);
+    const src = home || ex || wp;
     const gy = src && Number.isFinite(src.y) ? src.y : groundAt(x, z);
     p.body.position.set(x, gy + SIZES.playerRadius * SIZES.playerScale, z);
     p.body.velocity.set(0, 0, 0);
@@ -536,7 +567,7 @@ export class TennisSession {
     const w = g.weather;
     w.stadium = 0;
     if (this._saved) { w.weatherTimer = this._saved.weatherTimer; }
-    g.cameraYaw = g.cameraTargetYaw = Math.atan2(this.frame.cx - x, this.frame.cz - z);
+    g.cameraYaw = g.cameraTargetYaw = home && Number.isFinite(home.yaw) ? home.yaw : Math.atan2(this.frame.cx - x, this.frame.cz - z);
     if (g._snapCamera) g._snapCamera();
     g._actionLabel = undefined;
     // Continue the evening: the report card if the shift is still closing, else the next day
@@ -544,7 +575,14 @@ export class TennisSession {
     if (this.from === 'debug') {
       if (this._saved) { w.timeOfDay = this._saved.time; w.clockFrozen = this._saved.frozen; }
     } else if (sh && sh.phase === 'report') {
-      g.startNextDay();
+      // Tonight's Junior Tour match still to play (you had a hit with Rafa first, or a tour match
+      // broke off without a result): back to the report card, whose "Next day" asks before a
+      // walkover; else the next day
+      if ((!tm || !tm.reported) && this._tourTonight() && g.shiftReport && sh.lastReport) {
+        if (this._saved) { w.timeOfDay = this._saved.time; w.clockFrozen = this._saved.frozen; }
+        g.pause('report');
+        g.shiftReport.show(sh.lastReport);
+      } else g.startNextDay();
     } else if (sh) {
       w.timeOfDay = Math.max(w.timeOfDay, sh.endHour || GAME.shiftEndHour || 19);
       w.clockFrozen = this._saved ? this._saved.frozen : false;
@@ -552,6 +590,199 @@ export class TennisSession {
     }
     // Saved once the club's clock is back (never the session's afternoon-to-night time)
     try { g.saveGame(); } catch (e) { /* ignore */ }
+  }
+
+  // ─────────────────────────── Junior Tour ───────────────────────────
+
+  /**
+   * A Junior Tour match (a TourSystem matchSpec, from the report card's tournament button or the
+   * hub's "Play now" → Game.startTourMatch). TourMatch resolves the court — another club's venue
+   * far from the club (game.venues), or Centre Court for the home event — and the opponent (a club
+   * member in the draw walks on as themselves; anyone else is the visiting NPC in their colours),
+   * played by TennisAI with the opponent's TourDifficulty table. Rafa sits courtside, the game-plan
+   * card opens, then the match is played like any other: a chair umpire calls the score, the crowd
+   * reacts, and the result goes to the tour (the tournament card) before end() brings everyone
+   * home. Returns false (nothing changed) when it can't start.
+   */
+  beginTour(spec) {
+    if (this.active || !spec || typeof spec !== 'object' || !spec.opponent || !this.coachNpc) return false;
+    this._build();
+    const tm = this.tourMatch || (this.tourMatch = new TourMatch(this));
+    const g = this.game;
+    if (g.dialogueSystem && g.dialogueSystem.isActive()) g.dialogueSystem.forceEnd();
+    if (!tm.prepare(spec)) return false;
+    tm.saveClubSide();
+    this._clubSide = { frame: this.frame, surface: this.surface, windKey: this.windKey };
+    this.frame = new CourtFrame(tm.court);
+    this._applyCourtBase();
+    const opp = tm.oppNpc;
+    this.tour = tm;
+    this.oppNpc = opp;
+    this.oppStyle = spec.opponent.style || null;
+    this.ai.attach(opp);
+    const surf = SURFACES[spec.surface] ? spec.surface : surfaceOf(tm.court);
+    const diff = tm.difficulty();
+    if (diff && typeof this.ai.setCustomDifficulty === 'function') this.ai.setCustomDifficulty(diff, surf);
+    else this.ai.setDifficulty('medium', surf);
+    this.crowdKeep = tm.clubOpp ? [this.coachNpc, opp] : [this.coachNpc];
+    this.crowdStaff = tm.home;            // the staff come to watch at home only
+    this.from = 'tour';
+    this._tourErrors = 0;
+    this.active = true;
+    this.phase = 'intro';
+    this.mode = null;
+    this.t = 0;
+
+    if (g.shiftReport && g.shiftReport.isOpen) g.shiftReport.hide();
+    if (g.paused && g.pauseReason === 'report') g.resume();
+    if (g.player.isInCart) { g.player.exitCart(); g.sound.stopCartEngine && g.sound.stopCartEngine(); g.wasInCart = false; }
+    if (g.hud && g.hud.isRadioCardVisible && g.hud.isRadioCardVisible()) g.hud.hideRadioDispatch();
+
+    // An evening match: into the dusk and under the lights where the venue has them (else an
+    // earlier start, and daylight to the end); the day's wind; the weather held
+    const w = g.weather;
+    this._saved = { frozen: w.clockFrozen, weatherTimer: w.weatherTimer, matches: g.matches ? g.matches.enabled : true, time: w.timeOfDay };
+    w.timeOfDay = tm.dayStart;
+    w.clockFrozen = true;
+    w.stadium = tm.lights ? 1 : 0;
+    const sky = spec.wind === 'gusty' ? 'windy' : 'sunny';
+    if (w.getWeather() !== sky) w.setWeather(sky, true);
+    if (g.matches) {
+      g.matches.enabled = false;
+      for (const m of g.matches.matches.slice()) { try { g.matches._finish(m); } catch (e) { /* ignore */ } }
+    }
+    try { g.spectators?.releaseAll?.('tennis'); } catch (e) { /* ignore */ }
+    if (!tm.home) { try { g.world?.stadium?.setCrowd?.(0, true); } catch (e) { /* ignore */ } }
+    NPC.setAreaBusy(this.frame.id, true);
+
+    const p = g.player;
+    p.body.velocity.set(0, 0, 0);
+    p.character.setRacketVisible(true);
+    p.character.anim.autoIdleVariants = false;
+    if (opp.state === 'talking') opp.stopTalking();
+    if (opp.playing) opp.stopPlaying();
+    // (a full reset onto the court first: a member may have been sitting, spectating or walking
+    // at the club — no seat blend or walk carries over to the venue)
+    opp.placeAt(this.frame.wx(0, -BASE_V), this.frame.wz(0, -BASE_V), null, SURF);
+    opp.startPlaying(this.frame.id, 'north');
+    opp.fullRateAnim = true;
+    opp.character.setBallVisible(false);
+
+    this.sides[0] = 1; this.sides[1] = -1;
+    this._setSurfaceKey(surf);
+    this.setWind(WINDS[spec.wind] ? spec.wind : 'calm');
+    this._placePlayer(0, BASE_V);
+    this.ai.place(0, -BASE_V);
+    this.ball.hide();
+    this.fx.hideAll();
+    this.cam.snap(this);
+    try { this.occ.begin(this); } catch (err) { console.error('TennisOcclusion', err); }
+    document.body.classList.add('cc-tennis');
+    this.hud.show();
+    this.hud.hideMenu();
+    this.hud.hideResults();
+    this.hud.setPlayUi(false);
+    this.audio.start();
+    tm.begin(() => this._startTourPlay());  // Rafa courtside, names, the crowd; the game-plan card shortly
+    this._crowd('begin', this);             // (after Rafa has his seat: the staff sit elsewhere)
+    this._resetCtl();
+    return true;
+  }
+
+  /** The game plan is given: the match starts (the umpire announces the server). */
+  _startTourPlay() {
+    const tm = this.tour, sp = tm && tm.spec;
+    if (!this.active || !sp || this.mode) return;
+    this.mode = 'match';
+    this.format = FORMATS[sp.format] ? sp.format : 'set';
+    this.setWind(this.windKey);   // the day's wind, a fresh direction
+    const diff = tm.difficulty();
+    if (diff && typeof this.ai.setCustomDifficulty === 'function') this.ai.setCustomDifficulty(diff, this.surface);
+    this.score = new TennisScore({ format: this.format, firstServer: Math.random() < 0.5 ? 0 : 1 });
+    this.sides[0] = 1; this.sides[1] = -1;
+    this._newStats();
+    this.faults = 0;
+    this.pl.stamina = 1;
+    this.hud.hideMenu();
+    this.hud.hideResults();
+    this.hud.setPlayUi(true, 'match');
+    this._hudCall('setNames', ['You', tm.oppShort]);
+    this.hud.setInfo(tm.infoLine());
+    this.momentum[0] = this.momentum[1] = 0;
+    this.hud.setMomentum(0, 0);
+    this._coach('reset', 'match', { format: this.format, diff: 'tour' });
+    this._updateScoreboard();
+    tm.openingCall();
+    this._setupPoint(true);
+  }
+
+  /** A tour match is over: the tour hears the result; the results card (Continue → the tournament card → home). */
+  _finishTour(won, ups) {
+    const tm = this.tour, sc = this.score, s = this.stats, g = this.game, sp = tm.spec;
+    tm.report(won, false, { points: s.points.slice(), winners: s.winners.slice(), aces: s.aces.slice(), doubles: s.doubles.slice() });
+    tm.matchEnd(won);
+    this._crowd('react', 'match', won ? 0 : 1);
+    this.hud.setPlayUi(false);
+    let tips = null;
+    try { tips = this.coach && this.coach.postMatch ? this.coach.postMatch({ won, stats: s }) : null; } catch (e) { tips = null; }
+    if (!Array.isArray(tips) || !tips.length) tips = this._topTips();
+    let rec = '';
+    try {
+      const h = g.tour && g.tour.getHub ? g.tour.getHub() : null;
+      if (h && h.me && h.me.record) rec = `Tour record ${h.me.record.w}–${h.me.record.l}${h.me.rank ? ` · ranked #${h.me.rank}` : ''}`;
+    } catch (e) { rec = ''; }
+    const fsp = s.firsts ? `${Math.round(100 * s.firstIn / s.firsts)}%` : '–';
+    this.hud.showResults({
+      kind: 'match', won,
+      kindLabel: [sp.tournamentName, sp.roundName].filter(Boolean).join(' · '),
+      title: won ? 'Victory!' : `${tm.oppName} wins`,
+      sub: `vs ${sp.opponent.name} · ${SURFACES[this.surface].label}${this.windKey !== 'calm' ? ' · ' + WINDS[this.windKey].label : ''}`,
+      score: sc.setLine(0),
+      stats: [
+        ['Winners', s.winners[0]], ['Unforced errors', s.unforced], ['Aces', s.aces[0]], ['Double faults', s.doubles[0]],
+        ['1st serves in', fsp], ['Power shots', s.powerShots],
+        ['Net points won', `${s.netPts[0]}/${s.netPts[1]}`], ['Perfect hits', s.perfect],
+        ['Longest rally', s.longest], ['Avg rally', s.rallies ? (s.rallyShots / s.rallies).toFixed(1) : '0'],
+        ['Points won', `${s.points[0]}/${s.points[0] + s.points[1]}`], [`${tm.oppName} errors`, s.errors[1]],
+      ],
+      xp: this._xpShown, ups, tips, xpLabel: 'Match XP', recordText: rec,
+      buttons: { again: false, mode: false, done: 'Continue ▸' },
+    });
+    if (won) g.sound.playRankUp && g.sound.playRankUp();
+    else g.sound.playNotification && g.sound.playNotification();
+  }
+
+  /** The results card's Done / Continue: after a tour match the tournament card comes first. */
+  _resultsDone() {
+    const tm = this.tour;
+    if (tm && tm.reported) {
+      this.hud.hideResults();
+      tm.showResult(() => this.end());
+      return;
+    }
+    this.end();
+  }
+
+  /** Retire from a tour match (the Menu button, confirmed): a loss with "ret.", then home. */
+  _retireTour() {
+    const tm = this.tour;
+    if (!tm || !this.active || this.phase === 'results') return;
+    this._stopPlay();
+    this.phase = 'results';
+    this._applyPendingXp();
+    tm.report(false, true, null);
+    this.hud.setPlayUi(false);
+    this.hud.hideResults();
+    tm.showResult(() => this.end());
+  }
+
+  /** The name the scoreboard pops and calls use for the NPC across the net. */
+  _oppLabel() { return this.tour ? this.tour.oppName : 'Rafa'; }
+
+  /** Tonight's Junior Tour match is still to be played (TourSystem.getTonight). */
+  _tourTonight() {
+    const g = this.game;
+    try { return !!(g.tour && g.tour.getTonight && g.tour.getTonight(g.weather.day)); } catch (e) { return false; }
   }
 
   setOption(k, v) {
@@ -670,6 +901,21 @@ export class TennisSession {
   }
 
   openMenu(abandon) {
+    if (this.tour) {
+      // A tour match has no menu: the Menu button asks whether to retire (a loss, "ret.")
+      if (abandon) {
+        if (this.mode === 'match' && this.phase !== 'results') this.tour.askRetire(() => this._retireTour());
+        return;
+      }
+      // An error mid-point: replay the point; a third within 20 s → back to the report card with
+      // the match still waiting (end() without a result)
+      this._tourErrors = (this._tourErrT > this.t - 20 ? this._tourErrors : 0) + 1;
+      this._tourErrT = this.t;
+      this._stopPlay();
+      if (this._tourErrors >= 3 || this.mode !== 'match' || !this.score || this.score.done) { this.end(); return; }
+      this._setupPoint(false, false);
+      return;
+    }
     if (abandon && (this.phase !== 'menu' && this.phase !== 'results')) this._applyPendingXp();
     this._stopPlay();
     this._clearStadiumBoard();
@@ -684,6 +930,8 @@ export class TennisSession {
       opts: this.opts, last: this.lastMatch, lastDrill: this.lastDrill, profile: this.game.profile,
       court: { surface: this.surface, choices: this.courtChoices() }, wind: this.windKey,
     });
+    // The Junior Tour's hub, once Rafa's offer is accepted
+    this._hudCall('setTourButton', !!(this.game.tour && this.game.tour.accepted));
     this._placePlayer(0, BASE_V * this.sides[0]);
     this.ai.place(0, BASE_V * this.sides[1]);
   }
@@ -799,6 +1047,7 @@ export class TennisSession {
     g.world.stepPhysics(dt);
     const pp = g.player.mesh.position;
     for (const npc of g.npcs) npc.update(dt, pp);
+    if (this.tour) this.tour.update(dt, pp);   // (the visiting opponent is not in game.npcs)
     if (g.matches) g.matches.update(dt);
 
     try { this._updatePlay(dt); } catch (err) {
@@ -841,7 +1090,9 @@ export class TennisSession {
     if (ph === 'menu' || ph === 'results' || !this.mode) return;
     const w = this.game.weather;
     const rate = this.mode === 'match' ? (DUSK_RATE[this.format] || DUSK_RATE.short) : DUSK_RATE.short;
-    if (w.timeOfDay < DAY_END) w.timeOfDay = Math.min(DAY_END, w.timeOfDay + dt * rate);
+    // (a tour venue without floodlights keeps the daylight: its clock stops before sunset)
+    const end = this.tour ? Math.min(DAY_END, this.tour.dayEnd) : DAY_END;
+    if (w.timeOfDay < end) w.timeOfDay = Math.min(end, w.timeOfDay + dt * rate);
   }
 
   _readControls(dt) {
@@ -1475,8 +1726,8 @@ export class TennisSession {
   /** Toss (serve) or feed: the ball from the hand to the hitter's contact point in tau seconds. */
   launchToss(who, from, tau, clip) {
     const b = this.ball, fl = this.fl, t = this.t;
-    const ch = who === 0 ? this.game.player.character : this.coachNpc.character;
-    (who === 0 ? this.game.player.mesh : this.coachNpc.mesh).updateMatrixWorld(true);
+    const ch = who === 0 ? this.game.player.character : this.oppNpc.character;
+    (who === 0 ? this.game.player.mesh : this.oppNpc.mesh).updateMatrixWorld(true);
     ch.getContactPointWorld(clip, _v2);
     this._flyTo(t, from, _v2, tau);
     b.spin = 'feed';
@@ -1575,7 +1826,7 @@ export class TennisSession {
     fl.bounces = 0; fl.let = false; fl.contactBy = -1; fl.tContact = INF; fl.shot = label;
     fl.touchedByReceiver = false; fl.evI = 0; fl.tLaunch = tc;
     // Where both players were at the contact (the coach reads each landing against them)
-    const npc = this.coachNpc;
+    const npc = this.oppNpc;
     const ru = npc ? f.lu(npc.body.position.x, npc.body.position.z) : 0, rv = npc ? f.lv(npc.body.position.x, npc.body.position.z) : 0;
     fl.fromU = hitter === 0 ? this.pl.u : ru; fl.fromV = hitter === 0 ? this.pl.v : rv;
     fl.oppU = hitter === 0 ? ru : this.pl.u; fl.oppV = hitter === 0 ? rv : this.pl.v;
@@ -1837,6 +2088,7 @@ export class TennisSession {
     this.audio.net(_v1);
     if (fl.resolved || fl.kind === 'toss') return;
     if (fl.kind === 'serve') fl.let = true;
+    else if (this.tour) this.tour.netCord(fl.hitter);
     this.hud.pop('Net cord!', 'call');
     this._onFlight(true);   // the receiver reads it again
   }
@@ -2142,7 +2394,7 @@ export class TennisSession {
       this._makeAndFly(1, 'rally', 'topspin', tc, st, I, X, true);
       this._launchBook(1, 'rally', 'topspin', tc, st);
       ai.recover(this.t, 0.5);
-      this.coachNpc.character.setBallVisible(false);
+      this.oppNpc.character.setBallVisible(false);
       return;
     }
     const pressure = clamp((ai.plan.stretch || 0) - 0.5, 0, 1) + (this._lastShotQ > 0.9 ? 0.25 : 0) + (this.fl.shot === 'flat' ? 0.1 : 0);
@@ -2160,7 +2412,7 @@ export class TennisSession {
     this._makeAndFly(1, 'rally', s.spin, tc, st, I, X, false);
     this._launchBook(1, 'rally', s.spin, tc, st);
     ai.recover(this.t, 0.5);
-    this.coachNpc.character.setBallVisible(false);
+    this.oppNpc.character.setBallVisible(false);
     void b;
   }
 
@@ -2213,9 +2465,9 @@ export class TennisSession {
       this.hud.setMeter?.(-1);
       this.hud.setServeHint(true, second);
     } else {
-      this.coachNpc.character.setBallVisible(true);
-      this.coachNpc.mesh.rotation.y = srv.yaw;
-      this.coachNpc.setFacing(srv.yaw, true);
+      this.oppNpc.character.setBallVisible(true);
+      this.oppNpc.mesh.rotation.y = srv.yaw;
+      this.oppNpc.setFacing(srv.yaw, true);
       srv.tAuto = this.t + (second ? 0.9 : 1.4);
       this.hud.setServeHint(false);
     }
@@ -2244,8 +2496,8 @@ export class TennisSession {
     if (srv.who === 1 && !srv.started && t >= srv.tAuto) this._startServe(1, 0.8);
     if (srv.started && t >= srv.tRelease) {
       srv.tRelease = INF;
-      const ch = srv.who === 0 ? this.game.player.character : this.coachNpc.character;
-      (srv.who === 0 ? this.game.player.mesh : this.coachNpc.mesh).updateMatrixWorld(true);
+      const ch = srv.who === 0 ? this.game.player.character : this.oppNpc.character;
+      (srv.who === 0 ? this.game.player.mesh : this.oppNpc.mesh).updateMatrixWorld(true);
       ch.getBallHandWorldPosition(_v1);
       ch.setBallVisible(false);
       if (srv.who === 0) this._launchPlayerToss(_v1);
@@ -2257,7 +2509,7 @@ export class TennisSession {
   _startServe(who, power) {
     const srv = this.srv, t = this.t;
     srv.started = true; srv.power = power;
-    const npc = this.coachNpc;
+    const npc = this.oppNpc;
     npc.stopMove();
     npc.mesh.rotation.y = srv.yaw;
     npc.setFacing(srv.yaw, true);
@@ -2485,6 +2737,7 @@ export class TennisSession {
       this._crowd('react', 'doubleFault', who);
       this.tPointOver = this.t + 1.5;
       this._pointEnd(1 - who, 'double', who);
+      if (this.tour) this.tour.pointEnd(1 - who, 'double', who, 0, this._bigPoint);
     } else {
       this._pointWinner = -2; this._pointWhy = 'fault';
       this.hud.pop(kind === 'net' ? 'Fault (net)' : kind === 'miss' ? 'Fault' : 'Fault', 'call');
@@ -2546,7 +2799,7 @@ export class TennisSession {
       this.hud.pop(why === 'net' ? 'Net' : 'Out!', 'call');
       if (hitter === 0 && fl.q > 0.6 && this.swing.stretch < 0.5) this.stats.unforced++;
       this._crowd('react', 'error', hitter);
-      if (hitter === 1 && Math.random() < 0.3) this._say(pick(['Bueno...', 'Ay. My fault.', 'Hm. The ball has no memory.']), 1.6);
+      if (hitter === 1 && !this.tour && Math.random() < 0.3) this._say(pick(['Bueno...', 'Ay. My fault.', 'Hm. The ball has no memory.']), 1.6);
     } else if (why === 'ace') {
       this.stats.aces[hitter]++;
       this.hud.pop('Ace!', hitter === 0 ? 'perfect' : 'call');
@@ -2554,11 +2807,12 @@ export class TennisSession {
       this._crowd('react', 'ace', hitter);
     } else if (why === 'winner') {
       this.stats.winners[hitter]++;
-      this.hud.pop(hitter === 0 ? 'Winner!' : (this._miss ? 'Missed' : 'Winner, Rafa'), hitter === 0 ? 'perfect' : 'call');
+      this.hud.pop(hitter === 0 ? 'Winner!' : (this._miss ? 'Missed' : `Winner, ${this._oppLabel()}`), hitter === 0 ? 'perfect' : 'call');
       if (hitter === 0) this._xp('power', 3);
       this._crowd('react', fl.shot === 'smash' ? 'smash' : fl.shot === 'drop' ? 'drop' : 'winner', hitter);
     }
     this._pointEnd(winner, why, hitter);
+    if (this.tour) this.tour.pointEnd(winner, why, hitter, this.rallyShots, this._bigPoint);
     this._miss = null;
   }
 
@@ -2587,13 +2841,18 @@ export class TennisSession {
     this.stats.points[w]++;
     this._pointMomentum(w, why, this.fl.hitter);
     this._updateScoreboard();
-    const names = ['You', 'Rafa'];
+    const names = ['You', this._oppLabel()];
     if (ev.match) { this._finishMatch(); return; }
     if (ev.set) { this.hud.pop(`Set ${names[ev.setWinner]}!`, 'big'); this._crowd('react', 'set', ev.setWinner); }
     else if (ev.game) { this.hud.pop(`Game ${names[ev.gameWinner]}`, 'big'); this._crowd('react', 'game', ev.gameWinner); }
     if (ev.tiebreak) this.hud.pop('Tiebreak!', 'big');
     if (ev.game) this.pl.stamina = Math.min(1, this.pl.stamina + 0.25);
     if (ev.game || ev.set) this._coach('onGame', ev, this.score);
+    // Tour: the umpire's call, the crowd, and Rafa's changeover talk from the stand
+    if (this.tour && (ev.game || ev.set)) {
+      const line = this.tour.gameEnd(ev, this.score);
+      if (line) this._say(line, 3.6);
+    }
     if (ev.changeEnds && this.opts.changeEnds) {
       this.sides[0] = -this.sides[0]; this.sides[1] = -this.sides[1];
       this.cam.flip();
@@ -2630,14 +2889,18 @@ export class TennisSession {
     this.srv.second = !!second;
     if (!second) this._resetPointInfo();
     this._beginServe(sc.currentServer, sc.isDeuceSide(), !!second);
-    const call = sc.callText(['You', 'Rafa']);
-    if (!first && !second && call) this._say(call, 1.5);
+    const call = sc.callText(['You', this._oppLabel()]);
+    if (!first && !second && call) {
+      if (this.tour) this.tour.pointCall();   // the chair umpire calls it
+      else this._say(call, 1.5);
+    }
     if (second) this.hud.pop('Second serve', 'small');
     else {
       const pr = sc.pressure();
+      this._bigPoint = !!pr;
       if (pr) {
         const what = pr.kind === 'match' ? 'Match point' : pr.kind === 'set' ? 'Set point' : 'Break point';
-        this.hud.pop(pr.for === 0 ? `${what}!` : `${what}, Rafa`, 'big');
+        this.hud.pop(pr.for === 0 ? `${what}!` : `${what}, ${this._oppLabel()}`, 'big');
       }
     }
     this._updateScoreboard();
@@ -2663,6 +2926,18 @@ export class TennisSession {
    * club (menu, drills, another court, leaving).
    */
   _stadiumBoard(server) {
+    if (this.tour) {
+      const sc = this.score;
+      if (!sc) return;
+      const g = sc.done && sc.sets.length ? sc.sets[sc.sets.length - 1].g : sc.games;
+      const o = this._boardObj || (this._boardObj = { games: [0, 0], points: ['', ''], server: 0, sets: [0, 0] });
+      o.games[0] = g[0]; o.games[1] = g[1];
+      o.points[0] = sc.done ? '' : sc.pointText(0); o.points[1] = sc.done ? '' : sc.pointText(1);
+      o.server = server === 1 ? 1 : 0;
+      o.sets[0] = sc.setsWon[0]; o.sets[1] = sc.setsWon[1];
+      if (this.tour.board(o)) this._boardSet = true;
+      return;
+    }
     const st = this.game.world?.stadium, f = this.frame, sc = this.score;
     if (typeof st?.setScoreOverride !== 'function') return;
     if (!sc || !f?.court?.isStadium || (st.layout && st.layout.id !== f.id)) { this._clearStadiumBoard(); return; }
@@ -2699,6 +2974,7 @@ export class TennisSession {
     if (won) { s.xp.power += 2; s.xp.control += 2; s.xp.serve += 1; s.xp.stamina += 1; }
     for (const k in s.xp) s.xp[k] *= mul;
     const ups = this._applyPendingXp();
+    if (this.tour) { this._finishTour(won, ups); return; }   // (not a match against Rafa: no record)
     const prof = this.game.profile;
     if (prof) prof.recordMatch({ won, setsWon: sc.setsWon[0], setsLost: sc.setsWon[1] });
     try { this.game.saveGame(); } catch (e) { /* ignore */ }

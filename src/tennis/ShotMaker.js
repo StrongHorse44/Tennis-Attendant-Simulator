@@ -1,4 +1,5 @@
-import { planShot } from './BallFlight.js';
+import { planShot, BallFlight } from './BallFlight.js';
+import { SURFACES, spinVector } from './TennisPhysics.js';
 import {
   impactInverse, impactForward, apparentCOR, faceRotate, strokeErrors, serveErrors, sweetness,
 } from './RacketImpact.js';
@@ -132,8 +133,6 @@ export function makeShot(res, ball, intent, exec, env) {
  * go the way the game promises. Returns [] or error strings.
  */
 export async function shotSelfCheck() {
-  const { BallFlight } = await import('./BallFlight.js');
-  const { SURFACES, spinVector } = await import('./TennisPhysics.js');
   const errs = [];
   const fr = { cx: 0, cz: 0, c: 1, s: 0 };
   const env = { surfY: 0.15, frame: fr, fence: { v: 14.25, top: Infinity, halfU: Infinity, open: false }, surface: SURFACES.hard, wind: null, groundAt: null };
