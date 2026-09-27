@@ -84,11 +84,20 @@ export const DIFFICULTY = {
  * `pace` scales his rally pace, `back` moves his baseline spot (m, + deeper), `react` his read.
  * Clay: patient, heavy topspin from deep, more drop shots and kick serves, rarely at the net.
  * Grass: flatter and lower — more slices, approaches and serve-and-volley, closer to the line.
+ * `adapt` (optional, per difficulty key, default 1): how much of the style that level plays —
+ * on grass Easy and Medium Rafa keep more of their usual game, Hard plays all of it.
+ * `err` (optional) scales his mishit rate on the surface at every level: the low, skidding
+ * grass bounce that makes his pace hurt also rushes him (without it grass Medium played a few
+ * points harder for the bot than the hard court).
  */
 export const SURFACE_STYLE = {
   hard: {},
   clay: { flat: -0.06, slice: -0.06, drop: 0.06, dropVolley: 0.04, approach: -0.12, aggression: -0.12, patience: 0.25, pace: 0.97, back: 0.9, kick1: 0.12, kick2: 0.3, slice1: -0.1, slice2: -0.25, serveVolley: -0.1, lobDefend: 0.08 },
-  grass: { flat: 0.08, slice: 0.14, drop: -0.04, approach: 0.14, aggression: 0.1, patience: -0.1, pace: 1.02, back: -0.35, kick1: -0.04, kick2: -0.1, slice1: 0.1, slice2: 0.1, serveVolley: 0.12 },
+  grass: {
+    flat: 0.08, slice: 0.14, drop: -0.04, approach: 0.14, aggression: 0.1, patience: -0.1, pace: 1.02, back: -0.35, kick1: -0.04, kick2: -0.1, slice1: 0.1, slice2: 0.1, serveVolley: 0.12,
+    adapt: { easy: 0.5, medium: 0.7, hard: 1 },
+    err: 1.25,
+  },
 };
 const SHARE_KEYS = ['flat', 'slice', 'drop', 'dropVolley', 'approach', 'aggression', 'patience', 'lobDefend'];
 const SERVE_KEYS = ['kick1', 'kick2', 'slice1', 'slice2', 'serveVolley'];
@@ -97,15 +106,18 @@ const SERVE_KEYS = ['kick1', 'kick2', 'slice1', 'slice2', 'serveVolley'];
 export function difficultyFor(key, surface) {
   const base = DIFFICULTY[key] || DIFFICULTY.medium, st = SURFACE_STYLE[surface] || SURFACE_STYLE.hard;
   const d = { ...base, serve: { ...base.serve }, ret: { ...base.ret }, surface: surface || 'hard' };
-  for (const k of SHARE_KEYS) if (st[k]) d[k] = clamp(base[k] + st[k], 0, 1);
-  for (const k of SERVE_KEYS) if (st[k]) d.serve[k] = clamp(base.serve[k] + st[k], 0, 1);
+  // this level's share of the surface style (1 = all of it)
+  const a = st.adapt && Number.isFinite(st.adapt[key]) ? clamp(st.adapt[key], 0, 1) : 1;
+  for (const k of SHARE_KEYS) if (st[k]) d[k] = clamp(base[k] + st[k] * a, 0, 1);
+  for (const k of SERVE_KEYS) if (st[k]) d.serve[k] = clamp(base.serve[k] + st[k] * a, 0, 1);
   // kick + slice shares must leave room for flat serves
   for (const n of ['1', '2']) {
     const tot = d.serve['kick' + n] + d.serve['slice' + n];
     if (tot > 1) { d.serve['kick' + n] /= tot; d.serve['slice' + n] /= tot; }
   }
-  if (st.pace) d.pace = [base.pace[0] * st.pace, base.pace[1] * st.pace];
-  if (st.back) d.backDepth = base.backDepth + st.back;
+  if (st.pace) { const p = a === 1 ? st.pace : 1 + (st.pace - 1) * a; d.pace = [base.pace[0] * p, base.pace[1] * p]; }
+  if (st.back) d.backDepth = base.backDepth + st.back * a;
+  if (st.err) d.err = base.err * st.err;
   return d;
 }
 
