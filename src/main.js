@@ -34,6 +34,7 @@ import {
 import { PauseMenu } from './ui/PauseMenu.js';
 import { ShiftSystem } from './systems/ShiftSystem.js';
 import { ShiftReport } from './ui/ShiftReport.js';
+import { TourUI } from './ui/TourUI.js';
 import { MissionMarkers } from './systems/MissionMarkers.js';
 import { buildWorldFacts, DETECTABLE_AREAS, INDOOR_AREAS, OUTDOOR_EXTRA_AREAS } from './systems/MissionValidation.js';
 import { ITEMS } from './systems/InventorySystem.js';
@@ -761,8 +762,7 @@ class Game {
       this.sound.playGroomComplete();
       this.pause('report');
       report.spent = this.shop ? this.shop.spentToday() : 0; // "Spent today" (shop, lessons, projects)
-      this._setReportTourMatch();                            // "🏆 Tournament: QF vs …" (Junior Tour)
-      this.shiftReport.show(report);
+      this.shiftReport.show(report);                         // (+ tonight's tour match, via getTourMatch)
       if (report.rankUp) this.sound.playRankUp();
       this.saveGame();
     };
@@ -790,26 +790,61 @@ class Game {
     this.shiftReport = new ShiftReport({
       onNextDay: () => this.startNextDay(),
       onTennis: () => { if (this.tennis) this.tennis.begin('report'); }, // after-hours tennis (src/tennis)
-      onTourMatch: (spec) => this._startTourMatch(spec),                 // tonight's Junior Tour match
+      // Junior Tour: tonight's tournament match (read on show()), the link to the tour hub
+      onTourMatch: (spec) => this.startTourMatch(spec),
+      getTourMatch: () => this.tour?.getTonight?.(this.weather.day) ?? null,
+      onTourHub: () => this.openTourHub({ tab: 'week' }),
+      getTourAvailable: () => !!this.tour?.accepted,
     });
-  }
 
-  /** The report card's tournament button: tonight's tour match, or none (ShiftReport.setTourMatch is optional). */
-  _setReportTourMatch() {
-    const r = this.shiftReport;
-    if (!r || typeof r.setTourMatch !== 'function') return;
-    let spec = null;
-    try { spec = this.tour ? this.tour.getTonight(this.weather.day || 1) : null; } catch (e) { console.warn('Tour match:', e); }
-    try { r.setTourMatch(spec); } catch (e) { console.warn('ShiftReport.setTourMatch:', e); }
+    // ── Tour UI wiring ──────────────────────────────────────────────────────────────────────
+    // The Junior Tour hub (TourUI), its story cards (Rafa's offer, Hank's crossroads, tournament
+    // results) and the pause-menu button. The tour (this.tour, TourSystem) is created later and may
+    // be missing: every call into it is guarded. Like the shop, the hub freezes the game as its own
+    // modal (no pause menu); over the pause menu or the report card the game is already paused.
+    {
+      let frozeGame = false;
+      this.tourUI = new TourUI({
+        getHub: () => this.tour?.getHub?.() ?? null,
+        enter: (id) => this.tour?.enter?.(id) ?? { ok: false, reason: 'The tour desk is closed right now.' },
+        withdraw: (id) => this.tour?.withdraw?.(id) ?? { ok: false, reason: 'The tour desk is closed right now.' },
+        canPlayTonight: () => !!this.shiftReport?.isOpen,
+        onPlayTonight: (spec) => this.startTourMatch(spec),
+        onFeedback: (kind) => { if (kind === 'error') this.sound.playUIClick(); },
+        onOpen: () => {
+          if (this.paused) return;
+          this.pause('tour');
+          frozeGame = this.paused;
+          if (this.pauseMenu?.isOpen) this.pauseMenu.close(); // pause() opens it for reasons it doesn't list
+          this.pauseMenu?.setButtonVisible(false);
+        },
+        onClose: ({ changed } = {}) => {
+          this.hud?.setWallet(this.shift.wallet, true); // entry fees / prize money
+          if (frozeGame) {
+            frozeGame = false;
+            this.pauseMenu?.setButtonVisible(true);
+            if (this.paused && this.pauseReason === 'tour') this.resume();
+          }
+          if (changed) this.saveGame();
+        },
+      });
+      // (openTourHub(opts) and startTourMatch(spec) are Game methods, in the Junior Tour section)
+      PauseMenu.setTourHooks({
+        getTourAvailable: () => !!this.tour?.accepted,
+        onTour: () => this.openTourHub({ tab: 'week' }),
+      });
+    }
+    // ── end Tour UI wiring ──
   }
 
   /**
-   * Play tonight's tour match: TennisSession's tour mode. Returns true when it started (the report
-   * card then hides itself) and false when it could not (no beginTour yet, or it refused): a card
-   * that is still open keeps the match on it; one that already hid itself is shown again, so the
-   * evening is never a dead end (a match not played by Next day is a walkover).
+   * Play tonight's tour match (the report card's tournament button, the hub's "Play now"):
+   * TennisSession's tour mode at the venue. Returns true when it started (the report card then
+   * hides itself) and false when it could not (no beginTour yet, or it refused): a card that is
+   * still open keeps the match on it; one that already hid itself is shown again, so the evening
+   * is never a dead end (a match not played by Next day is a walkover).
    */
-  _startTourMatch(spec) {
+  startTourMatch(spec) {
     let ok = false;
     const t = this.tennis;
     if (spec && t && typeof t.beginTour === 'function') {
@@ -818,8 +853,7 @@ class Game {
     if (ok) return true;
     const card = this.shiftReport;
     if (card && !card.isOpen && this.shift.phase === 'report' && this.shift.lastReport) {
-      this._setReportTourMatch();
-      card.show(this.shift.lastReport);
+      card.show(this.shift.lastReport);                // re-reads tonight's match (getTourMatch)
     }
     return false;
   }
@@ -861,9 +895,10 @@ class Game {
   // ───────────────────────────── Junior Tour ─────────────────────────────
 
   /**
-   * The Junior Tennis Tour (systems/TourSystem.js): game.tour. Its hub / offer UI is optional
-   * (game.tourUI: showOffer({ onAccept, onLater }), openHub() or open(), refresh(kind)) — without
-   * one, Coach Rafa's conversation is the hub (TourSystem.talkMenu) and the offer is a dialogue.
+   * The Junior Tennis Tour (systems/TourSystem.js): game.tour, created after the profile and the
+   * tennis session. Its UI is game.tourUI (ui/TourUI.js, built in _wireShift: the hub, Rafa's offer
+   * card, Hank's choice card, results) — every call into it is guarded, and without one Coach
+   * Rafa's conversation is the hub (TourSystem.talkMenu) and the offer / crossroads are dialogues.
    */
   _createTour() {
     if (this.tourUI === undefined) this.tourUI = null;
@@ -875,33 +910,36 @@ class Game {
       try { this.sound.playRankUp(); } catch (e) { /* cosmetic */ }
     };
     tour.onCareer = (career) => this._applyCareer(career);
-    tour.onOpenHub = () => this.openTourHub();
+    tour.onOpenHub = () => this.openTourHub({ tab: 'week' });
     tour.onChange = (kind) => {
       const ui = this.tourUI;
-      if (ui && typeof ui.refresh === 'function') { try { ui.refresh(kind); } catch (e) { console.warn('TourUI.refresh:', e); } }
+      if (ui && ui.isOpen && typeof ui.refresh === 'function') { try { ui.refresh(); } catch (e) { console.warn('TourUI.refresh:', e); } }
       // Entries, results and career choices are worth an immediate save (the day change saves anyway)
       if (kind !== 'day' && kind !== 'debug' && this._ready) this.saveGame();
     };
     this._wireTourMarkers();
   }
 
-  /** A TourUI (hub / offer panel) built elsewhere can attach itself here. */
+  /** A different TourUI can attach itself here (the default one is built in _wireShift). */
   registerTourUI(ui) {
     this.tourUI = ui || null;
     if (this.missionSystem) this.missionSystem.refreshNPCMarkers();
   }
 
-  /** Open the tour hub: the TourUI if there is one, else Coach Rafa's tour conversation. */
-  openTourHub(npc = null) {
+  /**
+   * Open the tour hub: opts { tab: 'week' | 'draw' | 'rankings' | 'calendar' | 'profile' | 'scouting',
+   * npc }. The TourUI when there is one, else Coach Rafa's tour conversation (opts.npc or Rafa).
+   */
+  openTourHub(opts = {}) {
+    const o = opts && typeof opts === 'object' ? opts : {};
     const ui = this.tourUI;
-    const open = ui && (typeof ui.openHub === 'function' ? ui.openHub : typeof ui.open === 'function' ? ui.open : null);
-    if (open) {
-      try { open.call(ui); return true; } catch (e) { console.warn('TourUI:', e); }
+    if (ui && typeof ui.open === 'function') {
+      try { ui.open(o.tab ? { tab: o.tab } : undefined); return true; } catch (e) { console.warn('TourUI:', e); }
     }
     const tour = this.tour;
     if (!tour || !tour.accepted || (this.tennis && this.tennis.active) || this.dialogueSystem.isActive()) return false;
     const rafaId = (tour.data && tour.data.rafa && tour.data.rafa.npc) || 'rafa_ibarra';
-    const rafa = npc || this.npcs.find(n => n.id === rafaId);
+    const rafa = o.npc || this.npcs.find(n => n.id === rafaId);
     return rafa ? tour.talkMenu(rafa) : false;
   }
 
@@ -1095,7 +1133,7 @@ class Game {
     this.dialogueSystem.active = true;
     this.dialogueSystem.showChoices(choices, (index) => {
       if (index === 0) this.openShop({ vendor: npc.id, greeting: text });
-      else if (tourTalk && index === 1) this.openTourHub(npc);
+      else if (tourTalk && index === 1) this.openTourHub({ npc, tab: 'week' });
       else ms.handleInteraction(npc, this._getPlayerWorldPos(), () => this.hud.updateTaskList());
     });
     return true;
@@ -1822,7 +1860,8 @@ class Game {
         canSave: !this._saveFailed,
         wallet: this.shift.wallet,
         ...this._rankSummary(),
-        // Junior Tour: career title ("Head Groundskeeper" / "Touring Pro") and tour ranking
+        // Junior Tour: the career title ("Head Groundskeeper" / "Touring Pro") heads the rank line
+        ...(this.shift.careerTitle ? { rankTitle: `${this.shift.careerTitle} · ${this.shift.getRankProgress().rank.title}` } : null),
         careerTitle: this.shift.careerTitle || null,
         tourRank: this.tour && this.tour.accepted ? this.tour.myRank() : null,
       }),

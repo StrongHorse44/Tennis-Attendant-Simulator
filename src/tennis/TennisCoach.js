@@ -1,4 +1,5 @@
 import { storageGet, storageSet } from '../systems/SaveSystem.js';
+import { TennisStrategy, voice } from './TennisStrategy.js';
 
 /**
  * TennisCoach — Coach Rafa's voice during the after-hours tennis (Top Spin-style coaching).
@@ -27,6 +28,21 @@ import { storageGet, storageSet } from '../systems/SaveSystem.js';
  *
  * No per-frame allocation: update(dt) only compares numbers; strings are built when a line is
  * chosen (a few times a minute).
+ *
+ * Strategy (TennisStrategy, this.strat): the game plan by difficulty — Easy basic singles
+ * strategy, Medium building points, Hard (and tour matches) in depth — from what your shots, his
+ * shots, the serves and the points show (directions, depth, changes of direction, approaches,
+ * serve placement, returns, his weaker wing, the score, the wind). Its lines have their own
+ * priority (between the technique tips and the big-point lines) and cadence (one every 3–4
+ * points at most, the big points, the changeovers, a pattern that just repeated), escalate when
+ * ignored, notice when you follow them and give the results card one strategy takeaway. An urgent
+ * technique fix still comes first; with tips off, strategy is silent too. Every hook passes the
+ * data on inside try/catch (_st): a strategy bug never costs a technique tip.
+ *
+ * Voice: in a practice match Rafa is the opponent ("my backhand"); in the tour he coaches from
+ * the box ("his backhand"). Lines mark the opponent with tokens ({he}, {his}, {He's}, verb{s} …)
+ * that _speak resolves (TennisStrategy.voice); the tour extras preMatchPlan / changeover /
+ * postMatch return ready strings.
  */
 
 const STORE_KEY = 'courtcall.tennis.coach';
@@ -48,9 +64,20 @@ const F_WHIFF = 1, F_LATE = 2, F_EARLY = 4, F_FAR = 8, F_FORCED = 16, F_RUN = 32
 const M_MATCH = 1, M_GS = 2, M_VOL = 4, M_SRV = 8, M_RD = 16; // M_RD: the rally challenge drill
 const M_RALLY = M_MATCH | M_GS | M_VOL | M_RD;
 // Line priorities (a pending line is only replaced by a more important one)
-const P_PRAISE = 1, P_TIP = 2, P_PRESS = 3, P_CHANGE = 4, P_BETTER = 5, P_HOWTO = 6, P_ESSENTIAL = 7;
+const P_PRAISE = 1, P_TIP = 2, P_STRATEGY = 3, P_PRESS = 4, P_CHANGE = 5, P_BETTER = 6, P_HOWTO = 7, P_ESSENTIAL = 8;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+/** Stored habits (TennisStrategy writes them): known keys, finite numbers, clamped. */
+function sanitizeHabits(h) {
+  const out = {};
+  for (const k of ['n', 'fi', 'cd', 'nw', 'sh', 'tk', 'ts', 'bw']) {
+    const v = Number(h[k]);
+    if (!Number.isFinite(v)) continue;
+    out[k] = k === 'n' ? clamp(Math.round(v), 0, 9999) : k === 'cd' ? clamp(Math.round(v), 0, 20) : k === 'tk' ? clamp(Math.round(v), 0, 2) : clamp(v, 0, 1);
+  }
+  return out;
+}
 
 /** A fixed-size ring of rows with named Float32Array columns (allocated once). */
 class Win {
@@ -76,24 +103,25 @@ class Win {
 
 // ─────────────────────────── the issues Rafa can diagnose ───────────────────────────
 //
-// sev(c) ≥ 1 means "worth saying" (NaN / < 1: no); w weights the impact on your game.
+// sev(c) ≥ 1 means "worth saying" (NaN / < 1: no); w weights the impact on your game. urg: an
+// execution fault that may jump ahead of a strategy line when it is bad (sev·w ≥ 1.5).
 // lines[level] = variants ([text, bubble] or (c) => [text, bubble]); a repeat escalates a level.
 // src: the window whose new rows count as fresh evidence (at least `fresh` since last raised).
 // better(c, n): true when the n rows since it was raised show the fix took.
 
 const ISSUES = [
   {
-    id: 'noswing', w: 1.4, modes: M_RALLY, src: (c) => (c.s.mode === 'drill' ? 'dl' : 'pt'), fresh: 1, cool: 3,
+    id: 'noswing', urg: 1, w: 1.4, modes: M_RALLY, src: (c) => (c.s.mode === 'drill' ? 'dl' : 'pt'), fresh: 1, cool: 3,
     sev: (c) => c.noSwingCount() / 2,
     lines: [
       [['Swing at it, amigo! Press SWING as the ball comes.', 'Swing!']],
-      [['Press SWING when I hit. Hold it, let go when it turns green.', 'Press when I hit!']],
+      [['Press SWING when {he} hit{s}. Hold it, let go when it turns green.', 'Press when {he} hit{s}!']],
     ],
     better: (c, n) => n >= 3 && c.noSwingCount(n) === 0,
     betterLines: [['There it is! Now you are swinging.', 'Vamos!']],
   },
   {
-    id: 'late', w: 1.25, modes: M_RALLY, src: 'sw', fresh: 2, cool: 3,
+    id: 'late', urg: 1, w: 1.25, modes: M_RALLY, src: 'sw', fresh: 2, cool: 3,
     sev: (c) => (c.meanE(8) - 0.02) / 0.03,
     lines: [
       [(c) => (c.swCount(F_FORCED, 6) >= 2
@@ -111,7 +139,7 @@ const ISSUES = [
     betterLines: [['Better! Right on time now.', 'Better!'], ['Eso! Out in front. Keep it like that.', 'Eso!']],
   },
   {
-    id: 'early', w: 1.25, modes: M_RALLY, src: 'sw', fresh: 2, cool: 3,
+    id: 'early', urg: 1, w: 1.25, modes: M_RALLY, src: 'sw', fresh: 2, cool: 3,
     sev: (c) => (-c.meanE(8) - 0.02) / 0.03,
     lines: [
       [['Too quick, amigo. Let the ball come to you.', 'Patience!'],
@@ -123,7 +151,7 @@ const ISSUES = [
     betterLines: [['Bueno! You waited for it. That is timing.', 'Bueno!']],
   },
   {
-    id: 'far', w: 1.15, modes: M_RALLY, src: 'sw', fresh: 2, cool: 3,
+    id: 'far', urg: 1, w: 1.15, modes: M_RALLY, src: 'sw', fresh: 2, cool: 3,
     sev: (c) => (c.swCount(F_FAR, 8) + 0.5 * c.swCount(F_STRETCH, 8)) / 2,
     lines: [
       [(c) => (c.farPow(8) >= 0.6
@@ -134,24 +162,24 @@ const ISSUES = [
         : c.s.opts && c.s.opts.marker
           ? ['Run to the yellow marker first, then load the swing.', 'To the marker!']
           : ['Read the bounce, get there first, then load the swing.', 'Get there first!'])],
-      [['Small hop as I hit, then the first step. Quick feet, amigo.', 'Quick feet!']],
+      [['Small hop as {he} hit{s}, then the first step. Quick feet, amigo.', 'Quick feet!']],
     ],
     better: (c, n) => n >= 6 && c.swCount(F_FAR, n) === 0 && c.swCount(F_STRETCH, n) <= 1,
     betterLines: [['Good feet! You get there early now.', 'Good feet!']],
   },
   {
-    id: 'taps', w: 0.9, modes: M_MATCH | M_GS | M_RD, src: 'sh', fresh: 3, cool: 5,
+    id: 'taps', urg: 1, w: 0.9, modes: M_MATCH | M_GS | M_RD, src: 'sh', fresh: 3, cool: 5,
     sev: (c) => (0.25 - c.groundPow(8)) / 0.1,
     lines: [
       [['Only taps? Hold SWING longer to load some pace.', 'Load it!']],
-      [['Press SWING early, as I hit. Hold, then let go on green.', 'Press early!']],
+      [['Press SWING early, as {he} hit{s}. Hold, then let go on green.', 'Press early!']],
       [(c) => [`A tap just blocks it back. Your load is ${c.pct(c.groundPow(8))}% power.`, 'More load!']],
     ],
     better: (c, n) => n >= 4 && c.groundPow(n) > 0.4,
     betterLines: [['Eso! Feel the pace now?', 'Eso!']],
   },
   {
-    id: 'full', w: 1.0, modes: M_MATCH | M_GS | M_RD, src: 'sh', fresh: 3, cool: 4,
+    id: 'full', urg: 1, w: 1.0, modes: M_MATCH | M_GS | M_RD, src: 'sh', fresh: 3, cool: 4,
     sev: (c) => {
       const p = c.groundPow(8), e = c.shErr(8);
       if (!(p > 0.85) || c.shSettled(8) < 5 || e < 3) return 0;
@@ -167,7 +195,7 @@ const ISSUES = [
     betterLines: [['See? Less power, more balls in the court.', 'See?']],
   },
   {
-    id: 'net', w: 1.0, modes: M_RALLY, src: 'sh', fresh: 2, cool: 4,
+    id: 'net', urg: 1, w: 1.0, modes: M_RALLY, src: 'sh', fresh: 2, cool: 4,
     sev: (c) => c.errSev(R_NET),
     lines: [
       [(c) => {
@@ -188,7 +216,7 @@ const ISSUES = [
     betterLines: [['Better, over the net with margin. Bueno.', 'Bueno!']],
   },
   {
-    id: 'long', w: 1.0, modes: M_RALLY, src: 'sh', fresh: 2, cool: 4,
+    id: 'long', urg: 1, w: 1.0, modes: M_RALLY, src: 'sh', fresh: 2, cool: 4,
     sev: (c) => c.errSev(R_LONG),
     lines: [
       [(c) => {
@@ -205,7 +233,7 @@ const ISSUES = [
     betterLines: [['There, inside the baseline. Bueno.', 'Bueno!']],
   },
   {
-    id: 'wide', w: 0.95, modes: M_RALLY, src: 'sh', fresh: 2, cool: 4,
+    id: 'wide', urg: 1, w: 0.95, modes: M_RALLY, src: 'sh', fresh: 2, cool: 4,
     sev: (c) => c.errSev(R_WIDE),
     lines: [
       [(c) => {
@@ -242,16 +270,16 @@ const ISSUES = [
           case SP.slice: return ['All slice? Topspin, 2, gives you pace and margin.', 'Topspin, 2!'];
           case SP.lob: return ['Lobs all day? Drive the ball: topspin, 2.', 'Drive it!'];
           case SP.drop: return ['Too many drops. Build the point first.', 'Build it!'];
-          default: return ['Always topspin? Slice, 3, stays low and makes me bend.', 'Try slice, 3!'];
+          default: return ['Always topspin? Slice, 3, stays low and makes {him} bend.', 'Try slice, 3!'];
         }
       }],
-      [['Mix it: drop, 5, when I am deep. Lob, 4, when I come in.', 'Mix it up!']],
+      [['Mix it: drop, 5, when {he} {is} deep. Lob, 4, when {he} come{s} in.', 'Mix it up!']],
     ],
     better: (c, n) => n >= 8 && c.topShare(n) < 0.65,
-    betterLines: [['Now you mix it. I never know what comes. Bueno!', 'Bueno!']],
+    betterLines: [['Now you mix it. {He} never know{s} what comes. Bueno!', 'Bueno!']],
   },
   {
-    id: 'volleypower', w: 0.9, modes: M_MATCH | M_VOL, src: 'sh', fresh: 2, cool: 4,
+    id: 'volleypower', urg: 1, w: 0.9, modes: M_MATCH | M_VOL, src: 'sh', fresh: 2, cool: 4,
     sev: (c) => {
       const v = c.volleyStats(6);
       return v.n < 2 ? 0 : v.pow > 0.6 && v.err >= 1 ? 0.6 + v.err * 0.4 : 0;
@@ -272,7 +300,7 @@ const ISSUES = [
   },
   // ── serve ──
   {
-    id: 'doubles', w: 1.15, modes: M_MATCH, when: 'p', src: 'sv', fresh: 1, cool: 3,
+    id: 'doubles', urg: 1, w: 1.15, modes: M_MATCH, when: 'p', src: 'sv', fresh: 1, cool: 3,
     sev: (c) => (c.recentDoubles(8) >= 1 ? 0.7 + 0.4 * c.recentDoubles(8) : 0),
     lines: [
       [(c) => (c.agg.flatSecond > 0 && c.lastDoubleFlat
@@ -295,10 +323,10 @@ const ISSUES = [
       [['Let go in the green and aim for the middle of the box.', 'Middle of the box!']],
     ],
     better: (c, n) => { const f = c.firstIn(n); return c._n >= 5 && f >= 0.65; },
-    betterLines: [['First serves going in now. Pressure on me!', 'Bueno!']],
+    betterLines: [['First serves going in now. Pressure on {him}!', 'Bueno!']],
   },
   {
-    id: 'servelate', w: 1.05, modes: M_MATCH | M_SRV, when: 'p', src: 'sv', fresh: 2, cool: 4,
+    id: 'servelate', urg: 1, w: 1.05, modes: M_MATCH | M_SRV, when: 'p', src: 'sv', fresh: 2, cool: 4,
     sev: (c) => (c.svMeanE(4) - 0.03) / 0.04,
     lines: [
       [(c) => (c.svRes(R_NET, 4) >= 1
@@ -311,7 +339,7 @@ const ISSUES = [
     betterLines: [['That toss timing is better. Bueno.', 'Bueno!']],
   },
   {
-    id: 'serveearly', w: 1.05, modes: M_MATCH | M_SRV, when: 'p', src: 'sv', fresh: 2, cool: 4,
+    id: 'serveearly', urg: 1, w: 1.05, modes: M_MATCH | M_SRV, when: 'p', src: 'sv', fresh: 2, cool: 4,
     sev: (c) => (-c.svMeanE(4) - 0.03) / 0.04,
     lines: [
       [['Wait for the toss. Let go when the meter turns green.', 'Wait for the toss!']],
@@ -321,7 +349,7 @@ const ISSUES = [
     betterLines: [['Better, you wait for the toss now.', 'Better!']],
   },
   {
-    id: 'svfault', w: 0.85, modes: M_MATCH | M_SRV, when: 'p', src: 'sv', fresh: 2, cool: 5,
+    id: 'svfault', urg: 1, w: 0.85, modes: M_MATCH | M_SRV, when: 'p', src: 'sv', fresh: 2, cool: 5,
     sev: (c) => {
       const k = c.svFaults(5), e = c.svMeanE(5);
       if (k < 3) return 0;
@@ -345,7 +373,7 @@ const ISSUES = [
     id: 'aced', w: 0.8, modes: M_MATCH, when: 'r', src: 'pt', fresh: 2, cool: 5,
     sev: (c) => c.ptCountWhy(Y_ACE, 1, 8) / 2,
     lines: [
-      [['My serve beats you. Be ready as I toss, feet moving.', 'Be ready!']],
+      [['{His} serve beats you. Be ready as {he} toss{es}, feet moving.', 'Be ready!']],
       [['Return: a step back, and a short load. Just block it deep.', 'Block it back!']],
     ],
   },
@@ -354,8 +382,8 @@ const ISSUES = [
     id: 'passed', w: 0.8, modes: M_MATCH, src: 'pt', fresh: 2, cool: 6,
     sev: (c) => c.ptNet(0) / 2,
     lines: [
-      [['I pass you at the net. Approach deep, to a corner first.', 'Approach deep!']],
-      [['At the net, cover the line: stand between me and the ball.', 'Cover the line!']],
+      [['{He} pass{es} you at the net. Approach deep, to a corner first.', 'Approach deep!']],
+      [['At the net, cover the line: stand between {him} and the ball.', 'Cover the line!']],
     ],
   },
   {
@@ -363,15 +391,15 @@ const ISSUES = [
     sev: (c) => c.ptNet(1) / 2,
     lines: [
       [['Lobbed! At the net, stay a step back from the tape.', 'Step back!']],
-      [['When I lob, move back early. The smash does the rest.', 'Move back!']],
+      [['When {he} lob{s}, move back early. The smash does the rest.', 'Move back!']],
     ],
   },
   {
     id: 'rafanet', w: 0.7, modes: M_MATCH, src: 'pt', fresh: 2, cool: 6,
     sev: (c) => c.ptRafaNet() / 2,
     lines: [
-      [['When I come in, lob me, 4, or pass low with slice, 3.', 'Lob me, 4!']],
-      [['I am at the net: aim at my feet or over my head.', 'Feet or over!']],
+      [['When {he} come{s} in, lob {him}, 4, or pass low with slice, 3.', 'Lob {him}, 4!']],
+      [['{He} {is} at the net: aim at {his} feet or over {his} head.', 'Feet or over!']],
     ],
   },
   {
@@ -382,13 +410,13 @@ const ISSUES = [
   {
     id: 'lobdeep', w: 0.5, modes: M_MATCH, src: 'sh', fresh: 2, cool: 8,
     sev: (c) => c.lobsVsDeep(10) / 2,
-    lines: [[['The lob is for when I am at the net. From the back, topspin.', 'Topspin here!']]],
+    lines: [[['The lob is for when {he} {is} at the net. From the back, topspin.', 'Topspin here!']]],
   },
   // ── footwork without the auto-move assist ──
   {
     id: 'recover', w: 0.7, modes: M_MATCH, src: 'rh', fresh: 3, cool: 6,
     sev: (c) => (c.s.opts && c.s.opts.assist ? 0 : c.rhCount(0, 6) / 3),
-    lines: [[['Recover to the middle after each shot. Then I have no angle.', 'Back to the middle!']]],
+    lines: [[['Recover to the middle after each shot. Then {he} {has} no angle.', 'Back to the middle!']]],
   },
   {
     id: 'nomans', w: 0.7, modes: M_MATCH, src: 'rh', fresh: 3, cool: 6,
@@ -408,8 +436,8 @@ const ISSUES = [
     id: 'rhythm', w: 0.6, modes: M_MATCH, src: 'pt', fresh: 3, cool: 7,
     sev: (c) => (c.s.momentum && c.s.momentum[1] > 0.55 && c.ptLost(4) >= 3 ? 1.1 : 0),
     lines: [
-      [['I have the rhythm now. Slow it down: high, deep, safe.', 'Slow it down!']],
-      [['Break my rhythm: a slice, 3, then a high ball.', 'Change the pace!']],
+      [['{He} {has} the rhythm now. Slow it down: high, deep, safe.', 'Slow it down!']],
+      [['Break {his} rhythm: a slice, 3, then a high ball.', 'Change the pace!']],
     ],
   },
   // ── drills ──
@@ -460,8 +488,8 @@ const HOWTO = {
   tossCatch: ['Too long, I caught it! Let go as the ball drops.', 'Let go sooner!'],
   aim: ['Aim with the stick as you swing: left, right, up for deep.', 'Stick aims!'],
   kick: ['Second serve: kick, 2. High over the net, then it jumps.', 'Kick, 2!'],
-  lob: ['When I come to the net: lob, 4, over my head.', 'Lob me, 4!'],
-  drop: ['From inside the court, try the drop, 5. I stay deep.', 'Drop, 5!'],
+  lob: ['When {he} come{s} to the net: lob, 4, over {his} head.', 'Lob {him}, 4!'],
+  drop: ['From inside the court, try the drop, 5. {He} stay{s} deep.', 'Drop, 5!'],
   zone: ['In the zone! Your swing loads faster now. Vamos!', 'In the zone!'],
   tired: ['Tired legs load slower. Stand still between points.', 'Rest!'],
   drill_gs: ['Three targets, all deep. Stick up for depth, sideways for corners.', 'Aim deep!'],
@@ -473,16 +501,16 @@ const HOWTO = {
   wind: ['Wind tonight. Aim into it: lobs and slow balls drift the most.', 'Mind the wind!'],
   sliceCurve: ['See it bend? Your slice curves: backhand to the left, forehand to the right.', 'It curves!'],
   slide: ['Nice slide! Braking into the ball keeps you balanced on clay.', 'Nice slide!'],
-  sliceServe: ['Try the slice serve, 3, from the deuce side: it swings away from me and stays low.', 'Slice it, 3!'],
+  sliceServe: ['Try the slice serve, 3, from the deuce side: it swings away from {him} and stays low.', 'Slice it, 3!'],
 };
 const ESSENTIAL = { charge: true, serve: true, tossAbort: true, tossCatch: true };
 
 const PRAISE = {
-  ace: [['Ace! Eso!', 'Ace!'], ['Ace! I did not even move.', 'Ace!'], ['Too good. I saw nothing.', 'Ace!']],
+  ace: [['Ace! Eso!', 'Ace!'], ['Ace! {He} did not even move.', 'Ace!'], ['Too good. {He} saw nothing.', 'Ace!']],
   smash: [['Smash! Vamos!', 'Smash!'], ['Boom. Put away. Bueno!', 'Boom!']],
-  drop: [['What a drop! I am still running.', 'What a drop!']],
-  lob: [['Over my head! Bueno.', 'Over my head!']],
-  pass: [['You passed me! Vamos.', 'Passed me!']],
+  drop: [['What a drop! {He} {is} still running.', 'What a drop!']],
+  lob: [['Over {his} head! Bueno.', 'Over {his} head!']],
+  pass: [['You passed {him}! Vamos.', 'Passed {him}!']],
   rally: [['Long rally, and you won it. Eso!', 'Eso!']],
   streak: [['Three in a row. Vamos!', 'Vamos!'], ['You are rolling now. Keep going.', 'Rolling!']],
   winner: [['Winner! That is your tennis.', 'Winner!'], ['Eso! Clean winner.', 'Eso!']],
@@ -490,20 +518,20 @@ const PRAISE = {
 };
 const ENCOURAGE = [
   ['Tranquilo. One point at a time.', 'Tranquilo.'],
-  ['Deep breath, amigo. Make me play one more ball.', 'Deep breath.'],
+  ['Deep breath, amigo. Make {him} play one more ball.', 'Deep breath.'],
 ];
 
 const PRESSURE = {
-  forBreak: [['Break point! Deep and safe. Make me hit one more.', 'Break point!'],
-    ['Break point. Get it back deep, let me miss.', 'Break point!']],
+  forBreak: [['Break point! Deep and safe. Make {him} hit one more.', 'Break point!'],
+    ['Break point. Get it back deep, let {him} miss.', 'Break point!']],
   forSet: [['Set point. Breathe. Your best shot, not a new one.', 'Breathe!']],
   forMatch: [['Match point! Play it like any other point.', 'Tranquilo!']],
   vsServeBreak: [['Break point down. First serve in: kick, 2, is safe.', 'First serve in!'],
-    ['Break point. Breathe, then a first serve I have to play.', 'Breathe!']],
-  vsServe: [['Big point on your serve. Kick, 2, to my backhand.', 'Kick, 2!'],
-    ['My big point, your serve. First serve in, amigo.', 'First serve in!']],
-  vsReturn: [['Big point for me. Get the return back deep, middle.', 'Deep, middle!'],
-    ['My big point. Just block the return back deep.', 'Block it deep!']],
+    ['Break point. Breathe, then a first serve {he} {has} to play.', 'Breathe!']],
+  vsServe: [['Big point on your serve. Kick, 2, to {his} backhand.', 'Kick, 2!'],
+    ['{His} big point, your serve. First serve in, amigo.', 'First serve in!']],
+  vsReturn: [['Big point for {him}. Get the return back deep, middle.', 'Deep, middle!'],
+    ['{His} big point. Just block the return back deep.', 'Block it deep!']],
 };
 
 export class TennisCoach {
@@ -521,11 +549,16 @@ export class TennisCoach {
     this.next = { text: '', short: '', sec: 0, due: INF, prio: 0, kind: '', queuedAt: 0 };
     this.log = null;          // tests: an array to push { t, text, kind } into
     this.seen = {};
+    this.habits = null;       // your last matches in brief (TennisStrategy; the tour's pre-match plan reads it)
     this._loadSeen();
     this.agg = {};
     this.g = { pts: [0, 0], pErr: [0, 0, 0, 0], pWin: 0, pAce: 0, rWin: 0, dbl: 0, aced: 0, f: 0, fIn: 0, server: -1 };
     this.lastText = '';
     this.lastSayT = -INF;
+    this._topV = 0;
+    this._coKey = -1;         // tour: the changeover whose line the session already took (changeover())
+    this._stErr = null;
+    this.strat = new TennisStrategy(this); // the game plan (strategy pointers by difficulty)
     this.reset('none', null);
   }
 
@@ -536,6 +569,9 @@ export class TennisCoach {
     const s = this.s;
     this.mode = mode;
     this.detail = detail;
+    this._st('reset', mode, detail);
+    this._coKey = -1;
+    this._lastCoach = '';
     this.sw.clear(); this.sh.clear(); this.sv.clear(); this.pt.clear(); this.rh.clear(); this.dl.clear();
     for (const st of this.iss) { st.level = 0; st.lastPt = -99; st.raised = false; st.at = 0; st.times = 0; st.rep = 0; st.improved = 0; }
     const a = this.agg;
@@ -552,7 +588,7 @@ export class TennisCoach {
     this.praisePt = -99; this.encPt = -99; this.betterPt = -99;
     this._praiseLast = null;
     this.streak = 0;
-    this.changeover = false; this.coGame = -1; this.coSet = -1;
+    this._coPending = false; this.coGame = -1; this.coSet = -1;
     this._coHist = this._coHist || ['', '', ''];
     this._coHist[0] = this._coHist[1] = this._coHist[2] = '';
     this.pressKind = 0; this.pressWhat = ''; this.pressSaid = false;
@@ -599,6 +635,7 @@ export class TennisCoach {
 
   /** Your racket met the ball. */
   onShot(info) {
+    this._st('onShot', info);
     const s = this.s, w = this.sh, i = w.add(), a = this.agg;
     const sp = SP[info.spin] ?? SP.topspin;
     let f = 0;
@@ -631,6 +668,7 @@ export class TennisCoach {
 
   /** Your serve was released (srv: power, e, q, label, second). */
   onServe(srv) {
+    this._st('onServe', srv);
     const s = this.s, w = this.sv, i = w.add(), a = this.agg;
     const shot = s.ctl ? s.ctl.shot : 0;
     const spin = shot === 0 ? 0 : shot === 2 || shot === 4 ? 2 : 1;   // flat / kick / slice
@@ -654,6 +692,7 @@ export class TennisCoach {
 
   /** Where your ball ended: { kind: 'serve' | 'rally', result, spin, power, q, second }. */
   onLanded(info) {
+    this._st('onLanded', info);
     const code = RES[info.result] ?? R_MISS;
     const a = this.agg, g = this.g;
     if (info.kind === 'serve') {
@@ -679,6 +718,7 @@ export class TennisCoach {
 
   /** The point is decided (match). info is reused by the session: copy what we keep. */
   onPointEnd(info) {
+    this._st('onPointEnd', info);             // before the point is counted (strategy files it under this point)
     const s = this.s, w = this.pt, i = w.add(), a = this.agg, g = this.g;
     const won = info.winner === 0;
     const why = WHY[info.why] || 0;
@@ -706,12 +746,20 @@ export class TennisCoach {
   }
 
   /** A game (or set) ended: remember it for the changeover line at the next between(). */
-  onGame(ev) {
-    this.changeover = true;
+  onGame(ev, score) {
+    this._st('onGame', ev, score);
+    // The tour session already took this changeover's line (changeover()): no second one
+    this._coPending = this._coKey < 0 || this._coKey !== this._gameKey(score);
     this.coGame = ev.gameWinner;
     this.coSet = ev.set ? ev.setWinner : -1;
     this.pressSaid = false;
   }
+
+  /**
+   * §3: every first bounce, both players: { hitter, u, v, kind, shot, inPlay, fromU, fromV, oppU,
+   * oppV } (court-local). Optional: without it the strategy reads the flights' planned landings.
+   */
+  onBallLanded(ev) { this._st('onBallLanded', ev); }
 
   /** The next point / drill rep is set up; the ball is dead. The best moment to talk. */
   between(info) {
@@ -721,7 +769,16 @@ export class TennisCoach {
     const pr = sc && sc.pressure ? sc.pressure() : null;
     this.pressKind = pr && pr.kind !== 'game' ? (pr.for === 0 ? 1 : 2) : 0;
     this.pressWhat = this.pressKind ? pr.kind : '';
-    if (info.first) { this.lastSayT = s.t; return; }
+    this._st('between', info);
+    if (info.first) {
+      this.lastSayT = s.t;
+      // The plan for tonight, once the intro is read (a first-time surface how-to wins the slot)
+      if (this._tipsOn() && s.mode === 'match') {
+        const L = this._st('opening');
+        if (L) this._queue(L[0], L[1], 2.6, P_STRATEGY, 'strategy');
+      }
+      return;
+    }
     // The umpire call ("30–15") was just said: let it be read first
     const call = !info.second && sc && (sc.tiebreak || sc.pts[0] + sc.pts[1] > 0);
     const delay = call ? 0.9 : 0.2;
@@ -802,7 +859,7 @@ export class TennisCoach {
       }
     }
     if (a.whiffFar >= 2) add(0.8 + a.whiffFar * 0.3, 'feet', `${a.whiffFar} swings were out of reach. Feet first, then the swing.`);
-    if (a.noSwing >= 2) add(1 + a.noSwing * 0.35, 'swing', `${a.noSwing} balls went by without a swing. Press SWING as I hit.`);
+    if (a.noSwing >= 2) add(1 + a.noSwing * 0.35, 'swing', `${a.noSwing} balls went by without a swing. Press SWING as {he} hit{s}.`);
     if (a.forced >= 3) add(0.8 + 2 * a.forced / Math.max(1, swings), 'timing', `You held too long ${a.forced} times. Let go when the ring turns green.`);
     // Power
     if (a.powN >= 6 && a.powSum / a.powN < 0.25) add(1.3, 'power', `Load your swings: your average hold was only ${this.pct(a.powSum / a.powN)}% power.`);
@@ -818,7 +875,7 @@ export class TennisCoach {
     if (a.firsts >= 6) {
       const f = a.firstIn / a.firsts;
       if (f < 0.55) add(1 + (0.55 - f) * 3, 'serve', `First serves in: ${this.pct(f)}%. Kick (2) is safer than flat.`);
-      else if (f >= 0.7) pos(1 + f, `${this.pct(f)}% first serves in. That puts pressure on me.`);
+      else if (f >= 0.7) pos(1 + f, `${this.pct(f)}% first serves in. That puts pressure on {him}.`);
     }
     if (a.doubles >= 2) add(1 + a.doubles * 0.25, 'serve2', `${a.doubles} double faults. Kick the second serve (2), aim middle.`);
     if (a.svEN >= 4) {
@@ -844,7 +901,7 @@ export class TennisCoach {
     else if (a.netN >= 3 && a.netWon / a.netN >= 0.6) pos(1.1, `Net points: ${a.netWon} of ${a.netN}. Keep coming in.`);
     if (a.bigN >= 3 && a.bigWon / a.bigN <= 0.34) add(0.85, 'big', `Big points: won ${a.bigWon} of ${a.bigN}. Deep and safe when it counts.`);
     if (a.lowStam >= 3) add(0.7, 'legs', 'Your legs ran out. Rest between points, shorter rallies.');
-    if (a.aced >= 3) add(0.75, 'return', `${a.aced} of my serves came back untouched. Be ready as I toss.`);
+    if (a.aced >= 3) add(0.75, 'return', `${a.aced} of {his} serves came back untouched. Be ready as {he} toss{es}.`);
     if (a.volleyN >= 3 && a.volleyPow / a.volleyN > 0.55) add(dtype === 'volley' ? 1.2 : 0.6, 'volley', "Volleys: tap, don't load. A firm, short punch.");
     // Drills
     if (drill && a.dReps >= 5) {
@@ -861,22 +918,75 @@ export class TennisCoach {
       if (a.good / sw >= 0.55) pos(0.9 + a.good / sw, `Sharp timing: ${this.pct(a.good / sw)}% of your swings right on time.`);
     }
     if (st.aces && st.aces[0] >= 2) pos(1 + st.aces[0] * 0.1, `Your serve was a weapon: ${st.aces[0]} aces.`);
-    if (st.winners && st.winners[0] >= 5) pos(1 + st.winners[0] * 0.05, `${st.winners[0]} winners. You can hurt me from the back.`);
+    if (st.winners && st.winners[0] >= 5) pos(1 + st.winners[0] * 0.05, `${st.winners[0]} winners. You can hurt {him} from the back.`);
     if (st.longest >= 12) pos(0.8, `A ${st.longest}-shot rally. Your legs are good.`);
 
     C.sort((x, y) => y.score - x.score);
     P.sort((x, y) => y.score - x.score);
+    // The game plan's takeaway (matches) takes one of the three slots; it skips what a
+    // technique candidate already says (e.g. the first-serve percentage)
+    let S = null;
+    if (!drill) {
+      const cand = {};
+      for (const c of C) cand[c.cat] = true;
+      S = this._st('summaryLine', cand);
+    }
     const out = [];
-    const maxIssues = P.length ? 2 : 3;
+    const maxIssues = Math.max(1, (P.length ? 2 : 3) - (S ? 1 : 0));
     for (const c of C) {
       if (out.length >= maxIssues) break;
       if (cats[c.cat]) continue;
       cats[c.cat] = 1;
       out.push(c.text);
     }
+    if (S && S.text && out.length < 3) out.push(S.text);
     if (P.length && out.length < 3) out.push(P[0].text);
     if (!out.length) out.push(drill ? 'Clean work. Tomorrow we add pace.' : 'Good session. Same time tomorrow?');
+    for (let i = 0; i < out.length; i++) out[i] = this._voice(out[i]);
     return out;
+  }
+
+  // ─────────────────────────── tour (the session's tour mode calls these) ───────────────────────────
+
+  /** Tour: who is across the net (the strategy then talks about him; preMatchPlan does this too). */
+  setOpponent(opponent) { this._st('setOpponent', opponent); }
+
+  /**
+   * Tour: the game plan before a match — 2–4 ready strings from the opponent's style ('baseliner' |
+   * 'counterpuncher' | 'bigServer' | 'serveVolleyer' | 'moonballer' | 'allCourt'; others read as
+   * allCourt), his rating, the surface and wind (the session's, or spec { surface, wind }) and what
+   * your last matches say. Also sets the opponent (third-person voice, style-aware emphasis).
+   */
+  preMatchPlan(opponent, spec) {
+    const out = this._st('preMatchPlan', opponent, spec);
+    return Array.isArray(out) && out.length >= 2 ? out : ['Play your game: deep, smart, first serves in.', 'Make him play every ball. Patience wins.'];
+  }
+
+  /**
+   * Tour: 0–1 line (a string, or null) at a changeover or set break (ev: the score event, score:
+   * the TennisScore), about the match situation — a set ending, games slipping away, the score,
+   * the wind at the new end, his tendencies — else the game's key stat. The coach's own changeover
+   * line for that game is skipped, whether this comes before or after onGame. null with tips off.
+   */
+  changeover(ev, score) {
+    const s = this.s;
+    if (!s || s.mode !== 'match') return null;
+    this._coKey = this._gameKey(score || s.score);
+    this._coPending = false;
+    if (!this._tipsOn()) { this._resetGame(); return null; }
+    if (ev) { this.coGame = ev.gameWinner; this.coSet = ev.set ? ev.setWinner : -1; }
+    let L = this._st('tourChangeover', ev, score);
+    if (!L) { this._coIssue = false; L = this._changeoverLine(); }
+    this._resetGame();
+    if (!L) return null;
+    this.lastText = L[0]; this.lastSayT = s.t; this.linePt = this.pts;
+    return this._voice(L[0]);
+  }
+
+  /** Tour: 2–3 review lines after a match ({ won, stats }), ready strings. */
+  postMatch(res) {
+    const out = this._st('postMatch', res);
+    return Array.isArray(out) && out.length >= 2 ? out : [res && res.won ? 'Well played. Same plan next round.' : 'Not tonight. We learn and go again.', 'First serves in, deep returns, patience.'];
   }
 
   // ─────────────────────────── choosing what to say ───────────────────────────
@@ -942,11 +1052,11 @@ export class TennisCoach {
   _choose(delay, pServe, second) {
     const s = this.s;
     if (!this._tipsOn()) {
-      if (this.changeover) { this.changeover = false; this._resetGame(); }
+      if (this._coPending) { this._coPending = false; this._resetGame(); }
       return;
     }
-    if (this.changeover) {
-      this.changeover = false;
+    if (this._coPending) {
+      this._coPending = false;
       this._coIssue = false;
       const L = this._changeoverLine();
       this._resetGame();
@@ -961,31 +1071,66 @@ export class TennisCoach {
     // or a first-time how-to fits right now
     if (this.linePt === this.pts) return;
     if (this._checkBetter(delay)) return;
+    // You followed a strategy pointer: say so (never right after another "better")
+    if (this.pts - this.betterPt >= 3) {
+      const G = this._st('followed');
+      if (G) { this._queue(G[0], G[1], delay, P_BETTER, 'better'); this.linePt = this.pts; this.betterPt = this.pts; return; }
+    }
     if (second && pServe && !this.seen.kick && s.mode === 'match') { this._howto('kick', delay); return; }
     if (this.pts - this.linePt < 2) return;
     if (this._situationalHowto(delay, pServe, second)) return;
     const drill = s.mode === 'drill';
     const well = this._doingWell(), bad = this._struggling();
-    // A big point: a word on how to play it (once per game)
-    if (this.pressKind && !this.pressSaid && !drill && Math.random() < 0.55) {
-      const L = this._pressureLine(pServe);
-      if (L) { this.pressSaid = true; this._queue(L[0], L[1], delay, P_PRESS, 'press'); this.linePt = this.pts; return; }
+    if (!drill) {
+      // A big point: how to play it at this difficulty (once per game)
+      if (this.pressKind && !this.pressSaid && Math.random() < 0.6) {
+        const L = this._st('bigPoint') || this._pressureLine(pServe);
+        if (L) { this.pressSaid = true; this._queue(L[0], L[1], delay, P_PRESS, 'press'); this.linePt = this.pts; return; }
+      } else if (!this.pressKind) {
+        // The other moments that matter: 30-all / deuce, serving for the set, ahead on serve
+        const L = this._st('scoreLine');
+        if (L) { this._queue(L[0], L[1], delay, P_PRESS, 'press'); this.linePt = this.pts; return; }
+      }
     }
     // The fix: every 3 points (2 when it is going badly, 5 when it is going well)
     const gap = drill ? (well ? 4 : 2) : well ? 5 : bad ? 2 : 3;
     const gapT = drill ? (well ? 16 : 7) : well ? 25 : 12;
-    if (this.pts - this.tipPt < gap || s.t - this.tipT < gapT) return;
-    const st = this._topIssue(pServe);
-    if (st) {
-      const L = this._raise(st);
-      if (L) { this._queue(L[0], L[1], delay, P_TIP, 'tip'); this.tipPt = this.pts; this.tipT = s.t; this.linePt = this.pts; return; }
-    }
+    const st = this.pts - this.tipPt >= gap && s.t - this.tipT >= gapT ? this._topIssue(pServe) : null;
+    // An urgent execution fix first; otherwise the game plan (its own cadence) and the ordinary
+    // fixes take turns
+    if (st && st.def.urg && (this._topV >= 1.5 || (bad && this._topV >= 1.2)) && this._tip(st, delay)) return;
+    if (st && this._lastCoach === 'strategy' && this._tip(st, delay)) return;
+    if (!drill && this._strategy(delay, pServe, second)) return;
+    if (st && this._tip(st, delay)) return;
     if (bad && this.pts - this.encPt >= 8 && this.pts - this.tipPt >= 3) {
       this.encPt = this.pts;
       const L = this.pk(ENCOURAGE[0], ENCOURAGE[1]);
       this._queue(L[0], L[1], delay, P_PRAISE, 'encourage');
       this.linePt = this.pts;
     }
+  }
+
+  /** Raise a technique issue and queue it (true when queued). */
+  _tip(st, delay) {
+    const L = this._raise(st);
+    if (!L) return false;
+    this._queue(L[0], L[1], delay, P_TIP, 'tip');
+    this.tipPt = this.pts; this.tipT = this.s.t; this.linePt = this.pts;
+    this._lastCoach = 'tip';
+    return true;
+  }
+
+  /** A strategy line when its cadence allows one (true when queued). */
+  _strategy(delay, pServe, second) {
+    if (this.next.due < INF && this.next.prio > P_STRATEGY) return false;
+    const due = this._st('due');
+    if (!due) return false;
+    const L = this._st('pick', pServe, second, due === 1);
+    if (!L) return false;
+    this._queue(L[0], L[1], delay, P_STRATEGY, 'strategy');
+    this.linePt = this.pts;
+    this._lastCoach = 'strategy';
+    return true;
   }
 
   _topIssue(pServe) {
@@ -997,6 +1142,8 @@ export class TennisCoach {
       if (!(d.modes & mb)) continue;
       if (match && d.when === 'p' && !pServe) continue;
       if (match && d.when === 'r' && pServe) continue;
+      // The game plan is on it (a raised strategy topic with the same advice): no double lesson
+      if (match && this._st('owns', d.id)) continue;
       // Said before and not fixed yet? Wait longer each time: no nagging, other things get a turn
       if (this.pts - st.lastPt < (d.cool || 4) * (1 + 0.5 * st.rep)) continue;
       if (d.src !== 'none' && this._fresh(st) < (d.fresh || 3)) continue;
@@ -1005,6 +1152,7 @@ export class TennisCoach {
       const v = Math.min(sv, 3) * d.w;
       if (v > bestV) { bestV = v; best = st; }
     }
+    this._topV = bestV;
     return best;
   }
 
@@ -1023,6 +1171,7 @@ export class TennisCoach {
       if (!L || L[0] === this.lastText) return null;
     }
     st.raised = true; st.at = this._srcTotal(d.src); st.lastPt = this.pts; st.times++;
+    this._st('muted', d.id);     // strategy topics about the same idea wait their turn
     return L;
   }
 
@@ -1097,17 +1246,25 @@ export class TennisCoach {
    */
   _changeoverLine() {
     const g = this.g, s = this.s;
+    // The game plan: when it is urgent (the wind at the new end, games slipping away, tired legs)
+    // or its turn (it alternates with the game-stat lines; a set break is its own moment)
+    if (s.mode === 'match') {
+      const h = this._coHist, easy = !s.ai || s.ai.diffKey === 'easy';
+      const open = this.coSet >= 0 || (h[0] !== 'strat' && (!easy || h[1] !== 'strat'));
+      const SL = this._st('changeoverLine', this.coGame, this.coSet, open);
+      if (SL) return this._coUse('strat', [SL.text, SL.short]);
+    }
     if (this.coSet >= 0) {
       return this.coSet === 0 ? this.pk(['Set to you! Vamos. Same plan now.', 'Set to you!'], ['Your set! Bueno. Stay hungry.', 'Your set!'])
-        : this.pk(['My set. Bueno, we go again. Fresh start.', 'My set.'], ['Set to me. Breathe, and start strong.', 'New set!']);
+        : this.pk(['{His} set. Bueno, we go again. Fresh start.', '{His} set.'], ['Set to {him}. Breathe, and start strong.', 'New set!']);
     }
     const C = [];
     const cand = (type, L) => { C.push(type, L); };
     const pServed = g.server === 0;
     const n = g.pErr[R_NET], l = g.pErr[R_LONG], wd = g.pErr[R_WIDE], errs = n + l + wd;
     if (this.coGame === 0) {
-      if (!pServed) cand('break', this.pk(['You broke me! Now hold your serve.', 'Break!'], ['Break! Now consolidate, amigo.', 'Break!']));
-      if (g.pAce >= 2 && g.pAce >= g.pWin) cand('aces', this.pk([`Your game! ${g.pAce} aces. What a serve.`, 'Your game!'], [`Held with ${g.pAce} aces. I need glasses.`, 'Held!']));
+      if (!pServed) cand('break', this.pk(['You broke {him}! Now hold your serve.', 'Break!'], ['Break! Now consolidate, amigo.', 'Break!']));
+      if (g.pAce >= 2 && g.pAce >= g.pWin) cand('aces', this.pk([`Your game! ${g.pAce} aces. What a serve.`, 'Your game!'], [`Held with ${g.pAce} aces. {He} need{s} glasses.`, 'Held!']));
       if (g.pWin >= 2) cand('winners', this.pk([`Your game! ${g.pWin} winners. Keep attacking.`, 'Your game!'], [`${g.pWin} winners that game. Vamos!`, 'Vamos!']));
       if (pServed && g.f >= 3 && g.fIn / g.f >= 0.75) cand('first', [`Held! ${this.pct(g.fIn / g.f)}% first serves in. Bueno.`, 'Held!']);
       if (errs === 0 && g.pts[0] + g.pts[1] >= 4) cand('clean', ['Your game, and no errors. That is how.', 'Your game!']);
@@ -1116,22 +1273,22 @@ export class TennisCoach {
       if (quiet || this._coRecent('won')) return null;
       return this._coUse('won', this.pk(['Your game. Bueno.', 'Your game.'], ['Your game. Keep the ball deep.', 'Your game.']));
     }
-    if (pServed && g.dbl >= 1) cand('dbl', [`My game. ${g.dbl === 1 ? 'A double fault' : `${g.dbl} double faults`}: kick the second, 2.`, 'Kick, 2!']);
-    if (n >= 2 && n >= l && n >= wd) cand('net', [`My game. ${n} balls in the net: more height.`, 'More height!']);
-    if (l >= 2 && l >= wd) cand('long', [`My game. ${l} long: less load, more topspin.`, 'Less load!']);
-    if (wd >= 2) cand('wide', [`My game. ${wd} wide: aim inside the lines.`, 'Aim inside!']);
-    if (!pServed && g.aced >= 1) cand('aced', this.pk(['My game. My serve worked. Be ready on the return.', 'Be ready!'], [`My game. ${g.aced > 1 ? `${g.aced} aces` : 'An ace'} from me. Read my toss.`, 'Read my toss!']));
-    if (g.rWin >= 2) cand('rwin', [`My game. ${g.rWin} winners from me: push me back, deeper.`, 'Deeper!']);
-    if (pServed) cand('broken', this.pk(['I broke you. Next game, first serves in.', 'First serves in!'], ['Broken. Hold the next one: kick, 2, is safe.', 'Hold the next!']));
+    if (pServed && g.dbl >= 1) cand('dbl', [`{His} game. ${g.dbl === 1 ? 'A double fault' : `${g.dbl} double faults`}: kick the second, 2.`, 'Kick, 2!']);
+    if (n >= 2 && n >= l && n >= wd) cand('net', [`{His} game. ${n} balls in the net: more height.`, 'More height!']);
+    if (l >= 2 && l >= wd) cand('long', [`{His} game. ${l} long: less load, more topspin.`, 'Less load!']);
+    if (wd >= 2) cand('wide', [`{His} game. ${wd} wide: aim inside the lines.`, 'Aim inside!']);
+    if (!pServed && g.aced >= 1) cand('aced', this.pk(['{His} game. {His} serve worked. Be ready on the return.', 'Be ready!'], [`{His} game. ${g.aced > 1 ? `${g.aced} aces` : 'An ace'} from {him}. Read {his} toss.`, 'Read {his} toss!']));
+    if (g.rWin >= 2) cand('rwin', [`{His} game. ${g.rWin} winners from {him}: push {him} back, deeper.`, 'Deeper!']);
+    if (pServed) cand('broken', this.pk(['{He} broke you. Next game, first serves in.', 'First serves in!'], ['Broken. Hold the next one: kick, 2, is safe.', 'Hold the next!']));
     for (let i = 0; i < C.length; i += 2) if (!this._coRecent(C[i])) return this._coUse(C[i], C[i + 1]);
     // Nothing new stood out: the current top issue, if any
     const st = this._topIssue(s.srv && s.srv.who === 0);
     if (st) {
       const L = this._raise(st);
-      if (L) { this._coIssue = true; return this._coUse('issue', [`My game. ${L[0]}`.length <= 70 ? `My game. ${L[0]}` : L[0], L[1]]); }
+      if (L) { this._coIssue = true; return this._coUse('issue', [`{His} game. ${L[0]}`.length <= 70 ? `{His} game. ${L[0]}` : L[0], L[1]]); }
     }
     if (this._coRecent('lost')) return null;
-    return this._coUse('lost', this.pk(['My game. The next one is yours.', 'Next one!'], ['My game. Stay with me.', 'Stay with me!']));
+    return this._coUse('lost', this.pk(['{His} game. The next one is yours.', 'Next one!'], ['{His} game. Stay with me.', 'Stay with me!']));
   }
 
   /** Was this kind of changeover line used in the last three changeovers? */
@@ -1191,18 +1348,42 @@ export class TennisCoach {
 
   _speak(text, short, sec, kind) {
     const s = this.s;
-    this.lastText = text;
+    this.lastText = text;          // the template (voice tokens and all): what "not twice in a row" compares
     this.lastSayT = s.t;
-    if (this.log) this.log.push({ t: +s.t.toFixed(2), kind, text, pt: this.pts });
+    const vt = this._voice(text), vs = this._voice(short);
+    if (this.log) this.log.push({ t: +s.t.toFixed(2), kind, text: vt, pt: this.pts });
     // A how-to or reply replaces any pending lesser line
     if (kind === 'howto' || kind === 'reply') { this.next.due = INF; this.next.prio = 0; }
-    s._say(text, sec, short);
+    s._say(vt, sec, vs);
+  }
+
+  /** The opponent's voice: Rafa himself in a practice match ("my backhand"), him in the tour. */
+  _voice(text) {
+    if (!text || text.indexOf('{') < 0) return text;
+    const st = this.strat;
+    return voice(text, !!(st && st.isTour()), st ? st.oppName() : '');
+  }
+
+  /** Call a TennisStrategy method: a strategy error never breaks the technique coach (logged once). */
+  _st(method, a, b, c) {
+    const st = this.strat;
+    if (!st || typeof st[method] !== 'function') return null;
+    try { return st[method](a, b, c); } catch (err) {
+      if (!this._stErr) { this._stErr = true; console.warn('TennisStrategy', method, err); }
+      return null;
+    }
+  }
+
+  _gameKey(sc) {
+    if (!sc || !sc.games) return -2;
+    return (sc.sets ? sc.sets.length : 0) * 10000 + sc.games[0] * 100 + sc.games[1];
   }
 
   // ─────────────────────────── bookkeeping ───────────────────────────
 
   _onFlight(hitter, kind) {
     const s = this.s;
+    this._st('onFlight', hitter, kind);
     if (hitter !== 1) return;
     // Rafa just hit: you have a ball to play (was it reachable, did you swing?)
     this.awaitSwing = true; this.reachable = false;
@@ -1257,13 +1438,23 @@ export class TennisCoach {
       const raw = storageGet(STORE_KEY);
       const o = raw ? JSON.parse(raw) : null;
       if (o && o.seen && typeof o.seen === 'object') for (const k in o.seen) if (HOWTO[k] && o.seen[k]) this.seen[k] = true;
+      if (o && o.habits && typeof o.habits === 'object') this.habits = sanitizeHabits(o.habits);
     } catch (e) { /* first time, or storage blocked: per session only */ }
   }
 
   _markSeen(id) {
     if (this.seen[id]) return;
     this.seen[id] = true;
-    try { storageSet(STORE_KEY, JSON.stringify({ v: 1, seen: this.seen })); } catch (e) { /* per session only */ }
+    this._saveStore();
+  }
+
+  /** courtcall.tennis.coach: the how-tos already given, and your habits (a few numbers per match). */
+  _saveStore() {
+    try {
+      const o = { v: 1, seen: this.seen };
+      if (this.habits) o.habits = this.habits;
+      storageSet(STORE_KEY, JSON.stringify(o));
+    } catch (e) { /* per session only */ }
   }
 
   // ─────────────────────────── window statistics (used by ISSUES) ───────────────────────────
