@@ -40,6 +40,7 @@ const ST = 10;                 // floats per sample: t, x, y, z, vx, vy, vz, wx,
 const MAX_EV = 24;
 const MAX_B = 6;
 const ROLL_K = 1.6;            // a rolling ball's decay (1/s), as TennisBall.stepRoll
+const DT_ROLL = 1 / 30;        // rolling step (s): smooth motion, Hermite-sampled
 const NET_BAND = 0.6;          // a centre within this × R under the tape still cords (clips it)
 
 const _a = { x: 0, y: 0, z: 0 };
@@ -186,7 +187,7 @@ export class BallFlight {
     while (t < tMax && this.n < this.cap - 3 && guard++ < CAP * 2) {
       if (rolling) {
         // Rolling: the horizontal speed decays, the ball stays on the court (TennisBall.stepRoll)
-        const k = Math.exp(-ROLL_K * DT), f = (1 - k) / ROLL_K;
+        const k = Math.exp(-ROLL_K * DT_ROLL), f = (1 - k) / ROLL_K;
         const nx = s.x + s.vx * f, nz = s.z + s.vz * f;
         let stop = false;
         if (fr && fence) {
@@ -196,13 +197,13 @@ export class BallFlight {
         }
         if (!stop && groundAt && groundAt(nx, nz) > surfY + 0.02) stop = true;   // the first riser of the stands
         if (stop) {
-          t += DT;
+          t += DT_ROLL;
           this._push(t, s.x, ballY, s.z, 0, 0, 0, 0, 0, 0);
           this._event('rest', t, s.x, ballY, s.z, 0, 0, 0, fr ? luOf(fr, s.x, s.z) : 0, fr ? lvOf(fr, s.x, s.z) : 0, ballY, -1);
           break;
         }
         s.x = nx; s.z = nz; s.vx *= k; s.vz *= k; s.y = ballY; s.vy = 0;
-        t += DT;
+        t += DT_ROLL;
         if (s.vx * s.vx + s.vz * s.vz < 0.0025) {
           this._push(t, s.x, ballY, s.z, 0, 0, 0, 0, 0, 0);
           this._event('rest', t, s.x, ballY, s.z, 0, 0, 0, fr ? luOf(fr, s.x, s.z) : 0, fr ? lvOf(fr, s.x, s.z) : 0, ballY, -1);

@@ -42,6 +42,7 @@ import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
 import { TennisSession } from './tennis/TennisSession.js';
 import { TourSystem } from './systems/TourSystem.js';
+import { Venues } from './world/Venues.js';
 import { SpectatorDirector } from './systems/SpectatorDirector.js';
 import { groundAt, levelOf } from './world/Ground.js';
 
@@ -495,6 +496,9 @@ class Game {
     // Junior Tennis Tour (tour.json): Rafa's offer after three wins, weekly tournaments at other
     // clubs, rankings, Hank's crossroads. After the profile (wins, wallet) and the session.
     this._createTour();
+
+    // Junior Tour venues: other clubs' tournament courts, built on demand far from the club
+    try { this.venues = new Venues(this, this.tourData?.venues || null); } catch (err) { console.error('Venues unavailable:', err); this.venues = null; }
 
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);
@@ -1731,6 +1735,8 @@ class Game {
   _update(dt) {
     // Update input
     this.input.update(dt);
+    // A Junior Tour venue in view: its flags, water, crowd and umpire (the session steps the rest)
+    if (this.venues && this.venues.active) this.venues.update(dt);
     // After-hours tennis owns the whole frame while it runs (TennisSession steps the world)
     const tennisOn = !!(this.tennis && this.tennis.active);
     if (tennisOn !== !!this._tennisWasActive) { this._tennisWasActive = tennisOn; this._onTennisActive(tennisOn); }

@@ -115,6 +115,15 @@ export function impactForward(bv, bw, V, n, a, b, B, out, extraGyro = 0) {
 // Scratch for the inverse
 const _e1 = { x: 0, y: 0, z: 0 }, _e2 = { x: 0, y: 0, z: 0 }, _d = { x: 0, y: 0, z: 0 };
 const _t = { vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, Vx: 0, Vy: 0, Vz: 0, un: 0, cap: false, brush: 0 };
+let _fbv = null, _fbw = null, _fwant = null, _feA = 0;
+
+/** The face tilted from the flight direction by (pp, qq) along e1 / e2 → _n, and its stroke → _t. */
+function faceAt(pp, qq) {
+  const nx = _d.x + pp * _e1.x + qq * _e2.x, ny = _d.y + pp * _e1.y + qq * _e2.y, nz = _d.z + pp * _e1.z + qq * _e2.z;
+  const l = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  _n.x = nx / l; _n.y = ny / l; _n.z = nz / l;
+  return solveForFace(_n.x, _n.y, _n.z, _fbv, _fbw, _fwant, _feA, _t);
+}
 
 /** For face normal n: the racket velocity that sends the ball out at wantV (no cap), and the spin that results. */
 function solveForFace(nx, ny, nz, bv, bw, wantV, eA, out) {
@@ -170,12 +179,8 @@ export function impactInverse(bv, bw, wantV, wantW, eA, sol) {
   let p = 0, q = 0;
   let r1 = 0, r2 = 0;
   const T = _t;
-  const face = (pp, qq) => {
-    let nx = d.x + pp * _e1.x + qq * _e2.x, ny = d.y + pp * _e1.y + qq * _e2.y, nz = d.z + pp * _e1.z + qq * _e2.z;
-    const l = Math.sqrt(nx * nx + ny * ny + nz * nz);
-    _n.x = nx / l; _n.y = ny / l; _n.z = nz / l;
-    return solveForFace(_n.x, _n.y, _n.z, bv, bw, wantV, eA, T);
-  };
+  _fbv = bv; _fbw = bw; _fwant = wantV; _feA = eA;
+  const face = faceAt;
   for (let it = 0; it < 12; it++) {
     face(p, q);
     r1 = T.wx * _e1.x + T.wy * _e1.y + T.wz * _e1.z - w1;
