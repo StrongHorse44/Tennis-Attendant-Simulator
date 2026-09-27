@@ -735,6 +735,8 @@ export class SpectatorDirector {
   }
 
   _eventCrowd() {
+    // EventSystem.getCrowd(): today's factor clamped to 0.5..2.5 (1 when absent), so a hand edit can't overflow
+    if (this.events && typeof this.events.getCrowd === 'function') return this.events.getCrowd();
     const e = this.events && this.events.today;
     const c = e ? Number(e.crowd) : NaN;
     return Number.isFinite(c) && c > 0 ? c : 1;
