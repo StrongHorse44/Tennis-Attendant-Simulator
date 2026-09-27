@@ -278,6 +278,30 @@ export function bowlGroundLeg(ax, az, bx, bz, out = []) {
   return out;
 }
 
+/**
+ * Copy `route` (start (ax, az) excluded) into `out`, replacing each leg that runs outdoors and
+ * clear of the stadium footprint by a RoutePlanner detour round the static boxes (a straight leg
+ * the building nav graph produced can end against a court fence; a clear leg stays as it is).
+ * Aisle and pit legs inside the footprint are kept exactly. Per route, never per frame.
+ */
+function fenceAwareLegs(ax, az, route, out) {
+  out.length = 0;
+  let px = ax, pz = az;
+  for (let i = 0; i < route.length; i++) {
+    const q = route[i];
+    if (!q || !Number.isFinite(q.x) || !Number.isFinite(q.z)) continue;
+    if (_groundPlanner && Math.hypot(q.x - px, q.z - pz) > 2 && !inFootprint(px, pz, 0) && !inFootprint(q.x, q.z, 0)
+      && roomAt(px, pz) < 0 && roomAt(q.x, q.z) < 0) {
+      _groundPlanner.plan(px, pz, q.x, q.z, _legTmp);
+      for (let k = 0; k < _legTmp.length - 1; k++) out.push(_legTmp[k]);
+      _legTmp.length = 0;
+    }
+    out.push(q);   // the route's own node (a detour may have pulled its copy out of a wall margin)
+    px = q.x; pz = q.z;
+  }
+  return out;
+}
+
 const ROUTE_MAX_LEG = 12; // m: bowl routes get a node at least this often (see densifyRoute)
 
 /**
@@ -754,6 +778,8 @@ export class NPC {
     this.body.velocity.set(0, 0, 0);
     this.mesh.position.set(x, gy, z);
     resetGroundY(this, x, gy, z);
+    this._bowlIdle = 0;   // the stranded guard's clocks start over at a new spot
+    this._bowlTime = 0;
     if (yaw !== null && Number.isFinite(yaw)) this.mesh.rotation.y = yaw;
     this._settleTime = 0; // already resting on the ground (a court pad is higher than 0)
   }
@@ -982,8 +1008,13 @@ export class NPC {
 
     const bp = this.body.position;
     // In the Centre Court bowl nobody drifts: the frictionless contacts would slide a standing
-    // body off the 0.45 m aisle half-steps and row edges (walking translates the body directly)
-    if (inCut(bp.x, bp.z)) { this.body.velocity.x = 0; this.body.velocity.z = 0; }
+    // body off the 0.45 m aisle half-steps and row edges, step after step (walking translates
+    // the body directly). A body hanging on a step's edge above its ground keeps its slide, so it
+    // drops onto the tread below instead of creeping off the corner.
+    if (inCut(bp.x, bp.z) && bp.y < groundAt(bp.x, bp.z) + SIZES.npcRadius + 0.03) {
+      this.body.velocity.x = 0;
+      this.body.velocity.z = 0;
+    }
     // Just after spawning, pull a hovering body down briskly (linearDamping also damps gravity)
     if (this._settleTime > 0) {
       this._settleTime -= dt;
@@ -1121,7 +1152,8 @@ export class NPC {
       this._wanderTime = 0;
       if (seat) {
         this._seatTarget = seat;
-        this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
+        const a = seat.approach || 0.5;
+        this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a };
       } else {
         this.currentTarget = this._getPreferredWaypoint();
       }
@@ -1350,10 +1382,9 @@ export class NPC {
     try {
       const out = this._route || [];
       if (Array.isArray(t.route) && t.route.length) {
-        // A route handed in with the target (goSpectate / leaveSpectating): walk it as given
-        out.length = 0;
-        for (let i = 0; i < t.route.length; i++) out.push(t.route[i]);
-        this._route = densifyRoute(ax, az, out);
+        // A route handed in with the target (goSpectate / leaveSpectating): walk it as given,
+        // except that its outdoor legs away from the bowl go round court fences and nets
+        this._route = densifyRoute(ax, az, fenceAwareLegs(ax, az, t.route, out));
       } else if (planLevelRoute(ax, az, t.x, t.z, out, NAV_LEG)) {
         // Into / out of / inside the Centre Court bowl: down the aisles (Ground.planLevelRoute)
         this._route = densifyRoute(ax, az, out);
@@ -1505,7 +1536,9 @@ export class NPC {
     this.character.stop(0.3);
     if (seat && claimSeat(seat, this)) {
       this._seatTarget = seat;
-      this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
+      // (the seat's own approach: 0.38 on a Centre Court stand seat, so the sitter stands on its row)
+      const a = seat.approach || 0.5;
+      this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a };
     } else if (point) {
       this.currentTarget = point.precise ? { x: point.x, z: point.z, precise: true } : { x: point.x, z: point.z };
     } else {
