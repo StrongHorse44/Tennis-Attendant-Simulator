@@ -9,10 +9,14 @@ import { SINGLES_W, SERVICE_L, HALF_L, SURF, netTop } from './TennisBallSim.js';
  *  - chooseShot: shot family (drive, approach, passing shot, lob, drop shot, volley, drop
  *    volley, smash, block / drive return, defensive slice) from the situation — his position
  *    and balance, the player's position and movement, the incoming ball, the rally length, the
- *    score pressure and his momentum — then a target with the difficulty's safety margins and a
- *    Gaussian scatter (errors come from the scatter, so aiming close to a line is a real risk).
- *  - chooseServe: spin (flat / slice / kick), placement (T, body, wide, the weaker wing),
- *    faults, serve-and-volley.
+ *    score pressure and his momentum — then a target with the difficulty's safety margins, a
+ *    launch speed and a spin, and his execution sampled from his skill (_execute: a timing error
+ *    against his green window, the odd mishit, where the ball meets his strings). The physics
+ *    (ShotMaker) makes the shot from that: errors are never dice on the outcome — a late swing
+ *    pushes it wide or long, an early one pulls it or dips it into the net, so aiming close to a
+ *    line is a real risk.
+ *  - chooseServe: spin (flat / slice / kick), placement (T, body, wide, the weaker wing), speed,
+ *    the toss timing (faults come out of it), serve-and-volley.
  *  - recoveryU: the centre of the player's possible reply angles (bisector), so he recovers
  *    toward the right spot after each shot instead of the middle of the baseline.
  *
@@ -21,6 +25,7 @@ import { SINGLES_W, SERVICE_L, HALF_L, SURF, netTop } from './TennisBallSim.js';
  */
 
 const W = SINGLES_W;
+const EXCESS_MAX = 0.055;   // the most his timing goes past his green window (s)
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 function gauss() {
@@ -43,7 +48,7 @@ export class Scout {
   reset() {
     this.shots = [0, 0];      // player strokes seen per wing (forehand, backhand)
     this.err = [0, 0];        // …of which errors (out, net, whiffed)
-    this.servePace = 16;      // running average of the player's serve pace (m/s)
+    this.servePace = 24;      // running average of the player's serve pace (m/s, average to the bounce)
     this.serves = 0;
     this.netRushes = 0;       // player shots hit from inside the service line
     this.lastU = 0;           // where the player hit the last ball from (court u, distance from the net)
@@ -128,7 +133,9 @@ export class RafaTactics {
   // ─────────────────────────── rally shots ───────────────────────────
 
   /**
-   * Choose the shot at contact. Writes and returns out = { spin, u, v, pace, margin, minT, kind }.
+   * Choose the shot at contact. Writes and returns out = { spin, u, v, speed (launch m/s) or pace
+   * (lobs / drops: average m/s), margin, minT, kind, phys ('ground' | 'volley' | 'smash'), wing
+   * ('fh' | 'bh'), e / gw / a / b (his execution, sampled: see _execute) }.
    * pressure: the session's read (stretch, a great incoming ball, a flat drive).
    */
   chooseShot(out, pressure) {
@@ -154,12 +161,15 @@ export class RafaTactics {
     c.nerves = this._nerves();
     c.high = !c.smash && c.hc > 1.45;
     c.low = c.hc < 0.45;
-    // The incoming ball: a soft one gives him time (attack it), a heavy one rushes him
-    c.slow = clamp((12 - c.vin) / 5, 0, 1);
-    c.heavy = c.ret ? 0 : clamp((c.vin - 14) / 6, 0, 1);
+    // The incoming ball (its average pace to the bounce): a soft one gives him time (attack it),
+    // a heavy one rushes him
+    c.slow = clamp((15 - c.vin) / 5, 0, 1);
+    c.heavy = c.ret ? 0 : clamp((c.vin - 19) / 6, 0, 1);
     c.lobbed = s.fl.shot === 'lob';
     c.dropped = s.fl.shot === 'drop';
-    out.minT = 0; out.kind = 'rally';
+    out.minT = 0; out.kind = 'rally'; out.speed = 0; out.pace = 0;
+    out.phys = c.smash ? 'smash' : c.volley ? 'volley' : 'ground';
+    out.wing = plan.clip === 'backhand' || plan.clip === 'volley_bh' ? 'bh' : 'fh';
     st.shots++;
     if (c.volley && !c.smash) st.volleys++;
     if (c.ret) st.returns++;
@@ -172,7 +182,7 @@ export class RafaTactics {
     let fam;
     // Out of the air or on a lob: the put-away smash; a high bouncing ball: a controlled overhead
     if (c.smash) fam = c.ret || (!c.volley && !c.lobbed) ? 'overhead' : 'smash';
-    else if (c.ret) fam = c.block || c.vin > 17.5 || c.high ? 'blockReturn' : 'driveReturn';
+    else if (c.ret) fam = c.block || c.vin > 26 || c.high ? 'blockReturn' : 'driveReturn';
     else if (c.volley) {
       const aboveNet = b.pos.y > netTop(0) + 0.25;
       if (!aboveNet && c.pd > 11 && Math.random() < d.dropVolley) fam = 'dropVolley';
@@ -190,19 +200,19 @@ export class RafaTactics {
       fam = 'drop';
     } else fam = 'drive';
     this._shape(out, fam, appetite);
-    this._scatter(out, this._fam, pressure, appetite);
+    this._execute(out, this._fam, pressure, appetite);
     // Where he goes next (net / baseline) and the recovery spot
     this._afterShot(out, fam);
     return out;
   }
 
-  /** Target and flight for a shot family (before scatter). */
+  /** Target and flight for a shot family (the intention: his execution comes after). */
   _shape(out, fam, appetite) {
     const ai = this.ai, s = this.s, d = this.d, c = this.ctx, st = ai.stats;
     const ps = s.sides[0];
     const uMax = W - d.safeU;
-    const pr = d.pace;
-    let u = 0, depth = 10, spin = 'topspin', pace = rand(pr[0], pr[1]), margin = rand(0.6, 1.0);
+    const sr = d.shotSpeed;
+    let u = 0, depth = 10, spin = 'topspin', speed = rand(sr[0], sr[1]), pace = 0, margin = rand(0.6, 1.0);
     // A shot to the open court (away from the player) / behind a runner / at the weaker wing
     const open = () => (c.pu > 0.3 ? -1 : c.pu < -0.3 ? 1 : (Math.random() < 0.5 ? -1 : 1));
     const weakU = (off) => c.pu + (this.scout.weakWing() === 0 ? 1 : -1) * c.fh * off;
@@ -213,7 +223,7 @@ export class RafaTactics {
     switch (fam) {
       case 'smash': {
         spin = 'smash'; st.smashes++;
-        pace = rand(d.smashPace[0], d.smashPace[1]);
+        speed = rand(d.smashSpeed[0], d.smashSpeed[1]);
         margin = rand(0.25, 0.4);
         u = open() * rand(0.55, 1) * uMax;
         depth = Math.random() < 0.4 ? rand(5.8, 7.2) : rand(8.2, HALF_L - d.safeV);
@@ -221,7 +231,7 @@ export class RafaTactics {
       }
       case 'overhead': {                             // a high bouncing ball / kick serve taken overhead: controlled
         spin = 'smash'; st.overheads++;
-        pace = rand(d.smashPace[0], d.smashPace[1]) * 0.72;
+        speed = rand(d.smashSpeed[0], d.smashSpeed[1]) * 0.8;
         margin = rand(0.4, 0.6);
         u = clamp(c.pu * 0.3 + rand(-1.4, 1.4), -uMax, uMax);
         depth = rand(8.4, HALF_L - d.safeV);
@@ -229,7 +239,7 @@ export class RafaTactics {
       }
       case 'volleyKill': {
         spin = 'flat';
-        pace = rand(12, 15.5) * (0.9 + 0.2 * appetite);
+        speed = rand(17, 22) * (0.9 + 0.2 * appetite);
         margin = rand(0.25, 0.4);
         u = open() * rand(0.6, 1) * uMax;
         depth = Math.random() < 0.55 ? rand(5.2, 7) : rand(8.6, HALF_L - d.safeV);
@@ -237,7 +247,7 @@ export class RafaTactics {
       }
       case 'volleyDeep': {
         spin = Math.random() < 0.6 ? 'slice' : 'flat';
-        pace = rand(10, 12.5);
+        speed = rand(15, 18.5);
         margin = rand(0.35, 0.55);
         u = Math.random() < d.weakWing ? clamp(weakU(2.2), -uMax, uMax) : open() * rand(0.45, 0.9) * uMax;
         depth = rand(8.8, HALF_L - d.safeV);
@@ -245,7 +255,7 @@ export class RafaTactics {
       }
       case 'dropVolley': {
         spin = 'drop'; st.drops++;
-        pace = rand(6, 7.5); margin = rand(0.2, 0.32); out.minT = rand(0.4, 0.55);
+        speed = 0; pace = rand(6, 7.5); margin = rand(0.2, 0.32); out.minT = rand(0.4, 0.55);
         u = open() * rand(0.4, 0.85) * uMax;
         depth = rand(1.7, 2.9);
         out.kind = 'drop';
@@ -254,7 +264,7 @@ export class RafaTactics {
       case 'pass': {
         st.passes++;
         spin = 'topspin';
-        pace = rand(pr[0], pr[1]) * 1.05;
+        speed = rand(sr[0], sr[1]) * 1.04;
         margin = rand(0.25, 0.45);
         // The lane with more room beside the player: down the line deep or a dipping cross angle
         const gapPos = W - c.pu, gapNeg = c.pu + W;
@@ -266,7 +276,7 @@ export class RafaTactics {
       case 'lob': case 'lobDefend': {
         st.lobs++;
         spin = 'lob';
-        pace = rand(8, 10);
+        speed = 0; pace = rand(8, 10);
         margin = 2.5;
         out.minT = fam === 'lob' ? rand(1.5, 1.9) : rand(1.8, 2.25);
         u = fam === 'lob' ? (c.pu > 0 ? -1 : 1) * rand(0.2, 0.75) * uMax : rand(-1.5, 1.5);
@@ -275,7 +285,7 @@ export class RafaTactics {
       }
       case 'dig': {
         spin = 'slice';
-        pace = rand(7.5, 9.5);
+        speed = rand(13, 16);
         margin = rand(0.5, 0.85);
         u = clamp(c.myU * 0.5 + rand(-1.2, 1.2), -uMax, uMax);
         depth = rand(6.2, 9);
@@ -283,7 +293,7 @@ export class RafaTactics {
       }
       case 'slice': {                               // stretched: a low, deep, safe slice
         spin = 'slice';
-        pace = rand(pr[0], pr[1]) * 0.86;
+        speed = rand(sr[0], sr[1]) * 0.88;
         margin = rand(0.35, 0.6);
         u = clamp(c.pu * 0.25 + rand(-1.6, 1.6), -uMax, uMax);
         depth = rand(Math.max(d.depth[0], 8.6), HALF_L - d.safeV * 1.1);
@@ -292,7 +302,7 @@ export class RafaTactics {
       case 'blockReturn': {
         st.blockReturns++;
         spin = Math.random() < 0.5 ? 'slice' : 'flat';
-        pace = rand(pr[0], pr[1]) * rand(0.72, 0.85);
+        speed = rand(sr[0], sr[1]) * rand(0.8, 0.9);
         margin = rand(0.45, 0.7);
         u = Math.random() < d.weakWing ? clamp(weakU(1.6), -uMax * 0.8, uMax * 0.8) : clamp(rand(-1.6, 1.6), -uMax, uMax);
         depth = rand(8.4, HALF_L - d.safeV * 1.1);
@@ -300,7 +310,7 @@ export class RafaTactics {
       }
       case 'driveReturn': {                          // a slower / second serve: step in and drive it
         spin = baseSpin() === 'slice' ? 'slice' : 'topspin';
-        pace = rand(pr[0], pr[1]) * (0.92 + 0.12 * appetite);
+        speed = rand(sr[0], sr[1]) * (0.94 + 0.1 * appetite);
         margin = spin === 'topspin' ? rand(0.55, 0.9) : rand(0.3, 0.5);
         u = Math.random() < d.weakWing ? clamp(weakU(2.4), -uMax, uMax) : open() * rand(0.3, 0.9) * uMax * d.width;
         depth = rand(d.depth[0], d.depth[1]);
@@ -309,7 +319,7 @@ export class RafaTactics {
       }
       case 'approach': {
         spin = Math.random() < 0.5 ? 'slice' : 'topspin';
-        pace = rand(pr[0], pr[1]) * (spin === 'slice' ? 0.9 : 0.97);
+        speed = rand(sr[0], sr[1]) * (spin === 'slice' ? 0.92 : 0.98);
         margin = spin === 'slice' ? rand(0.3, 0.5) : rand(0.55, 0.85);
         // Deep, to the weaker wing or down the line (the ball stays in front of him at the net)
         u = Math.random() < d.weakWing + 0.2 ? clamp(weakU(2.4), -uMax, uMax) : clamp(c.myU * 0.9 + rand(-0.8, 0.8), -uMax, uMax);
@@ -318,7 +328,7 @@ export class RafaTactics {
       }
       case 'drop': {
         spin = 'drop'; st.drops++;
-        pace = rand(7.5, 9); margin = rand(0.2, 0.34); out.minT = rand(0.45, 0.6);
+        speed = 0; pace = rand(7.5, 9); margin = rand(0.2, 0.34); out.minT = rand(0.45, 0.6);
         u = open() * rand(0.3, 0.85) * uMax;
         depth = rand(2.2, 3.6);
         out.kind = 'drop';
@@ -326,7 +336,7 @@ export class RafaTactics {
       }
       default: {                                     // 'drive': the neutral rally ball
         spin = baseSpin();
-        pace = rand(pr[0], pr[1]) * (0.9 + 0.2 * appetite) * (spin === 'slice' ? 0.88 : spin === 'flat' ? 1.08 : 1);
+        speed = rand(sr[0], sr[1]) * (0.94 + 0.12 * appetite) * (spin === 'slice' ? 0.9 : spin === 'flat' ? 1.04 : 1);
         margin = spin === 'topspin' ? rand(0.6, 1.1) : spin === 'slice' ? rand(0.28, 0.5) : rand(0.32, 0.6);
         const wide = d.width * (0.75 + 0.35 * appetite);
         const x = Math.random();
@@ -341,7 +351,7 @@ export class RafaTactics {
           st.finish++;
           u = -c.wide * rand(0.75, 1) * Math.min(1, wide + 0.15) * uMax;
           if (spin === 'slice') spin = 'topspin';
-          pace *= 1.08;
+          speed *= 1.05;
           if (Math.random() < 0.5) { spin = 'flat'; margin = rand(0.32, 0.55); }
         } else if (x < d.behind + d.weakWing) {
           st.weak++;
@@ -356,68 +366,70 @@ export class RafaTactics {
         if (Math.random() < 0.08 * appetite && Math.abs(u) > 2.2) { depth = rand(6.4, 7.6); u = Math.sign(u) * Math.min(uMax + 0.2, Math.abs(u) + 0.6); }
       }
     }
-    // Rafa's pace is also his balance: stretched or rushed balls come back softer
-    if (fam !== 'drop' && fam !== 'dropVolley' && fam !== 'lob' && fam !== 'lobDefend') {
-      pace *= 1 - Math.min(0.3, c.stretch * 0.22) - (c.block && fam !== 'blockReturn' ? 0.1 : 0) - 0.12 * c.heavy;
+    // Rafa's swing is also his balance: stretched or rushed balls come back softer
+    if (speed && fam !== 'smash' && fam !== 'overhead') {
+      speed *= 1 - Math.min(0.14, Math.max(0, c.stretch - 0.4) * 0.2) - (c.block && fam !== 'blockReturn' ? 0.06 : 0) - 0.06 * c.heavy;
     }
+    // Rushed by a heavy ball: a drive or slice lands shorter (something to attack)
+    if (c.heavy > 0 && (fam === 'drive' || fam === 'slice' || fam === 'driveReturn')) depth -= 1.3 * c.heavy;
     this._fam = fam;
-    out.spin = spin; out.pace = pace; out.margin = margin;
+    out.spin = spin; out.speed = speed; out.pace = pace; out.margin = margin;
     out.u = u; out.v = ps * clamp(depth, 1.4, HALF_L + 2);
     this._depth = depth;
   }
 
   /**
-   * Execution: a Gaussian scatter on u / depth / net clearance (placement, and a real risk when
-   * aiming close to a line), plus a mishit roll — the error rate of the difficulty, raised by a
-   * hard situation (stretched, a fast / high / low ball, a risky shot, nerves, a long rally).
+   * His execution — sampled from his skill, never an outcome: a timing error e ~ N(0, σ) against
+   * his green half-width gw (σ widened by a hard ball: a stretch, pace, a high or low contact, the
+   * score's nerves, a long rally; eased by a sitter), the odd mishit (a timing error well past the
+   * green: probability err × the situation, more on a risky shot), and where the ball meets his
+   * strings (a, b). ShotMaker's physics turns that into the shot: inside the green it lands where
+   * he aimed, outside it the face turns (early pulls / dips, late pushes / floats) — net, long and
+   * wide all come out of it.
    */
-  _scatter(out, fam, pressure, appetite) {
-    const d = this.d, c = this.ctx, s = this.s, st = this.ai.stats;
-    const ps = s.sides[0];
-    const hard = 0.55 * Math.min(1.4, c.stretch) + 0.6 * clamp((c.vin - 13) / 7, 0, 1)
+  _execute(out, fam, pressure, appetite) {
+    const d = this.d, c = this.ctx, st = this.ai.stats;
+    const X = d.exec;
+    const hard = 0.55 * Math.min(1.4, c.stretch) + 0.6 * clamp((c.vin - 17) / 8, 0, 1)
       + (c.high ? 0.35 : 0) + (c.low ? 0.3 : 0) + 0.2 * Math.max(0, pressure || 0) - 0.35 * c.slow;
-    let k = Math.max(0.6, 1 + hard) * c.nerves;
+    let k = Math.max(0.6, 1 + 0.8 * hard) * c.nerves;
     if (c.rally > 9) k *= 1 + 0.03 * (c.rally - 9);           // long rallies end eventually
-    let ku = 1, kv = 1, km = 1, risk = 0;
-    // Error mix [net, long, wide] per family
-    let pn = 0.35, pLong = 0.35;
+    // Per family: how hard the stroke is to time (kt) and how risky (the mishit chance)
+    let kt = 1, risk = 0;
     switch (fam) {
-      case 'smash': ku = 0.85; kv = 0.9; km = 0.8; risk = -0.15; pn = 0.45; pLong = 0.3; break;
-      case 'overhead': km = 1.1; risk = 0.1; pn = 0.45; pLong = 0.35; break;
-      case 'volleyKill': ku = 0.9; km = 0.9; risk = 0.05; pn = 0.4; pLong = 0.2; break;
-      case 'volleyDeep': km = 1.2; risk = 0.1; pn = 0.5; pLong = 0.25; break;
-      case 'dropVolley': case 'drop': ku = 0.7; kv = 0.45; km = 0.9; risk = 0.35; pn = 0.75; pLong = 0.1; break;
-      case 'pass': ku = 1.1; km = 1.2; risk = 0.35; pn = 0.35; pLong = 0.2; break;
-      case 'lob': case 'lobDefend': kv = 1.2; km = 0; risk = 0.15; pn = 0; pLong = 0.7; break;
-      case 'blockReturn': ku = 0.9; kv = 0.9; risk = -0.2; pn = 0.45; pLong = 0.35; break;
-      case 'driveReturn': risk = 0.15; break;
-      case 'approach': ku = 1.05; risk = 0.05; pn = 0.4; pLong = 0.35; break;
-      case 'slice': risk = 0; pn = 0.5; pLong = 0.3; break;
-      case 'dig': risk = 0.2; pn = 0.6; pLong = 0.1; break;
+      case 'smash': kt = 0.85; risk = -0.15; break;
+      case 'overhead': kt = 1.05; risk = 0.1; break;
+      case 'volleyKill': kt = 0.9; risk = 0.05; break;
+      case 'volleyDeep': kt = 1; risk = 0.1; break;
+      case 'dropVolley': case 'drop': kt = 1.1; risk = 0.35; break;
+      case 'pass': kt = 1.1; risk = 0.35; break;
+      case 'lob': case 'lobDefend': kt = 0.8; risk = 0.15; break;
+      case 'blockReturn': kt = 0.85; risk = -0.2; break;
+      case 'driveReturn': kt = 1; risk = 0.15; break;
+      case 'approach': kt = 1; risk = 0.05; break;
+      case 'slice': kt = 0.95; risk = 0; break;
+      case 'dig': kt = 1.15; risk = 0.2; break;
       default:
-        risk = 0.35 * appetite * (1 - 0.6 * c.slow); // a sitter: time to go for it without much risk
-        if (out.spin === 'flat') { ku = 1.12; km = 1.3; risk += 0.15; pn = 0.4; pLong = 0.4; }
-        else if (out.spin === 'topspin') { km = 0.8; pn = 0.3; pLong = 0.4; } else { pn = 0.5; pLong = 0.3; }
+        risk = 0.35 * appetite * (1 - 0.6 * c.slow);          // a sitter: time to go for it without much risk
+        if (out.spin === 'flat') { kt = 1.1; risk += 0.15; }
     }
-    let depth = this._depth;
-    // Rushed by a heavy ball: a drive or slice lands shorter (something to attack)
-    if (c.heavy > 0 && (fam === 'drive' || fam === 'slice' || fam === 'driveReturn')) depth -= 1.3 * c.heavy;
-    let u = out.u + gauss() * d.sigma[0] * k * ku;
-    depth += gauss() * d.sigma[1] * k * kv;
-    out.margin += gauss() * d.sigma[2] * k * km;
-    // Mishit
+    const gw = X.gw * (1 - 0.12 * clamp(hard, 0, 1));
+    let e = gauss() * X.sigmaT * k * kt;
     let pErr = d.err * Math.max(0.35, 1 + hard + risk) * c.nerves;
     if (c.rally > 8) pErr += d.err * 0.05 * (c.rally - 8);
     if (Math.random() < pErr) {
       st.mishits++;
-      const x = Math.random();
-      if (x < pn) out.margin = -rand(0.1, 0.45);
-      else if (x < pn + pLong) depth = HALF_L + rand(0.35, 1.6);
-      else u = (u >= 0 ? 1 : -1) * rand(W + 0.3, W + 1.3);
+      e = (Math.random() < 0.5 ? -1 : 1) * (gw + 0.012 + Math.abs(gauss()) * X.tailT);
     }
-    if (fam === 'drop' || fam === 'dropVolley') depth = Math.max(depth, 1.2);
-    out.u = u;
-    out.v = ps * Math.max(0.8, depth);
+    // (a swing is never wilder than this: his misses stay misses by a metre or three, not ten)
+    const eMax = gw + EXCESS_MAX;
+    out.e = e < -eMax ? -eMax : e > eMax ? eMax : e;
+    out.gw = gw;
+    // Where the ball meets his strings: off the sweet spot it comes off weaker (shorter, into the
+    // net), off the long axis the face twists (it rises long or dips) — outside his green window
+    out.a = gauss() * X.sigmaC * (1 + 0.5 * Math.min(1.5, c.stretch));
+    out.b = gauss() * X.sigmaC;
+    if (fam === 'drop' || fam === 'dropVolley') out.v = this.s.sides[0] * Math.max(1.2, Math.abs(out.v));
   }
 
   /** After the shot: net or baseline, and where to recover to (TennisAI.recover uses it). */
@@ -450,14 +462,17 @@ export class RafaTactics {
 
   // ─────────────────────────── serve ───────────────────────────
 
-  /** Serve target / pace. deuce: serving from the deuce side. second: second serve. */
+  /**
+   * Serve: the intention (spin, placement, speed, net margin) and the execution — his toss
+   * timing sampled (first serves riskier), so faults come out of the physics: early into the net
+   * or wide, late long, wide or into the net.
+   */
   chooseServe(out, deuce, second) {
     const ai = this.ai, s = this.s, d = this.d, sv = d.serve, st = ai.stats;
     const side = ai.side, r = -side;
     const sgn = deuce ? r : -r;                  // receiver box u sign
     const nerves = this._nerves();
     // Spin: flat (big first serve), slice (swings wide), kick (safe, jumps up)
-    // (The kick jumps above head height at the baseline: a rare weapon, never the default.)
     const x = Math.random();
     let spin;
     if (second) spin = x < sv.kick2 ? 'kick' : x < sv.kick2 + sv.slice2 ? 'slicesrv' : 'serve';
@@ -472,19 +487,18 @@ export class RafaTactics {
       u = sgn * clamp(toward * sgn, 0.4, 3.9);
     } else if (y < sv.weak + sv.wide * (spin === 'slicesrv' ? 1.5 : 1)) u = sgn * rand(3.0, 4.0);
     else u = sgn * (Math.random() < 0.5 ? rand(0.35, 1.2) : rand(1.4, 2.8));
-    let v = r * rand(4.6, 6.0);
+    const v = r * rand(4.6, 6.0);
     out.spin = spin;
-    out.pace = rand(sv.pace[0], sv.pace[1]) * (spin === 'kick' ? 0.8 : spin === 'slicesrv' ? 0.88 : 1) * (second ? 0.8 : 1);
+    out.speed = rand(sv.speed[0], sv.speed[1]) * (spin === 'kick' ? 0.82 : spin === 'slicesrv' ? 0.9 : 1) * (second ? 0.88 : 1);
+    out.pace = 0;
     out.margin = spin === 'kick' ? rand(0.4, 0.65) : spin === 'slicesrv' ? rand(0.2, 0.4) : rand(0.1, 0.3);
     if (second && spin !== 'kick') out.margin += rand(0.15, 0.3);       // a safe, higher second serve
-    out.minT = 0; out.kind = 'serve';
-    if (Math.random() < (second ? sv.fault2 : sv.fault1) * nerves) {
-      const k = Math.random();
-      if (k < 0.4) out.margin = -rand(0.08, 0.3);
-      else if (k < 0.75) v = r * rand(SERVICE_L + 0.25, SERVICE_L + 1.3);
-      else u = sgn * rand(W + 0.2, W + 0.9);
-    }
+    out.minT = 0; out.kind = 'serve'; out.phys = 'serve'; out.wing = 'fh';
     out.u = u; out.v = v;
+    // Execution: the toss timing (the faults come from it) and the contact on his strings
+    out.gw = sv.gw;
+    out.e = gauss() * (second ? sv.sigmaT2 : sv.sigmaT1) * nerves;
+    out.a = gauss() * 0.12; out.b = gauss() * 0.08;
     // Serve and volley (Hard): follow it in
     const snv = !second ? sv.serveVolley : sv.serveVolley * 0.25;
     if (snv > 0 && Math.random() < snv) {
