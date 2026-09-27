@@ -40,6 +40,7 @@ import { ITEMS } from './systems/InventorySystem.js';
 import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
 import { TennisSession } from './tennis/TennisSession.js';
+import { TourSystem } from './systems/TourSystem.js';
 import { SpectatorDirector } from './systems/SpectatorDirector.js';
 import { groundAt, levelOf } from './world/Ground.js';
 
@@ -248,7 +249,10 @@ class Game {
     const optionalJSON = async (n) => {
       try { return await loader.loadJSON(`${import.meta.env.BASE_URL}data/${n}`); } catch (e) { console.warn(`${n} unavailable:`, e.message || e); return null; }
     };
-    [this.eventData, this.scheduleData] = await Promise.all([optionalJSON('events.json'), optionalJSON('schedule.json')]);
+    // (tour.json too: without it the Junior Tour simply stays unavailable)
+    [this.eventData, this.scheduleData, this.tourData] = await Promise.all([
+      optionalJSON('events.json'), optionalJSON('schedule.json'), loader.loadOptional('tour.json'),
+    ]);
     this.mapData = data.mapData;
     this.npcData = data.npcData;
     this.missionData = data.missionData;
@@ -487,6 +491,10 @@ class Game {
     // After-hours tennis with Coach Rafa (report card button / Rafa after closing time)
     this.tennis = new TennisSession(this);
 
+    // Junior Tennis Tour (tour.json): Rafa's offer after three wins, weekly tournaments at other
+    // clubs, rankings, Hank's crossroads. After the profile (wins, wallet) and the session.
+    this._createTour();
+
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);
     Quality.onChange((tier, settings) => this._applyQuality(settings));
@@ -497,6 +505,8 @@ class Game {
     const hadSave = this._loadGame();
     if (!hadSave) this.shift.setState({ phase: 'preShift' });
     this.hud.setWallet(this.shift.wallet, true);
+    // The tour catches up to the loaded day (walkovers, simulated rounds) and sets its markers
+    if (this.tour) this.tour.onNewDay(this.weather.day || 1);
 
     // Pause menu (+ on-screen pause button under the minimap)
     this._createPauseMenu();
@@ -751,6 +761,7 @@ class Game {
       this.sound.playGroomComplete();
       this.pause('report');
       report.spent = this.shop ? this.shop.spentToday() : 0; // "Spent today" (shop, lessons, projects)
+      this._setReportTourMatch();                            // "🏆 Tournament: QF vs …" (Junior Tour)
       this.shiftReport.show(report);
       if (report.rankUp) this.sound.playRankUp();
       this.saveGame();
@@ -763,9 +774,11 @@ class Game {
         const scr = npc && npc.mesh ? this._toScreen(npc.mesh.position, 2.3) : null;
         this.hud.showMoneyFloat(amount, scr ? scr.x : NaN, scr ? scr.y : NaN, 'tip');
         this.sound.playCoin();
-      } else if (kind === 'task' || kind === 'bonus') {
+      } else if (kind === 'task' || kind === 'bonus' || kind === 'prize') {
         this.hud.showMoneyFloat(amount, NaN, NaN, 'task');
+        if (kind === 'prize') this.sound.playCoin();   // Junior Tour prize money
       }
+      // ('refund' / 'sponsor': entry fees and gear rebates back into the wallet, shown above)
     };
     shift.onRankUp = (rank) => {
       this.sound.playRankUp();
@@ -777,7 +790,35 @@ class Game {
     this.shiftReport = new ShiftReport({
       onNextDay: () => this.startNextDay(),
       onTennis: () => { if (this.tennis) this.tennis.begin('report'); }, // after-hours tennis (src/tennis)
+      onTourMatch: (spec) => this._startTourMatch(spec),                 // tonight's Junior Tour match
     });
+  }
+
+  /** The report card's tournament button: tonight's tour match, or none (ShiftReport.setTourMatch is optional). */
+  _setReportTourMatch() {
+    const r = this.shiftReport;
+    if (!r || typeof r.setTourMatch !== 'function') return;
+    let spec = null;
+    try { spec = this.tour ? this.tour.getTonight(this.weather.day || 1) : null; } catch (e) { console.warn('Tour match:', e); }
+    try { r.setTourMatch(spec); } catch (e) { console.warn('ShiftReport.setTourMatch:', e); }
+  }
+
+  /**
+   * Play tonight's tour match (the report card hid itself): TennisSession's tour mode. If it can't
+   * start (not available), the report card comes back with the match still on it (a match not
+   * played by Next day is a walkover — never a dead end).
+   */
+  _startTourMatch(spec) {
+    let ok = false;
+    const t = this.tennis;
+    if (spec && t && typeof t.beginTour === 'function') {
+      try { ok = t.beginTour(spec) !== false; } catch (e) { console.error('Tour match could not start:', e); ok = false; }
+    }
+    if (ok) return;
+    if (this.shift.phase === 'report' && this.shift.lastReport) {
+      this._setReportTourMatch();
+      this.shiftReport.show(this.shift.lastReport);
+    }
   }
 
   /** Clock in (clock-in card, or the end of the first-day tutorial). */
@@ -788,7 +829,12 @@ class Game {
   /** Report card "Next day": 7 AM tomorrow, clock-in card, autosave. */
   startNextDay() {
     this.shiftReport.hide();
-    if (this.shift.nextDay()) this.courtMaintenance.degradeOvernight();
+    if (this.shift.nextDay()) {
+      this.courtMaintenance.degradeOvernight();
+      // Junior Tour: a match left unplayed is a walkover, the evening's other matches are played,
+      // a new week rolls the ranking over and a new draw may come out
+      if (this.tour) { try { this.tour.onNewDay(this.weather.day || 1); } catch (e) { console.error('Tour next day:', e); } }
+    }
     this.hud.updateTaskList();
     this.hud.setWallet(this.shift.wallet, true);
     if (this.paused && this.pauseReason === 'report') this.resume();
@@ -807,6 +853,119 @@ class Game {
     if (this.player) {
       try { this.player.setCapColor(perks.capColor || null); } catch (e) { /* cosmetic only */ }
     }
+  }
+
+  // ───────────────────────────── Junior Tour ─────────────────────────────
+
+  /**
+   * The Junior Tennis Tour (systems/TourSystem.js): game.tour. Its hub / offer UI is optional
+   * (game.tourUI: showOffer({ onAccept, onLater }), openHub() or open(), refresh(kind)) — without
+   * one, Coach Rafa's conversation is the hub (TourSystem.talkMenu) and the offer is a dialogue.
+   */
+  _createTour() {
+    if (this.tourUI === undefined) this.tourUI = null;
+    const tour = new TourSystem(this.tourData, this);
+    this.tour = tour;
+    tour.onToast = (text, icon) => { if (this.hud) this.hud.showNotification(text, 4.5, icon); };
+    tour.onCelebrate = () => {
+      try { this.hud.celebrate(); } catch (e) { /* cosmetic */ }
+      try { this.sound.playRankUp(); } catch (e) { /* cosmetic */ }
+    };
+    tour.onCareer = (career) => this._applyCareer(career);
+    tour.onOpenHub = () => this.openTourHub();
+    tour.onChange = (kind) => {
+      const ui = this.tourUI;
+      if (ui && typeof ui.refresh === 'function') { try { ui.refresh(kind); } catch (e) { console.warn('TourUI.refresh:', e); } }
+      // Entries, results and career choices are worth an immediate save (the day change saves anyway)
+      if (kind !== 'day' && kind !== 'debug' && this._ready) this.saveGame();
+    };
+    this._wireTourMarkers();
+  }
+
+  /** A TourUI (hub / offer panel) built elsewhere can attach itself here. */
+  registerTourUI(ui) {
+    this.tourUI = ui || null;
+    if (this.missionSystem) this.missionSystem.refreshNPCMarkers();
+  }
+
+  /** Open the tour hub: the TourUI if there is one, else Coach Rafa's tour conversation. */
+  openTourHub(npc = null) {
+    const ui = this.tourUI;
+    const open = ui && (typeof ui.openHub === 'function' ? ui.openHub : typeof ui.open === 'function' ? ui.open : null);
+    if (open) {
+      try { open.call(ui); return true; } catch (e) { console.warn('TourUI:', e); }
+    }
+    const tour = this.tour;
+    if (!tour || !tour.accepted || (this.tennis && this.tennis.active) || this.dialogueSystem.isActive()) return false;
+    const rafaId = (tour.data && tour.data.rafa && tour.data.rafa.npc) || 'rafa_ibarra';
+    const rafa = npc || this.npcs.find(n => n.id === rafaId);
+    return rafa ? tour.talkMenu(rafa) : false;
+  }
+
+  /**
+   * Hank's crossroads: 'grounds' → ShiftSystem wage ×1.25 / groom bonus ×1.5 and the title "Head
+   * Groundskeeper"; 'pro' → the title "Touring Pro" (fees, the Pro Circuit and Jess's gear
+   * sponsorship live in the tour). Properties on the shift object; SIZES / GAME / the data are
+   * never touched. Re-applied on every load (TourSystem.setState → onCareer).
+   */
+  _applyCareer() {
+    const sh = this.shift;
+    if (!sh || !this.tour) return;
+    const eff = this.tour.careerEffects();
+    sh.careerWageMul = eff.wageMul;
+    sh.careerGroomMul = eff.groomBonusMul;
+    sh.careerTitle = eff.title;
+  }
+
+  /**
+   * The tour's "!" (Rafa's pending offer, Hank's crossroads) is OR'ed into the mission system's
+   * own marker decision: refreshNPCMarkers runs as before, then the tour's wishes are added on
+   * top, so neither can clear the other's. Not during after-hours tennis (Rafa is on court).
+   */
+  _wireTourMarkers() {
+    const ms = this.missionSystem, tour = this.tour;
+    if (!ms || !tour || typeof ms.refreshNPCMarkers !== 'function') return;
+    const base = ms.refreshNPCMarkers.bind(ms);
+    const keep = [];
+    ms.refreshNPCMarkers = () => {
+      const ids = this.tennis && this.tennis.active ? [] : tour.markerNpcIds();
+      keep.length = 0;
+      for (const id of ids) { const n = ms.npcsMap.get(id); if (n && n.hasRequest) keep.push(n, n._markerTime); }
+      base();
+      for (const id of ids) {
+        const n = ms.npcsMap.get(id);
+        if (!n || n.away || n.hasRequest || typeof n.setHasRequest !== 'function') continue;
+        n.setHasRequest(true);
+        const k = keep.indexOf(n);
+        if (k >= 0) n._markerTime = keep[k + 1]; // it was already up: keep its bounce going
+      }
+    };
+    tour.onMarkers = () => ms.refreshNPCMarkers();
+    ms.refreshNPCMarkers();
+  }
+
+  /** After-hours tennis started / ended: the tour's markers follow, and a pending offer is made in its menu. */
+  _onTennisActive(on) {
+    if (this.missionSystem) this.missionSystem.refreshNPCMarkers();
+    if (on && this.tour) { try { this.tour.maybeOfferOnMenu(); } catch (e) { console.warn('Tour offer:', e); } }
+  }
+
+  /**
+   * Jess's sponsorship on the pro path: a share of every tennis-gear price comes back at the till
+   * (tour.gearDiscount(); ShopSystem itself is untouched, so its prices show in full).
+   */
+  _tourGearRebate(p) {
+    const d = this.tour ? this.tour.gearDiscount() : 0;
+    if (!(d > 0) || !p || p.kind !== 'item' || !this.shop) return;
+    const item = this.shop.getItem(p.id);
+    const slot = item && this.shop.data && this.shop.data.slots ? this.shop.data.slots[item.slot] : null;
+    if (!slot || slot.category !== 'gear') return;
+    const back = Math.round((Number(p.amount) || 0) * d);
+    if (back <= 0 || typeof this.shift.refund !== 'function') return;
+    this.shift.refund(back, 'sponsor');
+    const st = this.profile && this.profile.shop;
+    if (st) { st.spentToday = Math.max(0, st.spentToday - back); st.spentTotal = Math.max(0, st.spentTotal - back); }
+    this.hud.showNotification(`Jess's sponsorship: $${back} back on the ${item.name}.`, 3.5, 'sparkle');
   }
 
   // ───────────────────────────── club shop ─────────────────────────────
@@ -838,7 +997,10 @@ class Game {
       (this._shopCelebrate || (this._shopCelebrate = [])).push(project); // confetti + toast once the overlay closes
       this._pausedRenderPending = true;
     };
-    shop.onPurchase = () => this.hud.setWallet(this.shift.wallet);
+    shop.onPurchase = (p) => {
+      try { this._tourGearRebate(p); } catch (e) { console.warn('Gear rebate:', e); } // pro path: Jess's sponsorship
+      this.hud.setWallet(this.shift.wallet);
+    };
     setClubTalkProvider(() => shop.clubTalk()); // members mention funded projects in small talk
     shop.applyAll();
 
@@ -870,6 +1032,9 @@ class Game {
       if (this.pauseMenu) this.pauseMenu.setButtonVisible(false);
       const v = this.shop.vendor(vendor);
       if (!greeting && v && Array.isArray(v.greeting) && v.greeting.length) greeting = v.greeting[Math.floor(Math.random() * v.greeting.length)];
+      // Pro path: Jess sponsors your tennis gear
+      const d = this.tour ? this.tour.gearDiscount() : 0;
+      if (vendor === 'jess_nakamura' && d > 0) greeting = `Our touring pro! ${Math.round(d * 100)}% of every tennis-gear price comes back to you at the till. My treat.`;
     }
     this.shopUI.open({ mode, vendor, tab, greeting });
     return true;
@@ -916,15 +1081,18 @@ class Game {
     const lines = Array.isArray(vendor.greeting) && vendor.greeting.length ? vendor.greeting : ['What can I do for you?'];
     const text = lines[Math.floor(Math.random() * lines.length)];
     const color = (this.dialogueSystem.speakerColors && this.dialogueSystem.speakerColors.get(npc.name)) || undefined;
+    // Your coach on the Junior Tour: the tour hub from him too
+    const tourTalk = !!(this.tour && this.tour.accepted && this.tour.data && npc.id === this.tour.data.rafa.npc);
+    const choices = [{ label: lessonsOnly ? `Book a lesson (${'$' + this.shop.lessonPrice()})` : 'Browse the shop' }];
+    if (tourTalk) choices.push({ label: 'Junior Tour 🏆' });
+    choices.push({ label: 'Just saying hi' });
     this.dialogueSystem.currentNPC = npc;
     if (npc.startTalking) npc.startTalking();
     this.dialogueBox.show(npc.name, text, color);
     this.dialogueSystem.active = true;
-    this.dialogueSystem.showChoices([
-      { label: lessonsOnly ? `Book a lesson (${'$' + this.shop.lessonPrice()})` : 'Browse the shop' },
-      { label: 'Just saying hi' },
-    ], (index) => {
+    this.dialogueSystem.showChoices(choices, (index) => {
       if (index === 0) this.openShop({ vendor: npc.id, greeting: text });
+      else if (tourTalk && index === 1) this.openTourHub(npc);
       else ms.handleInteraction(npc, this._getPlayerWorldPos(), () => this.hud.updateTaskList());
     });
     return true;
@@ -985,6 +1153,7 @@ class Game {
       if (hits.length > 0 && npc.distanceTo(this._getPlayerWorldPos()) < GAME.interactionRange) {
         hits.length = 0;
         this.sound.playUIClick();
+        if (this.tour && this.tour.offerFromNpc(npc)) return; // Rafa's offer / Hank's crossroads (Junior Tour)
         if (this._offerShopTalk(npc)) return; // Jess / Rafa: shop or lessons
         this.missionSystem.handleInteraction(npc, this._getPlayerWorldPos(), () => {
           this.hud.updateTaskList();
@@ -1187,6 +1356,7 @@ class Game {
       case 'talk':
         if (!target) break;
         this.sound.playUIClick();
+        if (this.tour && this.tour.offerFromNpc(target)) break;     // Junior Tour: Rafa's offer, Hank's crossroads
         if (this.tennis && this.tennis.offerFromNpc(target)) break; // Rafa after closing: "stay for a hit?"
         if (this._offerShopTalk(target)) break; // Jess / Rafa: shop or lessons
         this.missionSystem.handleInteraction(target, playerPos, () => {
@@ -1521,7 +1691,9 @@ class Game {
     // Update input
     this.input.update(dt);
     // After-hours tennis owns the whole frame while it runs (TennisSession steps the world)
-    if (this.tennis && this.tennis.active) { this.tennis.update(dt); return; }
+    const tennisOn = !!(this.tennis && this.tennis.active);
+    if (tennisOn !== !!this._tennisWasActive) { this._tennisWasActive = tennisOn; this._onTennisActive(tennisOn); }
+    if (tennisOn) { this.tennis.update(dt); return; }
 
     // Keyboard dialogue advance (Space / Enter / E). The press is consumed so it can't also
     // trigger the world action button on the frame the dialogue closes.
@@ -1647,6 +1819,9 @@ class Game {
         canSave: !this._saveFailed,
         wallet: this.shift.wallet,
         ...this._rankSummary(),
+        // Junior Tour: career title ("Head Groundskeeper" / "Touring Pro") and tour ranking
+        careerTitle: this.shift.careerTitle || null,
+        tourRank: this.tour && this.tour.accepted ? this.tour.myRank() : null,
       }),
       getAnchor: () => {
         const c = this.hud && this.hud.miniMapCanvas;
@@ -1975,4 +2150,8 @@ const game = new Game();
 if (import.meta.env.DEV) {
   window.__game = game;
   window.__env = EnvState;
+  // The Junior Tour (created during init): __tour.getHub(), .debugUnlock(), .debugAccept(),
+  // .debugSetRank(n), .debugHank(), .debugCareer('pro' | 'grounds'), .debugPlayTonight(won),
+  // .debugSimWeeks(n, { result, enter })
+  Object.defineProperty(window, '__tour', { get: () => game.tour, configurable: true });
 }
