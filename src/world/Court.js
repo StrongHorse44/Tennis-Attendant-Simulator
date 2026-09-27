@@ -22,6 +22,13 @@ import { withOcclusionFade } from '../graphics/OcclusionFade.js';
  * Draw calls per court: surface, matte props, painted-metal props, chain-link, windscreen,
  * net mesh, sign faces, lamp glass, lamp halos (~9, everything else is merged).
  *
+ * The frame sits at map.json center.y (court.baseY; 0 for every flat court, so they are unchanged)
+ * and the surface at court.surfaceY = baseY + SIZES.courtSurfaceY. A court with a `stadium` block
+ * (court.isStadium: the sunken Centre Court, see StadiumLayout.js / Stadium.js) is a show court:
+ * no chain-link, fence bodies, light poles or signs, low end boards behind the baselines instead,
+ * a body over the umpire chair, and no slab body (the stadium's pit-floor plane carries it;
+ * slabBounds, with its y, stays for TennisCrowd). About 5 draw calls.
+ *
  * Clay grooming API (used by CourtMaintenanceSystem, SaveSystem and match play):
  *   id, config, isClay, gridRows, gridCols (paint-mask size), cellSize, maskBounds,
  *   getDirtAt, groomAt (legacy round stamp), groomStroke (swept brush footprint),
@@ -88,6 +95,7 @@ uniform sampler2D uBaseMap;
 uniform sampler2D uNoiseMap;
 uniform float uBaseScale;
 uniform float uFlood;
+uniform float uSurfY;     // world y of the court surface (center.y + SIZES.courtSurfaceY)
 #ifdef COURT_CLAY
 uniform sampler2D uDirtMap;
 uniform vec4 uGrid;       // mask min x/z (court-local), mask size x/z
@@ -181,7 +189,7 @@ const SURFACE_FRAG_BODY = /* glsl */`
   float mfw = fwidth(mw);
   float tri = abs(fract((mw + 0.5) * 0.5) - 0.5) * 4.0 - 1.0;
   float band = clamp(tri / (2.0 * mfw + 0.1), -1.0, 1.0) * (1.0 - smoothstep(0.2, 0.55, mfw));
-  vec3 toCam = cameraPosition - vec3(cw.x, 0.15, cw.y);   // 0.15 = SIZES.courtSurfaceY
+  vec3 toCam = cameraPosition - vec3(cw.x, uSurfY, cw.y);
   float lz = toCam.z / max(length(toCam), 1e-3);
   float stripe = band * (lz * 0.65 + 0.35 * clamp(lz * 4.0, -1.0, 1.0));
   vec3 grass = lawn * (1.0 + uMow.y * stripe) + vec3(0.012, 0.012, 0.0) * max(stripe, 0.0);
@@ -439,6 +447,29 @@ function sharedMaterials() {
  */
 export function courtOcclusionTwin(material) {
   return _shared.twins.get(material) || null;
+}
+
+/**
+ * The court floodlights' lamp-glass material (glows with EnvState.lampFactor). Shared so other
+ * floodlights (the Centre Court masts, the stadium arch lanterns) reuse its program.
+ */
+export function courtLampGlassMaterial() {
+  return sharedMaterials().lampGlass;
+}
+
+/** The court floodlights' additive halo material (a THREE.PointsMaterial, opacity follows the lamps). */
+export function courtHaloMaterial() {
+  return haloMaterial();
+}
+
+/**
+ * Register a THREE.Points of lamp halos (on courtHaloMaterial()) so it is shown and hidden with the
+ * court floodlights (the lamp factor, updated as the court surfaces render).
+ */
+export function registerCourtHalos(points) {
+  if (!points || _shared.halos.includes(points)) return;
+  points.visible = false;
+  _shared.halos.push(points);
 }
 
 /** Hidden meshes so _precompileShaders compiles the twins' programs with the scene. */
@@ -1041,7 +1072,8 @@ export class Court {
     const { center } = this.config;
     const w = SIZES.courtWidth;
     const d = SIZES.courtDepth;
-    this.mesh.position.set(center.x, 0, center.z);
+    // The court frame sits at center.y (0 for every flat court; the sunken show court below the lawn)
+    this.mesh.position.set(center.x, this.baseY, center.z);
 
     this._mats = sharedMaterials();
     const twinGroup = twinPrecompileGroup();
@@ -1056,27 +1088,71 @@ export class Court {
     this._addSurface(center);
     this._addCurbs();
     this._addNet(center, w);
-    this._addFence(center, w, d);
-    this._addLights(w, d);
+    if (this.isStadium) {
+      // Show court (StadiumLayout.js): the bowl is the fence. No chain-link, fence bodies, light
+      // poles (the stadium masts light it) or court signs (the arch carries the name); low end
+      // boards behind the baselines and a body for the umpire chair instead.
+      this._addEndBoards(center);
+    } else {
+      this._addFence(center, w, d);
+      this._addLights(w, d);
+    }
     this._addFurniture(w);
-    this._addSigns(d);
+    if (!this.isStadium) this._addSigns(d);
     this._finalizeParts();
 
     // Physics: ONE static slab per court covering the playing surface and the
     // surround / clay buffer (two overlapping coplanar boxes double the contacts
     // and friction, which slows walking ~5x). World merges contiguous slabs.
+    // The show court has none: its pit floor is the stadium's plane at the court surface.
     const pw = Math.max(w, padX1 - padX0), pd = Math.max(d, 2 * fenceZ);
     const offX = (padX0 + padX1) / 2;
     this.slabBounds = {
       x0: center.x + offX - pw / 2, x1: center.x + offX + pw / 2,
       z0: center.z - pd / 2, z1: center.z + pd / 2,
+      y: this.surfaceY,
     };
-    this.slabBody = new CANNON.Body({
-      mass: 0,
-      position: new CANNON.Vec3(center.x + offX, 0.05, center.z),
-      shape: new CANNON.Box(new CANNON.Vec3(pw / 2, 0.1, pd / 2)),
-    });
-    this.physicsWorld.addBody(this.slabBody);
+    this.slabBody = null;
+    if (!this.isStadium) {
+      this.slabBody = new CANNON.Body({
+        mass: 0,
+        position: new CANNON.Vec3(center.x + offX, this.baseY + 0.05, center.z),
+        shape: new CANNON.Box(new CANNON.Vec3(pw / 2, 0.1, pd / 2)),
+      });
+      this.physicsWorld.addBody(this.slabBody);
+    }
+  }
+
+  /**
+   * Show court end boards (map.json stadium.endBoards): a low windscreen wall behind each
+   * baseline (|v| v0..v1, |u| ≤ halfU, height above the surface) — two single-sided panels with
+   * the club lettering (the `wind` bucket, so after-hours tennis can fade them), a green cap and
+   * five posts; a physics box each. The corners past halfU stay open to walk round.
+   */
+  _addEndBoards(center) {
+    const eb = (this.config.stadium && this.config.stadium.endBoards) || {};
+    const v0 = Number.isFinite(eb.v0) ? eb.v0 : 14.3, v1 = Number.isFinite(eb.v1) ? eb.v1 : 14.45;
+    const halfU = Number.isFinite(eb.halfU) ? eb.halfU : 9.0, h = Number.isFinite(eb.height) ? eb.height : 1.0;
+    const L = 2 * halfU, t = v1 - v0, y0 = SURFACE_Y;
+    const green = COLORS.courtFenceGreen;
+    const tiles = Math.max(1, Math.round(L / 4));
+    const geo = getGeometry(`courtBoard|${L}|${h}|${tiles}`, () => tiledPlane(L, h, tiles, 1));
+    for (const sz of [-1, 1]) {
+      const zi = sz * v0, zo = sz * v1, zc = sz * (v0 + v1) / 2;
+      // PlaneGeometry faces +z: the inner panel faces the court (−sz), the outer one away (+sz)
+      this._parts.wind.push({ geometry: geo, matrix: makeMatrix(0, y0 + h / 2, zi, sz > 0 ? Math.PI : 0) });
+      this._parts.wind.push({ geometry: geo, matrix: makeMatrix(0, y0 + h / 2, zo, sz > 0 ? 0 : Math.PI) });
+      this._add('matte', roundedBox(L + 0.08, 0.06, t + 0.08, 0.02), 0, y0 + h + 0.03, zc, green);
+      for (let i = 0; i <= 4; i++) {
+        this._add('metal', boxGeo(0.09, h + 0.02, t + 0.06), -halfU + (L * i) / 4, y0 + (h + 0.02) / 2, zc, green);
+      }
+      const body = new CANNON.Body({
+        mass: 0,
+        position: new CANNON.Vec3(center.x, this.baseY + y0 + h / 2, center.z + zc),
+        shape: new CANNON.Box(new CANNON.Vec3(halfU, h / 2, t / 2)),
+      });
+      this.physicsWorld.addBody(body);
+    }
   }
 
   _surfaceY(x, z) {
@@ -1108,6 +1184,7 @@ export class Court {
       uNoiseMap: { value: Textures.noise({ scale: 8 }) },
       uBaseScale: { value: this.isClay ? 0.26 : this.isGrass ? 0.42 : 0.4 },
       uFlood: _shared.flood,
+      uSurfY: { value: this.surfaceY },
     };
     if (this.isClay) {
       uniforms.uDirtMap = { value: this.dirtTexture };
@@ -1205,7 +1282,7 @@ export class Court {
     const netShape = new CANNON.Box(new CANNON.Vec3((w - 0.4) / 2, SIZES.netHeight / 2, 0.08));
     const netBody = new CANNON.Body({
       mass: 0,
-      position: new CANNON.Vec3(center.x, SIZES.netHeight / 2, center.z),
+      position: new CANNON.Vec3(center.x, this.baseY + SIZES.netHeight / 2, center.z),
       shape: netShape,
     });
     this.physicsWorld.addBody(netBody);
@@ -1317,6 +1394,15 @@ export class Court {
     if (!this.config.adjacentLeft) {
       if (umpire) {
         this._addUmpireChair(-(w / 2 + 0.95), 0, 1);
+        if (this.isStadium) {
+          // Show courts: a body over the chair's footprint (the pit is walked, routes go round it)
+          const body = new CANNON.Body({
+            mass: 0,
+            position: new CANNON.Vec3(this.config.center.x - (w / 2 + 0.95), this.surfaceY + 1.2, this.config.center.z),
+            shape: new CANNON.Box(new CANNON.Vec3(0.5, 1.2, 0.6)),
+          });
+          this.physicsWorld.addBody(body);
+        }
         this._addBench(-sideX, -2.3, 1);
         this._addBench(-sideX, 2.3, 1);
       } else {
@@ -1336,7 +1422,8 @@ export class Court {
     const nBalls = 3 + Math.floor(r() * 3);
     for (let i = 0; i < nBalls; i++) {
       const x = (r() - 0.5) * (w - 2);
-      const z = (r() < 0.5 ? -1 : 1) * (13.4 + r() * 0.9);
+      let z = (r() < 0.5 ? -1 : 1) * (13.4 + r() * 0.9);
+      if (this.isStadium) z = Math.sign(z) * Math.min(Math.abs(z), 14.2);   // in front of the end boards
       this._add('matte', sphereGeo(0.045, 8, 6), x, this._surfaceY(x, z) + 0.045, z, COLORS.tennisBall);
     }
 
