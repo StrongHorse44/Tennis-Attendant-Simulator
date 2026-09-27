@@ -35,6 +35,11 @@ import { courtOcclusionTwin } from '../world/Court.js';
  *        trolley). The stands, rail, masts and scoreboards are not court meshes (Stadium.js,
  *        StadiumRoot) and never fade: the camera sits above the end stand's rows, which step down
  *        toward the court, so they never cover the play.
+ *      A Junior Tour venue (game.venues, Venues.js: another club's court far from the club):
+ *        its court is a Court like these (venues.activeCourts(), and the session frame's court is
+ *        always included), so its fences, sponsor windscreens (a twin registered with
+ *        registerOcclusionTwin), hedges and floodlight poles fade the same way; venues.fadeRoots()
+ *        may add more roots. Venue stands, masts and buildings stay out of the region instead.
  *    The strength ramps in over RAMP s; each end has its own strength and follows the camera (it
  *    swaps as the camera glides over the net on a change of ends).
  *  - Explicit hides, restored in end():
@@ -225,14 +230,28 @@ export class TennisOcclusion {
   _collect() {
     const g = this.game;
     const uv = new THREE.Vector2();
-    const courts = (g.world && g.world.courts) || [];
+    // The club's courts plus a Junior Tour venue's (game.venues: another club's court, built far
+    // from the club; its fences / windscreens / poles are court meshes like these), plus any
+    // extra venue roots whose meshes carry court-style materials with twins
+    const courts = ((g.world && g.world.courts) || []).slice();
+    const venues = g.venues;
+    try {
+      if (venues && typeof venues.activeCourts === 'function') {
+        for (const c of venues.activeCourts()) if (c && !courts.includes(c)) courts.push(c);
+      }
+    } catch (e) { /* no venue */ }
+    if (this.frame.court && !courts.includes(this.frame.court)) courts.push(this.frame.court);
+    const roots = [];
+    for (const court of courts) if (court && court.mesh) roots.push(court.mesh);
+    try {
+      if (venues && typeof venues.fadeRoots === 'function') for (const r of venues.fadeRoots()) if (r && !roots.includes(r)) roots.push(r);
+    } catch (e) { /* no venue */ }
 
     // Court meshes, every court's (a neighbour's fence / lamps can stand behind the session
     // court's baseline): re-show what the old _setFences hid; flag faded meshes noAO (GTAO ghosts)
     const own = this.frame.court && this.frame.court.mesh;
     const parts = [];
-    for (const court of courts) {
-      const root = court && court.mesh;
+    for (const root of roots) {
       if (!root) continue;
       root.updateMatrixWorld(true);
       parts.length = 0;

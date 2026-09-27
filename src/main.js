@@ -40,6 +40,7 @@ import { ITEMS } from './systems/InventorySystem.js';
 import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
 import { TennisSession } from './tennis/TennisSession.js';
+import { Venues } from './world/Venues.js';
 import { SpectatorDirector } from './systems/SpectatorDirector.js';
 import { groundAt, levelOf } from './world/Ground.js';
 
@@ -486,6 +487,9 @@ class Game {
 
     // After-hours tennis with Coach Rafa (report card button / Rafa after closing time)
     this.tennis = new TennisSession(this);
+
+    // Junior Tour venues: other clubs' tournament courts, built on demand far from the club
+    try { this.venues = new Venues(this, this.tourData?.venues || null); } catch (err) { console.error('Venues unavailable:', err); this.venues = null; }
 
     // Apply graphics quality (shadows, pixel ratio, post FX) and react to later changes
     this._applyQuality(Quality.settings);
@@ -1520,6 +1524,8 @@ class Game {
   _update(dt) {
     // Update input
     this.input.update(dt);
+    // A Junior Tour venue in view: its flags, water, crowd and umpire (the session steps the rest)
+    if (this.venues && this.venues.active) this.venues.update(dt);
     // After-hours tennis owns the whole frame while it runs (TennisSession steps the world)
     if (this.tennis && this.tennis.active) { this.tennis.update(dt); return; }
 
