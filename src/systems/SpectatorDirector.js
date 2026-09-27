@@ -1,4 +1,4 @@
-import { GAME } from '../utils/Constants.js';
+import { GAME, SIZES } from '../utils/Constants.js';
 import { Quality } from '../graphics/Quality.js';
 import { CameraTracker } from '../entities/CharacterModel.js';
 import { planLevelRoute, nearestExit, inFootprint } from '../world/Ground.js';
@@ -8,20 +8,29 @@ import { planRoute } from '../world/NavRooms.js';
  * SpectatorDirector — members come and watch the Centre Court (court6) matches from the stands.
  *
  * A session runs while the court6 match is live (MatchSystem.isLive), still walking in more than
- * 15 s after its 'start', or shaking hands; never in the rain or when disabled. During a session:
- *  - Recruiting: one member every 4–9 s (1.5–3 s for the first half) until the target
+ * 15 s after its 'start' (at once when too few free members could be seated within a minute, so
+ * their walk overlaps the players'), or shaking hands; never in the rain or when disabled. During
+ * a session:
+ *  - Recruiting: one member every 0.5–1 s while the stands fill (the session's first FILL_S),
+ *    then every 4–9 s, until the target
  *    T = clamp(round(spectatorBase × event crowd × situation), 2, tier cap) is reached.
  *    Candidates are free members (no staff, no request, not in a mission, not playing or booked
  *    within 30 min, within 120 m), weighted by their relationship to the players (family /
- *    spouse ×5 … acquaintance ×1.3), a liking for the stadium, archetype, distance and whether
- *    they watched in the last 20 game minutes (nobody goes straight back in within a minute of
+ *    spouse ×5 … acquaintance ×1.3), a liking for the stadium, archetype, distance, whether their
+ *    walk in fits the time there is (while the stands fill, what is left of FILL_S; later the
+ *    arrive timeout; a walk that would run late weighs (budget / eta)^20) and whether they left
+ *    the stands in the last 4 minutes (×0.3; nobody goes straight back in within a minute of
  *    leaving). Each takes the cheapest free reserved stand seat (near the net, low rows, side
- *    stands; the Members' Box for VIPs) and walks in through the aisles (Ground.planLevelRoute →
- *    NPC.goSpectate).
+ *    stands, the member's own side of the bowl; the Members' Box for VIPs; each spectator
+ *    already on an aisle / a stand makes it dearer, so the crowd spreads over both side stands
+ *    and several aisles; a seat whose walk would run past the budget is dearer still) and walks
+ *    in through the aisles (Ground.planLevelRoute → NPC.goSpectate), briskly (up to HURRY_MAX)
+ *    while the stands fill if a stroll would be late.
  *  - Records (a pool of 12) follow each spectator: 'in' (walking to the seat; helped into it after
  *    GAME.spectatorArriveTimeout when the camera is away, or after 150 s), 'seated' (stays 90–240 s
  *    or until the match ends; re-seated after a chat; mission-involved spectators stay) and 'out'
- *    (walking up and out of the footprint; placed at the exit after 60 s).
+ *    (walking up and out of the footprint to a spot on the rim beside their aisle top; placed there
+ *    after 60 s). Time spent chatting with the player never counts toward those timeouts.
  *  - Release: match over ('finish', or not live for 10 s) staggered 1–6 s, nearest to an aisle
  *    first; rain 0–2 s; releaseAll() at once; a stay that ran out. A spectator who starts playing
  *    or goes away is dropped.
@@ -31,7 +40,7 @@ import { planRoute } from '../world/NavRooms.js';
  *  - Crowd impostors: Stadium.setCrowd(0.3 × crowd) during a session, 0.05 in a rain delay, else 0.
  *  - Announce: '🏟️ Centre Court: A v B' when a match starts.
  *
- * NPC contract (Centre Court API): goSpectate(seat, route), leaveSpectating(route), placeAt(x, z,
+ * NPC contract (Centre Court API): goSpectate(seat, route, speed), leaveSpectating(route), placeAt(x, z,
  * yaw, groundY = null → Ground.groundAt), spectating, ghost / setGhost(on). MatchSystem: getMatch,
  * isLive, isBookedSoon, hooks onPointEnd / onMatchEvent (wired by Game). Each has a fallback so the
  * director degrades instead of throwing.
@@ -45,7 +54,7 @@ const TICK = 0.5;                 // bookkeeping tick (s)
 const POOL = 12;                  // spectator records
 const MAX_CANDS = 24;             // weighted candidates per recruit (Float32Array)
 const RECRUIT_MIN = 4, RECRUIT_MAX = 9, RECRUIT_RETRY = 2;
-const BURST_MIN = 1.5, BURST_MAX = 3;   // the first half of the target come quicker (they walk ~1 min)
+const BURST_MIN = 0.5, BURST_MAX = 1;   // while the stands fill they come at once (the walk takes most of the minute)
 const RECRUIT_RADIUS = 120;       // m from the court centre
 const WALKIN_GRACE = 15;          // s after 'start' before a walk-in counts as a session
 const NOT_LIVE_RELEASE = 10;      // s not live (walk-off, …) before everyone leaves
@@ -53,11 +62,44 @@ const STAY_MIN = 90, STAY_MAX = 240;
 const ARRIVE_HARD = 150;          // s: helped into the seat regardless of the camera
 const CAM_FAR = 25;               // m: placeAt only when the camera is at least this far
 const OUT_TIMEOUT = 60;           // s: a leaver still in the footprint is placed at the exit
-const RECENT_HOURS = 20 / 60;     // watched in the last 20 game minutes → ×0.3
+// Both anti-repeat windows are in director seconds (the clock that runs while the game does):
+// nobody goes straight back in (COOL_OFF), and someone who left within RECENT (about one stay)
+// weighs ×0.3. (Game hours here never overlapped the cool-off: 60 s ≈ 0.64 game hours.)
 const COOL_OFF = 60;              // s: someone who just left isn't sent straight back in
+const RECENT = 240;               // s: watched this recently → ×0.3 (longer than COOL_OFF)
 const LINE_GAP = 8;               // s between spectator bubbles
 const APPROACH_NEAR = 1.2;        // m: re-seat from here with a one-point route
 const INF = Infinity;
+
+// Filling the stands (G2: the target seated within a minute of the session opening). A recruit's
+// walk is estimated from the straight line (× ROUTE_K through the aisles, + SIT_S to settle into
+// the seat) and checked against a budget: during the fill (the session's first FILL_S s) what is
+// left of FILL_S (at least MIN_BUDGET) at up to HURRY_MAX, since recruits who need it walk
+// briskly; after it (a replacement for a stay that ran out, at a stroll) the arrive timeout, so
+// replacements are weighed as before. A walk-in whose stands would not fill in time at a stroll
+// opens at 'start' (_openEarly), so members across the club still make the minute.
+const FILL_S = 55;                // s: stands full by now (5 s margin on the minute)
+const MIN_BUDGET = 20;            // s
+const ROUTE_K = 1.1;              // route length / straight line (walk-ins measured 1.04–1.14)
+const SIT_S = 3;                  // s: settling onto the seat
+const SEAT_R = 13;                // m: the stand seats' distance from the court centre (recruit estimate)
+const LATE_POW = 20;              // recruit weight × (budget / eta)^20 when the walk would run late
+const LATE_W_MIN = 1e-3;          // …never 0, so a far pool still yields a pick
+const LATE_COST = 0.1;            // seat cost per second a seat's walk would run past the budget
+const HURRY_MAX = 1.9;            // m/s: a recruit whose stroll (SIZES.npcSpeed) would miss the fill walks
+                                  // briskly, up to this (the fill's fit checks assume it); never after it
+// Spreading the crowd: seat cost per spectator already on that aisle / that stand (VIPs – the
+// players' family, entitled and veteran members – feel half of it and keep the front seats).
+const SPREAD_AISLE = 0.55, SPREAD_SIDE = 0.25, SPREAD_VIP = 0.5;
+const SIDE_IDX = { w: 0, e: 1, n: 2, s: 3 };
+// Leavers walk on past their aisle top to a spot on the rim beside it and stop within the usual
+// 1.5 m of it (2.2–5.1 m from the top), so nobody parks on the aisle top itself (pw's is
+// court6_exit, the Players' Walk head: where the cart waits and after-hours tennis ends). The spot
+// is EXIT_ALONG m along the rim (the next step for that aisle, so six leavers in a row stand
+// apart; both ways on the side stands, outward only on the end stands so it stays out of the
+// camera wells behind the baselines) and EXIT_OUT m further out from the cut.
+const EXIT_ALONG = [3.5, -3.5, 5, -5, 6.5, -6.5];
+const EXIT_OUT = 1.2;
 
 /** Clip a reaction plays (NPC.react seats them: clap → sit_clap, react_happy → sit_cheer). */
 const CLAP = 'clap', CHEER = 'react_happy';
@@ -118,8 +160,11 @@ export class SpectatorDirector {
     /** Spectator records (debug): { npc, seat, phase 'free'|'in'|'seated'|'out', t, seatedT, stay, … }. */
     this.records = [];
     for (let i = 0; i < POOL; i++) this.records.push(makeRecord(i));
-    /** Counters for tests / tuning. */
-    this.stats = { recruits: 0, seated: 0, reseats: 0, placed: 0, released: 0, outPlaced: 0, dropped: 0, reactions: 0, lines: 0, applause: 0 };
+    /**
+     * Counters for tests / tuning (recent: recruits who had left within RECENT, weighed ×0.3;
+     * earlyOpens: walk-ins whose session opened at 'start' because the recruit pool was far).
+     */
+    this.stats = { recruits: 0, seated: 0, reseats: 0, placed: 0, released: 0, outPlaced: 0, dropped: 0, reactions: 0, lines: 0, applause: 0, recent: 0, earlyOpens: 0 };
     /** Current session state (debug). */
     this.session = { active: false, target: 0, count: 0, crowd: 0, matchId: null };
 
@@ -128,6 +173,7 @@ export class SpectatorDirector {
     this._recruitT = 0.5;
     this._match = null;
     this._startT = 0;
+    this._early = null;                 // walk-in opened at 'start' (far pool; _openEarly), per match
     this._announced = null;
     this._held = null;                  // a match releaseAll() ended the visit to
     this._notLiveT = 0;
@@ -140,8 +186,8 @@ export class SpectatorDirector {
     this._involved = new Set();
     this._involvedFresh = false;
     this._entryFx = 1;                  // × for the entry id (final / exhibition), per match
-    this._watched = new Map();          // npc → game hour when they last stopped watching
-    this._leftAt = new Map();           // npc → director time when their record ended (cool-off)
+    this._leftAt = new Map();           // npc → director time when their record ended (cool-off, recent)
+    this._openT = 0;                    // director time the current session opened (the fill budget)
     const n = Math.max(MAX_CANDS, this.npcs.length);
     this._cands = new Array(n).fill(null);
     this._w = new Float32Array(n);
@@ -149,7 +195,17 @@ export class SpectatorDirector {
     this._exit = { x: 0, z: 0, y: 0 };
     this._snd = { at: INF, applause: 0, vol: 0, ooh: false, aww: false };
     this._aisleAt = new Map();          // aisle id → along coordinate on its stand
-    if (this.layout) for (const a of this.layout.aisles) this._aisleAt.set(a.id, a.at);
+    this._aisleIdx = new Map();         // aisle id → index into _occA
+    if (this.layout) {
+      for (const a of this.layout.aisles) {
+        this._aisleAt.set(a.id, a.at);
+        this._aisleIdx.set(a.id, this._aisleIdx.size);
+      }
+    }
+    this._occA = new Uint8Array(Math.max(1, this._aisleIdx.size));   // spectators per aisle (_pickSeat)
+    this._exitSeq = new Uint8Array(Math.max(1, this._aisleIdx.size)); // next EXIT_ALONG step per aisle
+    this._occS = new Uint8Array(4);                                    // …per stand (w, e, n, s)
+    this._walkSpeed = SIZES.npcSpeed || 1.5;
   }
 
   // ───────────────────────────── public API ─────────────────────────────
@@ -267,13 +323,16 @@ export class SpectatorDirector {
       if (m) this._matchSeen(m);
     }
     const raining = this._raining();
+    this._involvedFresh = false;
     let active = false;
     if (this._held && this._held !== m) this._held = null;
     if (this.enabled && m && !raining && m !== this._held) {
       const ph = m.phase;
-      active = this._isLive(m) || ph === 'handshake' || (ph === 'walkIn' && this._t - this._startT > WALKIN_GRACE);
+      active = this._isLive(m) || ph === 'handshake'
+        || (ph === 'walkIn' && (this._t - this._startT > WALKIN_GRACE || this._openEarly(m)));
     }
     const S = this.session;
+    if (active && !S.active) this._openT = this._t;   // (re)opened: the stands have FILL_S to fill
     S.active = active;
     S.matchId = m && m.entry ? m.entry.id : null;
 
@@ -286,7 +345,6 @@ export class SpectatorDirector {
     if (active) this._notLiveT = 0;
 
     // Records
-    this._involvedFresh = false;
     let count = 0;
     for (let i = 0; i < POOL; i++) {
       const r = this.records[i];
@@ -301,7 +359,9 @@ export class SpectatorDirector {
     if (active && m.phase !== 'handshake') {
       this._recruitT -= TICK;
       if (this._recruitT <= 0 && count < S.target) {
-        const burst = count + 1 < Math.ceil(S.target / 2);
+        // while the stands fill (the session's first FILL_S) they come at burst pace; after that
+        // (a stay ran out) one every 4–9 s
+        const burst = this._filling();
         this._recruitT = this._recruit(m) ? (burst ? rand(BURST_MIN, BURST_MAX) : rand(RECRUIT_MIN, RECRUIT_MAX)) : RECRUIT_RETRY;
       }
     } else if (this._recruitT < 0.5) this._recruitT = 0.5;
@@ -322,13 +382,18 @@ export class SpectatorDirector {
   _updateRecord(r) {
     if (this._dropIfGone(r)) return;
     const npc = r.npc;
-    r.t += TICK;
+    // A chat with the player holds the clock: it never uses up the time before a spectator is
+    // helped into the seat ('in', ARRIVE_HARD) or placed outside ('out', OUT_TIMEOUT)
+    if (npc.state !== 'talking') r.t += TICK;
     if (r.phase === 'out') {
       const p = npc.body.position;
       if (!inFootprint(p.x, p.z, 0)) { this._endRecord(r); return; }
       if (r.t >= OUT_TIMEOUT && npc.state !== 'talking') {
         const e = nearestExit(p.x, p.z, this._exit);
-        if (e) { try { npc.placeAt(e.x, e.z, null, 0); } catch (err) { /* keep the record */ } }
+        if (e) {
+          this._exitSpot(e);
+          try { npc.placeAt(e.x, e.z, null, 0); } catch (err) { /* keep the record */ }
+        }
         this.stats.outPlaced++;
         this._endRecord(r);
       }
@@ -389,7 +454,7 @@ export class SpectatorDirector {
     const L = this.layout;
     const p0 = m.players && m.players[0] ? m.players[0].npc : null;
     const p1 = m.players && m.players[1] ? m.players[1].npc : null;
-    const now = this._gameHours();
+    const budget = this._fillBudget(), v = this._recruitSpeed();
     const cands = this._cands, W = this._w;
     let n = 0, total = 0;
     for (let i = 0; i < this.npcs.length && n < W.length; i++) {
@@ -404,8 +469,10 @@ export class SpectatorDirector {
       if (this._likesStadium(npc)) w *= 2;
       w *= ARCH_W[npc.archetype] || 1;
       w *= 1 - Math.min(0.7, d / 150);
-      const seen = this._watched.get(npc);
-      if (seen !== undefined && now - seen < RECENT_HOURS) w *= 0.3;
+      // Can they be in their seat in time (the stands full)? Late walkers fade out fast
+      const eta = this._eta(Math.max(0, d - SEAT_R), v);
+      if (eta > budget) w *= Math.max(LATE_W_MIN, Math.pow(budget / eta, LATE_POW));
+      if (this._recent(npc)) w *= 0.3;
       cands[n] = npc;
       W[n] = w;
       total += w;
@@ -421,7 +488,7 @@ export class SpectatorDirector {
       const w = W[k];
       if (!(w > 0)) break;
       const vip = this._isVip(npc, p0, p1);
-      const seat = this._pickSeat(npc, vip);
+      const seat = this._pickSeat(npc, vip, budget, v);
       if (!seat) break;                               // stands full
       const r = this._freeRecord();
       if (!r) break;
@@ -439,6 +506,7 @@ export class SpectatorDirector {
         r.releaseAt = INF;
         r.reactAt = INF;
         this.stats.recruits++;
+        if (this._recent(npc)) this.stats.recent++;
         for (let j = 0; j < n; j++) cands[j] = null;
         return true;
       }
@@ -463,10 +531,27 @@ export class SpectatorDirector {
     return !this._bookedSoon(npc.id);
   }
 
-  /** Cheapest free reserved stand seat: near the net, low rows, side stands, the box for VIPs. */
-  _pickSeat(npc, vip) {
+  /**
+   * Cheapest free reserved stand seat: near the net, low rows, side stands, near the member's own
+   * side of the bowl (0.02 / m), the box for VIPs; + the spread term (SPREAD_AISLE per spectator
+   * already on that aisle, SPREAD_SIDE per spectator on that stand; half for VIPs, so relatives
+   * keep the front rows) + LATE_COST per second the walk there (at `v` m/s) would run past `budget`.
+   */
+  _pickSeat(npc, vip, budget = FILL_S, v = HURRY_MAX) {
     const seats = this.stadium.spectatorSeats;
     const bp = npc.body.position;
+    const occA = this._occA, occS = this._occS;
+    occA.fill(0);
+    occS.fill(0);
+    for (let i = 0; i < POOL; i++) {
+      const r = this.records[i];
+      const info = r.seat && (r.phase === 'in' || r.phase === 'seated') ? r.seat.stadium : null;
+      if (!info) continue;
+      const a = this._aisleIdx.get(info.aisleId), si = SIDE_IDX[info.side];
+      if (a !== undefined && occA[a] < 255) occA[a]++;
+      if (si !== undefined && occS[si] < 255) occS[si]++;
+    }
+    const spread = vip ? SPREAD_VIP : 1;
     let best = null, bc = INF;
     for (let i = 0; i < seats.length; i++) {
       const s = seats[i];
@@ -474,11 +559,68 @@ export class SpectatorDirector {
       const info = s.stadium;
       if (!info) continue;
       const end = info.side === 'n' || info.side === 's';
-      const c = 0.15 * Math.abs(info.along) + 0.4 * info.row + (end ? 3 : 0) + (info.box && !vip ? 2 : 0)
-        + 0.02 * Math.hypot(s.x - bp.x, s.z - bp.z);
+      const d = Math.hypot(s.x - bp.x, s.z - bp.z);
+      const a = this._aisleIdx.get(info.aisleId), si = SIDE_IDX[info.side];
+      const late = this._eta(d, v) - budget;
+      const c = 0.15 * Math.abs(info.along) + 0.4 * info.row + (end ? 3 : 0) + (info.box && !vip ? 2 : 0) + 0.02 * d
+        + spread * (SPREAD_AISLE * (a !== undefined ? occA[a] : 0) + SPREAD_SIDE * (si !== undefined ? occS[si] : 0))
+        + (late > 0 ? LATE_COST * late : 0);
       if (c < bc) { bc = c; best = s; }
     }
     return best;
+  }
+
+  /**
+   * Walk-in only: open the session at once (instead of WALKIN_GRACE after 'start') when the recruit
+   * pool is far: fewer free members than the target could stroll to a seat within FILL_S −
+   * WALKIN_GRACE (what waiting for the grace would leave them). Their walk then overlaps the
+   * players' own. Decided on the first walk-in tick of a match and kept.
+   */
+  _openEarly(m) {
+    if (this._early === null) {
+      const L = this.layout, T = this._targetCount(m);
+      let near = 0;
+      for (let i = 0; i < this.npcs.length && near < T; i++) {
+        const npc = this.npcs[i];
+        if (!this._isCandidate(npc)) continue;
+        const bp = npc.body.position;
+        const d = Math.hypot(bp.x - L.cx, bp.z - L.cz);
+        if (d <= RECRUIT_RADIUS && this._eta(Math.max(0, d - SEAT_R)) <= FILL_S - WALKIN_GRACE) near++;
+      }
+      this._early = near < T;
+      if (this._early) this.stats.earlyOpens++;
+    }
+    return this._early;
+  }
+
+  /** Estimated walk-in time (s) over `d` m of straight line at `v` m/s: through the aisles, then sitting down. */
+  _eta(d, v = this._walkSpeed) {
+    return d * ROUTE_K / v + SIT_S;
+  }
+
+  /** The session is filling its stands: its first FILL_S s (recruits at burst pace, may hurry). */
+  _filling() {
+    return this.session.active && this._t - this._openT < FILL_S;
+  }
+
+  /**
+   * Seconds a recruit may take to be seated: while filling, what is left of FILL_S since the
+   * session opened (at least MIN_BUDGET); after that (replacements) the arrive timeout.
+   */
+  _fillBudget() {
+    if (!this._filling()) return GAME.spectatorArriveTimeout ?? 90;
+    return Math.max(MIN_BUDGET, FILL_S - (this._t - this._openT));
+  }
+
+  /** Walking speed a recruit's fit is judged at: HURRY_MAX while filling, else a stroll. */
+  _recruitSpeed() {
+    return this._filling() ? HURRY_MAX : this._walkSpeed;
+  }
+
+  /** Left the stands within RECENT director seconds (and so past the COOL_OFF). */
+  _recent(npc) {
+    const left = this._leftAt.get(npc);
+    return left !== undefined && this._t - left < RECENT;
   }
 
   /**
@@ -487,14 +629,21 @@ export class SpectatorDirector {
    */
   _goSeat(r) {
     const npc = r.npc, bp = npc.body.position;
-    let route = null;
+    let route = null, speed = 0;
     if (Math.hypot(bp.x - r.ax, bp.z - r.az) < APPROACH_NEAR) route = [{ x: r.ax, z: r.az }];
     else {
       try { route = planLevelRoute(bp.x, bp.z, r.ax, r.az, [], NAV_LEG); } catch (e) { route = null; }
       if (route && !route.length) route = null;
+      // While the stands fill, a walk that would miss the minute at a stroll goes briskly
+      if (route && this._filling()) {
+        let len = 0, px = bp.x, pz = bp.z;
+        for (let i = 0; i < route.length; i++) { len += Math.hypot(route[i].x - px, route[i].z - pz); px = route[i].x; pz = route[i].z; }
+        const need = len / Math.max(1, this._fillBudget() - SIT_S);
+        if (need > this._walkSpeed) speed = Math.min(HURRY_MAX, need * 1.05);
+      }
     }
     let ok = false;
-    try { ok = !!npc.goSpectate(r.seat, route); } catch (e) { ok = false; }
+    try { ok = !!npc.goSpectate(r.seat, route, speed); } catch (e) { ok = false; }
     return ok;
   }
 
@@ -541,7 +690,10 @@ export class SpectatorDirector {
     }
   }
 
-  /** Up the aisle to the nearest exit (Ground.planLevelRoute), then the record waits in 'out'. */
+  /**
+   * Up the aisle to the nearest exit (Ground.planLevelRoute) and on to a spot on the rim beside
+   * that aisle top (_exitSpot), then the record waits in 'out'.
+   */
   _leave(r) {
     const npc = r.npc;
     const seated = r.phase === 'seated' && this._isSeated(r);
@@ -553,6 +705,8 @@ export class SpectatorDirector {
       if (e) {
         try { route = planLevelRoute(sx, sz, e.x, e.z, [], NAV_LEG); } catch (err) { route = null; }
         if (!route || !route.length) route = [{ x: e.x, z: e.z }];
+        this._exitSpot(e);
+        route.push({ x: e.x, z: e.z });
       }
     } else {
       route = [{ x: bp.x, z: bp.z }];                 // never got in: stop where they are
@@ -564,6 +718,32 @@ export class SpectatorDirector {
     r.t = 0;
     r.releaseAt = INF;
     this.stats.released++;
+  }
+
+  /**
+   * Move aisle top `e` (nearestExit's result, outside the footprint) to where a leaver stops: along
+   * the rim by that aisle's next EXIT_ALONG step and EXIT_OUT further out from the cut (see
+   * EXIT_ALONG), so successive leavers stand apart and the aisle top stays clear. The side is the
+   * footprint edge the aisle top lies beyond. Returns `e`.
+   */
+  _exitSpot(e) {
+    const L = this.layout, fp = L && L.footprint;
+    if (!fp) return e;
+    let ai = 0;
+    for (let i = 0; i < L.aisles.length; i++) {
+      const t = L.aisles[i].top;
+      if (t.x === e.x && t.z === e.z) { ai = this._aisleIdx.get(L.aisles[i].id) || 0; break; }
+    }
+    const seq = this._exitSeq;
+    const along = EXIT_ALONG[seq[ai] % EXIT_ALONG.length];
+    seq[ai] = (seq[ai] + 1) % EXIT_ALONG.length;
+    // end stands: always away from the centre line (the other way's steps sit 0.75 m further out)
+    const out = (Math.abs(along) + (along < 0 ? 0.75 : 0)) * (e.x < L.cx ? -1 : 1);
+    if (e.x <= fp.x0) { e.x -= EXIT_OUT; e.z += along; }            // west stand (pw, wn, ws)
+    else if (e.x >= fp.x1) { e.x += EXIT_OUT; e.z += along; }       // east
+    else if (e.z >= fp.z1) { e.z += EXIT_OUT; e.x += out; }         // north end
+    else if (e.z <= fp.z0) { e.z -= EXIT_OUT; e.x += out; }         // south end
+    return e;
   }
 
   /** Playing or gone home: the record goes (NPC.startPlaying / setAway release the seat). */
@@ -578,10 +758,10 @@ export class SpectatorDirector {
   _endRecord(r) {
     const npc = r.npc;
     if (npc) {
-      if (npc.ghost && !npc.spectating && typeof npc.setGhost === 'function' && npc.body && !inFootprint(npc.body.position.x, npc.body.position.z, 0)) {
+      // (a leaver still walking to its rim spot stays a ghost until it gets there: NPC.leavingStands)
+      if (npc.ghost && !npc.spectating && !npc.leavingStands && typeof npc.setGhost === 'function' && npc.body && !inFootprint(npc.body.position.x, npc.body.position.z, 0)) {
         try { npc.setGhost(false); } catch (e) { /* NPC.update turns it off too */ }
       }
-      this._watched.set(npc, this._gameHours());
       this._leftAt.set(npc, this._t);
     }
     this._clearRecord(r);
@@ -666,6 +846,7 @@ export class SpectatorDirector {
     if (m !== this._match) {
       this._match = m;
       this._startT = this._t;
+      this._early = null;
       this._notLiveT = 0;
       this._recruitT = Math.min(this._recruitT, 0.5);
       const id = m.entry && typeof m.entry.id === 'string' ? m.entry.id : '';
@@ -740,12 +921,6 @@ export class SpectatorDirector {
     const e = this.events && this.events.today;
     const c = e ? Number(e.crowd) : NaN;
     return Number.isFinite(c) && c > 0 ? c : 1;
-  }
-
-  _gameHours() {
-    const w = this.weather;
-    if (!w) return this._t / 3600;
-    return (Number(w.day) || 0) * 24 + (Number(w.timeOfDay) || 0);
   }
 
   /** The camera is at least CAM_FAR from the NPC and from its seat's approach point (a jump there is unseen). */

@@ -438,6 +438,7 @@ export class NPC {
     this.spectating = null;
     /** Ghost body (collision group SPECTATOR): collides with the world, never with people (setGhost). */
     this.ghost = false;
+    this._leaveWalk = null;       // leaveSpectating()'s target while that walk is on (leavingStands)
     // Mesh feet height over the ground model (followGroundY; eased only inside the bowl)
     this._meshY = 0;
     this._easingY = false;
@@ -720,6 +721,7 @@ export class NPC {
     if (this.playing || this.state === 'playing') this.stopPlaying();
     this._releaseSpectating();
     if (this.ghost) this.setGhost(false);
+    this._leaveWalk = null;
     this._holdSeat = false;
     this._holdFace = null;
     this._cancelSeatTarget();
@@ -794,12 +796,23 @@ export class NPC {
   }
 
   /**
+   * Still on the walk out of the stands that leaveSpectating() started (to the SpectatorDirector's
+   * spot on the rim). The ghost stays on until that walk ends, not just until the footprint's
+   * edge, so a leaver passing a cart or the player parked at the aisle top never shoves them.
+   */
+  get leavingStands() {
+    return this._leaveWalk !== null && this.state === 'wandering' && this.currentTarget === this._leaveWalk;
+  }
+
+  /**
    * Walk to a reserved stand seat (claimed here, even if reserved) along `route` ({x, z} points,
    * start excluded, goal = the seat's approach point; e.g. planLevelRoute(npc → approach)) and
-   * sit there until leaveSpectating(). Ghost while spectating. Returns false (and changes
-   * nothing) when the NPC is away, playing or talking, or the seat is someone else's.
+   * sit there until leaveSpectating(). `speed` (m/s, > 0) walks there at that pace instead of
+   * SIZES.npcSpeed (a spectator hurrying to fill the stands). Ghost while spectating. Returns
+   * false (and changes nothing) when the NPC is away, playing or talking, or the seat is someone
+   * else's.
    */
-  goSpectate(seat, route = null) {
+  goSpectate(seat, route = null, speed = 0) {
     if (!seat || this.away || this.playing || this.state === 'playing' || this.state === 'talking') return false;
     if (seat.taken && seat.taken !== this) return false;
     if (this.state === 'sitting' && this._sitSeat === seat) {
@@ -824,6 +837,7 @@ export class NPC {
       x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a,
       route: Array.isArray(route) && route.length ? route : null,
     };
+    if (speed > 0 && Number.isFinite(speed)) this.currentTarget.speed = speed;
     this.state = 'wandering';
     this._wanderTime = 0;
     this._reactHold = 0;
@@ -831,9 +845,10 @@ export class NPC {
   }
 
   /**
-   * Stop spectating: get up and walk `route` out (its last point is the target, normally the
-   * nearest aisle top; no route = the nearest exit, planned here). The ghost stays on until the
-   * NPC is outside the stadium footprint (checked in update()).
+   * Stop spectating: get up and walk `route` out (its last point is the target: SpectatorDirector
+   * ends it on the rim beside the aisle top; no route = the nearest exit, planned here). The ghost
+   * stays on while that walk lasts (leavingStands) and goes off once it has ended outside the
+   * stadium footprint (checked in update()).
    */
   leaveSpectating(route = null) {
     const seat = this.spectating;
@@ -850,8 +865,12 @@ export class NPC {
       route = null;
     }
     if (!last) { this.state = 'idle'; return; }
-    // precise: stop on the exit itself (1.5 m short of an aisle top can still be on the rail line)
-    this.currentTarget = { x: last.x, z: last.z, precise: true, route: route || null };
+    // Not precise: the usual 1.5 m arrival, which _updateWandering only accepts outside the
+    // footprint for a target outside it (never on the rail line), so a leaver stops short of its
+    // spot instead of walking onto it (and nobody ends up parked on court6_exit at the Players'
+    // Walk head, where the cart waits)
+    this.currentTarget = { x: last.x, z: last.z, route: route || null };
+    this._leaveWalk = this.currentTarget;
     this.state = 'wandering';
     this._wanderTime = 0;
     this._reactHold = 0;
@@ -1022,9 +1041,11 @@ export class NPC {
       if (bp.y > groundAt(bp.x, bp.z) + SIZES.npcRadius + 0.02) this.body.velocity.y = Math.min(this.body.velocity.y, -6);
     }
 
-    // Centre Court bowl: a ghost (spectator) turns solid again once out of the footprint; the
-    // stranded guard walks idle members out of it (1 s ticks, nothing happens on the flat club)
-    if (this.ghost && !this.spectating && !inFootprint(bp.x, bp.z, 0)) this.setGhost(false);
+    // Centre Court bowl: a ghost (spectator) turns solid again once out of the footprint (a leaver
+    // once its walk out ends: leavingStands); the stranded guard walks idle members out of it
+    // (1 s ticks, nothing happens on the flat club)
+    if (this._leaveWalk !== null && !this.leavingStands) this._leaveWalk = null;
+    if (this.ghost && !this.spectating && this._leaveWalk === null && !inFootprint(bp.x, bp.z, 0)) this.setGhost(false);
     this._bowlCheck -= dt;
     if (this._bowlCheck <= 0) {
       this._bowlCheck += BOWL_CHECK;
