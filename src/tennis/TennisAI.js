@@ -210,6 +210,7 @@ export class TennisAI {
     if (Math.abs(npc.body.position.y - (SURF + nr)) > 0.3) {
       npc.body.position.y = SURF + nr + 0.02;
       npc.mesh.position.y = SURF;
+      if (typeof npc.snapToGround === 'function') npc.snapToGround(SURF); // (the NPC's eased mesh-y state too)
     }
     npc.mesh.rotation.y = this.yaw;
     npc.setFacing(this.yaw, true);

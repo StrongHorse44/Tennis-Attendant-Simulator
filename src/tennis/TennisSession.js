@@ -423,6 +423,7 @@ export class TennisSession {
     p.body.position.set(x, gy + SIZES.playerRadius * SIZES.playerScale, z);
     p.body.velocity.set(0, 0, 0);
     p.mesh.position.set(x, gy, z);
+    if (typeof p.snapToGround === 'function') p.snapToGround(gy); // (Player.update's eased mesh-y state too)
     // Rafa must not stay behind in the bowl: up the nearest aisle to the lawn
     if (inFootprint(npc.body.position.x, npc.body.position.z)) {
       const out = nearestExit(npc.body.position.x, npc.body.position.z, _exit);
