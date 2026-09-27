@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { COLORS, SIZES } from '../utils/Constants.js';
 import { mat, getMaterial, registerWet, registerNightGlow, sharedDepthMaterial } from '../graphics/Materials.js';
 import { Textures } from '../graphics/Textures.js';
@@ -74,6 +75,8 @@ const CHEER_TIME = 0.35;     // crowd lift duration (s)
 const CROWD_RATE = 6;        // crowd impostors added / removed per second
 const SCORE_POLL = 0.5;      // scoreboard poll (s)
 const PTS = ['0', '15', '30', '40', 'AD'];
+const NONE2 = Object.freeze(['', '']);
+const ZERO2 = Object.freeze([0, 0]);
 
 const _col = new THREE.Color();
 const _m4 = new THREE.Matrix4();
@@ -81,6 +84,30 @@ const _m4b = new THREE.Matrix4();
 const _v3 = new THREE.Vector3();
 const _exit = { x: 0, z: 0, y: 0 };
 const _push = { x: 0, z: 0 };
+
+/** A smooth-shaded low-poly ball: a dodecahedron (36 triangles) with radial normals. */
+function smoothBall(r) {
+  const src = new THREE.DodecahedronGeometry(r, 0);
+  src.deleteAttribute('normal');
+  src.deleteAttribute('uv');
+  const g = mergeVertices(src);
+  src.dispose();
+  const p = g.attributes.position, n = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    _v3.fromBufferAttribute(p, i).normalize();
+    n[i * 3] = _v3.x; n[i * 3 + 1] = _v3.y; n[i * 3 + 2] = _v3.z;
+  }
+  g.setAttribute('normal', new THREE.BufferAttribute(n, 3));
+  return g;
+}
+
+/** True when every component is finite (one NaN / ±Infinity makes the sum non-finite). */
+function finite3(v) {
+  return Number.isFinite(v.x + v.y + v.z);
+}
+function finiteQ(q) {
+  return Number.isFinite(q.x + q.y + q.z + q.w);
+}
 
 function hashU(i, j) {
   let h = (Math.imul(i | 0, 374761393) + Math.imul(j | 0, 668265263)) | 0;
@@ -276,11 +303,16 @@ export class Stadium {
 
   /**
    * Rescue pass (every dynamic body that collides; the player's body in the cart is skipped):
-   *  1. a non-finite position goes to the nearest aisle top;
+   *  1. a non-finite position goes to the nearest aisle top; a non-finite velocity, angular
+   *     velocity, quaternion, force or torque (with a finite position) is reset where it stands —
+   *     one NaN in the solver would otherwise spread to every body it touches and the static
+   *     ground, and cannon-es would throw on every later step;
    *  2. a vehicle (more than one shape / not a sphere) inside the footprint + 0.3 is pushed out;
    *  3. a sphere that fell (y < surfY − 1), sits under the lawn outside the cut (y < −0.1: only a
    *     teleport at pit height does that), or is embedded in the cut (below the lowest ground
    *     within 0.3 m − 0.05) is put back on the ground.
+   * A static body (the ground and pit planes, the stands) never moves, so a non-finite velocity
+   * on one (the solver adds 0 × NaN to it) is zeroed.
    * A body pressed against a riser sees the lower row in groundMinAround, so it is never lifted a
    * row (no climbing assist). On the flat club none of this ever fires (bodies rest at y = r).
    */
@@ -288,7 +320,16 @@ export class Stadium {
     const L = this.layout, B = this.physicsWorld.bodies;
     for (let i = 0; i < B.length; i++) {
       const b = B[i];
-      if (b.type !== DYN || b.collisionResponse === false) continue;
+      if (b.type !== DYN) {
+        if (!finite3(b.velocity) || !finite3(b.angularVelocity)) {
+          b.velocity.set(0, 0, 0);
+          b.angularVelocity.set(0, 0, 0);
+          this.stats.rescues++;
+          this._warnOnce(b, 'non-finite velocity on a static body');
+        }
+        continue;
+      }
+      if (b.collisionResponse === false) continue;
       const p = b.position;
       const vehicle = b.shapes.length > 1 || b.shapes[0].type !== SPHERE;
       const r = vehicle ? 0.6 * SIZES.cartScale : b.shapes[0].radius;
@@ -298,6 +339,11 @@ export class Stadium {
         this.stats.rescues++;
         this._warnOnce(b, 'non-finite position');
         continue;
+      }
+      if (!finite3(b.velocity) || !finite3(b.angularVelocity) || !finiteQ(b.quaternion) || !finite3(b.force) || !finite3(b.torque)) {
+        this._resetMotion(b, vehicle);
+        this.stats.rescues++;
+        this._warnOnce(b, 'non-finite velocity / rotation');
       }
       if (vehicle) {
         if (L.inFootprint(p.x, p.z, 0.3)) {
@@ -321,11 +367,30 @@ export class Stadium {
     b.position.set(x, y, z);
     b.previousPosition.set(x, y, z);
     b.interpolatedPosition.set(x, y, z);
-    b.velocity.set(0, 0, 0);
-    if (b.angularVelocity) b.angularVelocity.set(0, 0, 0);
+    this._resetMotion(b, b.shapes.length > 1 || b.shapes[0].type !== SPHERE);
     // the mask follows the new position at once
     const c = this.layout.cut;
     b.collisionFilterMask = (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) ? MASK_IN : MASK_OUT;
+  }
+
+  /**
+   * Zero velocity, angular velocity, force and torque; the orientation becomes upright: identity,
+   * or for a vehicle its yaw alone (the twist about y) when its quaternion is still finite.
+   */
+  _resetMotion(b, vehicle) {
+    b.velocity.set(0, 0, 0);
+    b.angularVelocity.set(0, 0, 0);
+    b.force.set(0, 0, 0);
+    b.torque.set(0, 0, 0);
+    const q = b.quaternion;
+    let qy = 0, qw = 1;
+    if (vehicle && finiteQ(q)) {
+      const n = Math.hypot(q.y, q.w);
+      if (n > 1e-6) { qy = q.y / n; qw = q.w / n; }
+    }
+    q.set(0, qy, 0, qw);
+    b.previousQuaternion.copy(q);
+    b.interpolatedQuaternion.copy(q);
   }
 
   _warnOnce(b, what) {
@@ -375,6 +440,41 @@ export class Stadium {
   setMatchSource(matchSystem) {
     this.matches = matchSystem || null;
     this._sbT = 0;
+  }
+
+  /**
+   * A score of the caller's own on both faces (after-hours tennis) instead of the MatchSystem
+   * booking: o = { names: [a, b], games: [n, n], points: [s, s], server: 0 | 1, sets: [n, n] }
+   * ('CENTRE COURT', then a row per player: name · serve dot · games · points, and a sets column
+   * once a set has been won). null goes back to the MatchSystem source. The canvas is redrawn
+   * only when a value changes; a repeated call with the same values allocates nothing.
+   */
+  setScoreOverride(o) {
+    const ov = this._ov;
+    if (!ov) return;
+    if (!o) {
+      if (!ov.on) return;
+      ov.on = false;
+      // the next poll (now) redraws whatever the MatchSystem shows
+      this._sbMatch = undefined;
+      this._sbKey = -1;
+      this._sbStart = -2;
+      this._sbT = 0;
+      try { this._pollScoreboard(); } catch (e) { /* cosmetic */ }
+      return;
+    }
+    const n = o.names || NONE2, g = o.games || ZERO2, p = o.points || NONE2, s = o.sets || ZERO2;
+    const server = o.server === 1 ? 1 : 0;
+    const g0 = g[0] | 0, g1 = g[1] | 0, s0 = s[0] | 0, s1 = s[1] | 0;
+    if (ov.on && n[0] === ov.n0 && n[1] === ov.n1 && g0 === ov.g0 && g1 === ov.g1 && p[0] === ov.p0 && p[1] === ov.p1
+        && server === ov.server && s0 === ov.s0 && s1 === ov.s1) return;
+    ov.on = true;
+    ov.n0 = n[0]; ov.n1 = n[1];
+    ov.g0 = g0; ov.g1 = g1;
+    ov.p0 = p[0]; ov.p1 = p[1];
+    ov.s0 = s0; ov.s1 = s1;
+    ov.server = server;
+    this._drawOverride();
   }
 
   // ───────────────────────────── concrete ─────────────────────────────
@@ -525,17 +625,28 @@ export class Stadium {
       .slice(0, cap)
       .map(e => e.s);
     const n = Math.max(1, pool.length);
+    // A seated figure in two parts on the one instance matrix (origin = the seat top, +z toward
+    // the court): the shirt (torso, sleeves, shorts over the thighs) and the skin (head on a neck
+    // that meets the torso, forearms resting on the thighs, shins down to the tread)
     const bodyGeo = getGeometry('stadium-crowd-body', () => {
       const g = mergeParts([
-        { geometry: boxGeo(0.4, 0.46, 0.26), matrix: makeMatrix(0, 0.3, -0.05) },
-        { geometry: boxGeo(0.36, 0.14, 0.4), matrix: makeMatrix(0, 0.07, 0.12) },
+        { geometry: boxGeo(0.38, 0.44, 0.24), matrix: makeMatrix(0, 0.31, -0.06) },       // torso, top at 0.53
+        { geometry: boxGeo(0.34, 0.14, 0.4), matrix: makeMatrix(0, 0.07, 0.12) },         // thighs (shorts)
+        { geometry: boxGeo(0.09, 0.26, 0.11), matrix: makeMatrix(-0.235, 0.4, -0.05) },   // sleeves
+        { geometry: boxGeo(0.09, 0.26, 0.11), matrix: makeMatrix(0.235, 0.4, -0.05) },
       ]);
       g.deleteAttribute('uv');
       return g;
     });
     const headGeo = getGeometry('stadium-crowd-head', () => {
-      const g = new THREE.IcosahedronGeometry(0.11, 0);
-      g.translate(0, 0.68, -0.04);
+      const g = mergeParts([
+        { geometry: smoothBall(0.105), matrix: makeMatrix(0, 0.655, -0.05) },                       // head
+        { geometry: boxGeo(0.09, 0.1, 0.09), matrix: makeMatrix(0, 0.55, -0.05) },                  // neck 0.50..0.60
+        { geometry: boxGeo(0.07, 0.07, 0.25), matrix: makeMatrix(-0.2, 0.21, 0.08, 0, 1, 0.35) },   // forearms
+        { geometry: boxGeo(0.07, 0.07, 0.25), matrix: makeMatrix(0.2, 0.21, 0.08, 0, 1, 0.35) },
+        { geometry: boxGeo(0.1, 0.42, 0.1), matrix: makeMatrix(-0.09, -0.2, 0.27) },               // shins
+        { geometry: boxGeo(0.1, 0.42, 0.1), matrix: makeMatrix(0.09, -0.2, 0.27) },
+      ]);
       g.deleteAttribute('uv');
       return g;
     });
@@ -817,11 +928,14 @@ export class Stadium {
     this._sbP0 = null;
     this._sbP1 = null;
     this._sbNext = { start: 0, players: [null, null] };
+    // setScoreOverride state: the values last drawn
+    this._ov = { on: false, n0: '', n1: '', g0: 0, g1: 0, p0: '', p1: '', s0: 0, s1: 0, server: 0 };
     this._drawIdle(null);
   }
 
   /** Allocation-free poll: redraw only when a number (score, next booking) changes. */
   _pollScoreboard() {
+    if (this._ov.on) return;   // setScoreOverride owns the faces
     const ms = this.matches, id = this.layout.id;
     let m = null;
     if (ms) {
@@ -931,6 +1045,43 @@ export class Stadium {
       ctx.fillText(String(sc.games[i] | 0), 390, y);
       ctx.fillStyle = '#f4e8c1';
       ctx.fillText(i === 0 ? ptsOf(a, b) : ptsOf(b, a), 482, y);
+    }
+    tex.needsUpdate = true;
+  }
+
+  /** The setScoreOverride score: the match layout, plus a SETS column once a set is won. */
+  _drawOverride() {
+    const { ctx, tex } = this._sb, ov = this._ov;
+    const sets = ov.s0 + ov.s1 > 0;
+    const xg = sets ? 400 : 390, xs = 312, nameW = (sets ? xs - 44 : xg - 58) - 52;
+    this._drawFrame(ctx);
+    ctx.font = '600 16px sans-serif';
+    ctx.fillStyle = 'rgba(244,232,193,0.55)';
+    ctx.textAlign = 'right';
+    if (sets) ctx.fillText('SETS', xs, 90);
+    ctx.fillText('GAMES', xg, 90);
+    ctx.fillText('PTS', 482, 90);
+    for (let i = 0; i < 2; i++) {
+      const y = 140 + i * 66;
+      ctx.textAlign = 'left';
+      ctx.font = '600 34px sans-serif';
+      ctx.fillStyle = '#f4e8c1';
+      ctx.fillText(String((i === 0 ? ov.n0 : ov.n1) ?? '').toUpperCase(), 52, y, nameW);
+      if (ov.server === i) {
+        ctx.fillStyle = '#d8e04e';
+        ctx.beginPath();
+        ctx.arc(32, y - 11, 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.textAlign = 'right';
+      if (sets) {
+        ctx.fillStyle = 'rgba(244,232,193,0.8)';
+        ctx.fillText(String(i === 0 ? ov.s0 : ov.s1), xs, y);
+      }
+      ctx.fillStyle = '#ffe39a';
+      ctx.fillText(String(i === 0 ? ov.g0 : ov.g1), xg, y);
+      ctx.fillStyle = '#f4e8c1';
+      ctx.fillText(String((i === 0 ? ov.p0 : ov.p1) ?? ''), 482, y, 76);
     }
     tex.needsUpdate = true;
   }

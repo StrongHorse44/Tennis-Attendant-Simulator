@@ -347,17 +347,24 @@ export class World {
 
   _collectBlockers() {
     const A = this.mapData.areas;
+    const layout = this.stadiumLayout;
+    // A path of the club's east extension (a point east of the old fence line _splitX, or inside
+    // the bowl's clear zone) is flagged `ext`: isFree({ preBowl }) and the lawn pass's
+    // pre-extension draws leave it out, so the grounds west of it are placed as before it existed
+    const clear = layout ? layout.blockers.find(b => b.tag === 'stadiumClear') : null;
+    const isExt = (path) => path.points.some(p => p.x > this._splitX + 1e-6
+      || (clear && Math.abs(p.x - clear.cx) < clear.hx && Math.abs(p.z - clear.cz) < clear.hz));
     const segs = [];
     for (const path of this.mapData.paths) {
       const w = path.width || 3;
+      const ext = isExt(path);
       for (let i = 0; i < path.points.length - 1; i++) {
         const a = path.points[i], b = path.points[i + 1];
-        segs.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, r: w / 2 + EDGE_EXTRA / 2 });
+        segs.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, r: w / 2 + EDGE_EXTRA / 2, ext });
       }
     }
     const rects = [];
     const addRect = (cx, cz, hx, hz, tag) => rects.push({ cx, cz, hx, hz, tag });
-    const layout = this.stadiumLayout;
     for (const c of A.courts || []) {
       if (layout && c.id === layout.id) continue;   // the bowl's court: its 'stadiumCourt' rect comes with the layout
       const clay = c.type === 'clay';
@@ -405,18 +412,20 @@ export class World {
   /**
    * True when (x, z) keeps at least `margin` clear of paths, courts, buildings, patio,
    * garden, shed, parking, the driveway and the Centre Court bowl. opts.ignore: array of rect
-   * tags to skip. opts.preBowl: the blockers as they were before the bowl (its layout rects
-   * are skipped, except its court rect, which the plain court rect used to be).
+   * tags to skip. opts.preBowl: the blockers as they were before the club grew east — every
+   * layout rect of the bowl (its court included: there was no Centre Court) and the extension's
+   * paths (`ext` segments) are left out.
    */
   isFree(x, z, margin = 0, opts = {}) {
     const ignore = opts.ignore, preBowl = !!opts.preBowl;
     for (const r of this._rects) {
       if (ignore && ignore.includes(r.tag)) continue;
-      if (preBowl && r.layout && r.tag !== 'stadiumCourt') continue;
+      if (preBowl && r.layout) continue;
       if (Math.abs(x - r.cx) < r.hx + margin && Math.abs(z - r.cz) < r.hz + margin) return false;
     }
     if (opts.paths !== false) {
       for (const s of this._segs) {
+        if (preBowl && s.ext) continue;
         if (distToSeg(x, z, s.ax, s.az, s.bx, s.bz) < s.r + margin) return false;
       }
     }
@@ -1554,11 +1563,26 @@ export class World {
       this.scenery.addTree(sp, x, 0, z, { scale });
       belts.push([x, z, scale]);
     };
+    // The lawn pass (_buildGrass) rings every tree inside the fence with tufts, drawing from its
+    // own stream tree by tree in the scenery's order (species key, then insertion). To keep that
+    // stream as it was before the club grew east it gets the pre-extension trees in their old
+    // order — the scenery keys that already exist (garden), then the legacy draws below, planted
+    // or left out for the bowl — and the extension's trees (this._extTrees) separately.
+    const keyOf = (sp) => `${sp}|0|1`;
+    const legacy = this._legacyTrees = { keys: Object.keys(this.scenery.trees), pre: {}, seq: {} };
+    for (const k of legacy.keys) legacy.pre[k] = this.scenery.trees[k].items.length;
+    const legacyTree = (sp, x, z, planted) => {
+      const k = keyOf(sp);
+      if (!legacy.seq[k]) { legacy.seq[k] = []; if (!legacy.keys.includes(k)) legacy.keys.push(k); }
+      legacy.seq[k].push([x, z, planted]);
+    };
+    this._extTrees = [];
 
     // Inner belts between the perimeter cart path and the hedge. The pre-extension belts (west
     // of _splitX) draw from `rand` exactly as before the club grew east, against the blockers
-    // of that time, so they, the feature trees and the outer woodland after them keep their
-    // places; a drawn tree is planted only where it is still free (not in the bowl's clear zone).
+    // of that time (isFree preBowl), so they, the feature trees and the outer woodland after them
+    // keep their places; a drawn tree is planted only where it is still free (not in the bowl's
+    // clear zone, nor on the extension's paths).
     const regions = [
       [x0 + 3.2, -44.2, z0 + 3.2, z1 - 3.2, 34],
       [49.8, xs - 3.2, z0 + 3.2, z1 - 3.2, 22],
@@ -1573,7 +1597,9 @@ export class World {
         const r = sp === 'pine' ? 4.2 : 5.4;
         if (tooClose(x, z, r) || !this.isFree(x, z, 1.8, { preBowl: true })) continue;
         const scale = 0.85 + rand() * 0.45;
-        if (this.isFree(x, z, 1.8)) plantBelt(sp, x, z, scale);
+        const free = this.isFree(x, z, 1.8);
+        if (free) plantBelt(sp, x, z, scale);
+        legacyTree(sp, x, z, free);
         placed.push([x, z]);
         n++;
       }
@@ -1596,6 +1622,7 @@ export class World {
           const sp = speciesAt(x, z);
           if (tooClose(x, z, sp === 'pine' ? 4.2 : 5.4) || !this.isFree(x, z, 1.8)) continue;
           plantBelt(sp, x, z, 0.85 + r2() * 0.45);
+          this._extTrees.push([x, z]);
           placed.push([x, z]);
           n++;
         }
@@ -1610,8 +1637,11 @@ export class World {
       ['blossom', -31.5, 17], ['oak', -34.5, 13.5],
     ];
     for (const [sp, x, z] of features) {
-      if (!this._insideFence(x, z, 3) || tooClose(x, z, 3.5) || !this.isFree(x, z, 1.4)) continue;
-      this.scenery.addTree(sp, x, 0, z, { scale: 0.95 + rand() * 0.25 });
+      if (!this._insideFence(x, z, 3) || tooClose(x, z, 3.5) || !this.isFree(x, z, 1.4, { preBowl: true })) continue;
+      const scale = 0.95 + rand() * 0.25;
+      const free = this.isFree(x, z, 1.4);
+      if (free) this.scenery.addTree(sp, x, 0, z, { scale });
+      legacyTree(sp, x, z, free);
       placed.push([x, z]);
     }
 
@@ -1720,61 +1750,90 @@ export class World {
       if (this._inGarden(x, z)) return;
       s.addTuft(x, 0, z, scale);
     };
-    // Along path edges (untrimmed verge)
-    for (const seg of this._segs) {
+    // Along a path's edges (untrimmed verge)
+    const verge = (rnd, seg) => {
       const L = Math.hypot(seg.bx - seg.ax, seg.bz - seg.az);
       const ux = (seg.bx - seg.ax) / (L || 1), uz = (seg.bz - seg.az) / (L || 1);
       for (let t = 0; t < L; t += 0.5) {
         for (const sd of [-1, 1]) {
-          if (rand() < 0.3) continue;
-          const off = seg.r + 0.14 + rand() * 0.45;
-          const tt = t + rand() * 0.6;
-          tryTuft(seg.ax + ux * tt - uz * off * sd, seg.az + uz * tt + ux * off * sd, 0.45 + rand() * 0.35);
+          if (rnd() < 0.3) continue;
+          const off = seg.r + 0.14 + rnd() * 0.45;
+          const tt = t + rnd() * 0.6;
+          tryTuft(seg.ax + ux * tt - uz * off * sd, seg.az + uz * tt + ux * off * sd, 0.45 + rnd() * 0.35);
         }
       }
-    }
-    // Around court fences and building bases
-    for (const r of this._rects) {
-      if (r.tag !== 'court' && r.tag !== 'building' && r.tag !== 'patio') continue;
+    };
+    // Around a court fence or a building base
+    const rectEdge = (rnd, r) => {
+      if (r.tag !== 'court' && r.tag !== 'building' && r.tag !== 'patio') return;
       const per = 2 * (r.hx + r.hz) * 2;
       for (let k = 0; k < per * 1.1; k++) {
-        const u = rand() * 4;
+        const u = rnd() * 4;
         let x, z;
-        const o = 0.1 + rand() * 0.5;
+        const o = 0.1 + rnd() * 0.5;
         if (u < 1) { x = r.cx - r.hx + u * 2 * r.hx; z = r.cz - r.hz - o; }
         else if (u < 2) { x = r.cx - r.hx + (u - 1) * 2 * r.hx; z = r.cz + r.hz + o; }
         else if (u < 3) { x = r.cx - r.hx - o; z = r.cz - r.hz + (u - 2) * 2 * r.hz; }
         else { x = r.cx + r.hx + o; z = r.cz - r.hz + (u - 3) * 2 * r.hz; }
-        tryTuft(x, z, 0.5 + rand() * 0.3);
+        tryTuft(x, z, 0.5 + rnd() * 0.3);
       }
-    }
-    // Around tree trunks
-    for (const t of Object.values(s.trees)) {
-      if (t.lod) continue;
-      for (const it of t.items) {
-        const [x, , z] = it.position;
-        if (!this._insideFence(x, z, 2)) continue;
-        for (let k = 0; k < 6; k++) {
-          const a = rand() * Math.PI * 2, r = 0.3 + rand() * 0.7;
-          tryTuft(x + Math.cos(a) * r, z + Math.sin(a) * r, 0.5 + rand() * 0.3);
-        }
+    };
+    // Around a tree trunk (the draws happen whether or not the tree was planted)
+    const trunk = (rnd, x, z, planted) => {
+      if (!this._insideFence(x, z, 2)) return;
+      for (let k = 0; k < 6; k++) {
+        const a = rnd() * Math.PI * 2, r = 0.3 + rnd() * 0.7;
+        const sc = 0.5 + rnd() * 0.3;
+        if (planted) tryTuft(x + Math.cos(a) * r, z + Math.sin(a) * r, sc);
+      }
+    };
+
+    // The pre-extension lawn draws from `rand` exactly as before the club grew east — the verges
+    // of the paths of that time, the courts' and buildings' edges, the trunks of the trees of
+    // that time in their old order (_buildTrees: this._legacyTrees), then the wildflowers — so
+    // it all keeps its place (a tuft or clump now on the bowl's ground is left out). The
+    // extension's verges, the bowl's masts / scoreboards and its trees follow on their own stream.
+    for (const seg of this._segs) if (!seg.ext) verge(rand, seg);
+    for (const r of this._rects) if (!r.layout) rectEdge(rand, r);
+    const lg = this._legacyTrees;
+    if (lg) {
+      for (const key of lg.keys) {
+        const t = s.trees[key];
+        if (t && t.lod) continue;
+        const n0 = lg.pre[key] || 0;
+        for (let i = 0; i < n0; i++) trunk(rand, t.items[i].position[0], t.items[i].position[2], true);
+        const seq = lg.seq[key];
+        if (seq) for (const [x, z, planted] of seq) trunk(rand, x, z, planted);
+      }
+    } else {
+      for (const t of Object.values(s.trees)) {
+        if (t.lod) continue;
+        for (const it of t.items) trunk(rand, it.position[0], it.position[2], true);
       }
     }
     // Wildflower drifts (the open lawn itself stays manicured: no random clumps). They stay in
-    // the pre-extension grounds (west of _splitX): the east extension would add a pair of
-    // flower draw calls per scenery cell for a handful of clumps; its edges carry the belts.
-    const { x0, x1, z0, z1 } = this.bounds, xw = this._splitX;
+    // the pre-extension grounds (west of _splitX, the edge measured from the old fence): the east
+    // extension would add a pair of flower draw calls per scenery cell for a handful of clumps;
+    // its edges carry the belts. A drift drawn where the bowl now stands is left out.
+    const { x0, z0, z1 } = this.bounds, xw = this._splitX;
     const wild = [0xf6f3ea, 0xf2d34c, 0xc9b6e8, 0xf6f3ea];
     let flowers = 0;
     for (let tries = 0; tries < 3000 && flowers < 140; tries++) {
       const x = x0 + 2.5 + rand() * (xw - x0 - 5), z = z0 + 2.5 + rand() * (z1 - z0 - 5);
       // drifts near the edges of the grounds
-      const edge = Math.min(x - x0, x1 - x, z - z0, z1 - z);
+      const edge = Math.min(x - x0, xw - x, z - z0, z1 - z);
       if (edge > 14 && rand() < 0.85) continue;
-      if (!this.isFree(x, z, 0.4, { ignore: lawnIgnore }) || this._inGarden(x, z)) continue;
-      s.addFlowerClump(x, -0.02, z, wild[(rand() * wild.length) | 0], 0.45 + rand() * 0.2);
+      if (!this.isFree(x, z, 0.4, { ignore: lawnIgnore, preBowl: true }) || this._inGarden(x, z)) continue;
+      const color = wild[(rand() * wild.length) | 0], scale = 0.45 + rand() * 0.2;
+      if (this.isFree(x, z, 0.4, { ignore: lawnIgnore })) s.addFlowerClump(x, -0.02, z, color, scale);
       flowers++;
     }
+
+    const r2 = seededRandom(5512);
+    for (const seg of this._segs) if (seg.ext) verge(r2, seg);
+    for (const r of this._rects) if (r.layout) rectEdge(r2, r);
+    for (const [x, z] of this._extTrees || []) trunk(r2, x, z, true);
+    this._legacyTrees = this._extTrees = null;   // build-time only
   }
 
   _inGarden(x, z) {
