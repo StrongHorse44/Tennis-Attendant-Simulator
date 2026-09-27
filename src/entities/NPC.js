@@ -1,14 +1,20 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { Quality } from '../graphics/Quality.js';
-import { SIZES } from '../utils/Constants.js';
+import { SIZES, GAME } from '../utils/Constants.js';
 import { mat } from '../graphics/Materials.js';
 import { getGeometry, mergeParts, makeMatrix, roundedBox, sphereGeo } from '../graphics/GeometryUtils.js';
 import {
   Character, BlobShadows, CameraTracker, hashString, SKIN_TONES, HAIR_COLORS,
+  followGroundY, resetGroundY, blobGroundY,
 } from './CharacterModel.js';
 import { findSeats, claimSeat, releaseSeat, SIT_SEAT_HEIGHT } from './Seats.js';
-import { planRoute } from '../world/NavRooms.js';
+import { slideOffNosing, PERCH_EPS } from './Player.js';
+import { planRoute, roomAt } from '../world/NavRooms.js';
+import { RoutePlanner } from '../systems/RoutePlanner.js';
+import {
+  GROUND_GROUPS, groundAt, inCut, inFootprint, isWanderable, sameLevel, nearestExit, planLevelRoute, getGroundModel,
+} from '../world/Ground.js';
 
 /**
  * Hand-authored looks for the shipped NPCs (keyed by npcs.json id). NPCs not listed here get a
@@ -214,6 +220,15 @@ const SIT_CHANCE_BENCH_WP = 0.75; // …when its current waypoint is a *_bench w
 const SEAT_SEARCH_RADIUS = 9;
 const _tmpV = new THREE.Vector3();
 
+// Centre Court bowl (Ground.js): the ground leg of a level route (see bowlGroundLeg)
+const NAV_LEG = (ax, az, bx, bz, out) => bowlGroundLeg(ax, az, bx, bz, out);
+let _groundPlanner = null;   // RoutePlanner over the static boxes (court fences, nets), lazily built
+const _legTmp = [];
+const BOWL_CHECK = 1;            // s between stranded-guard checks
+const BOWL_TELEPORT_CAM = 25;    // m: the guard only teleports a member the camera can't see up close…
+const BOWL_TELEPORT_ANY = 140;   // s: …or after this long in the footprint regardless
+const _exitPt = { x: 0, z: 0, y: 0 };
+
 // One-shot clips a new movement command may cut short (swings / serves always finish)
 const INTERRUPTIBLE = new Set(['split_step', 'react_happy', 'react_annoyed', 'shrug', 'wave', 'greet',
   'idle_look', 'idle_shift', 'idle_watch', 'clap', 'sit_clap', 'sit_cheer', 'sit_wave']);
@@ -233,6 +248,71 @@ const DEG = Math.PI / 180;
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const range2 = (v, def) => (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite) && v[0] >= 0 && v[0] <= v[1] ? [v[0], v[1]] : def);
 const chance = (v, def) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : def);
+
+/**
+ * Ground leg for routes to / from the Centre Court bowl (planLevelRoute's groundLeg; exported for
+ * the SpectatorDirector): the building nav graph (NavRooms: rooms, doors, blockers such as the
+ * stadium footprint), then every outdoor leg of it goes round the court fences and nets the nav
+ * graph doesn't know (RoutePlanner over the static physics boxes). Those legs are long (the bowl is
+ * 60 m+ from the clubhouse), so a straight one would often end against a clay court's back fence.
+ * Fills `out` ({x, z}, start excluded, goal included) and returns it. Per route, never per frame.
+ */
+export function bowlGroundLeg(ax, az, bx, bz, out = []) {
+  planRoute(ax, az, bx, bz, out);
+  return fenceAwareLegs(ax, az, out.splice(0, out.length), out);
+}
+
+/**
+ * Copy `route` (start (ax, az) excluded) into `out`, replacing each leg that runs outdoors and
+ * clear of the stadium footprint by a RoutePlanner detour round the static boxes (a straight leg
+ * the building nav graph produced can end against a court fence; a clear leg stays as it is).
+ * Aisle and pit legs inside the footprint are kept exactly. Per route, never per frame.
+ */
+function fenceAwareLegs(ax, az, route, out) {
+  out.length = 0;
+  let px = ax, pz = az;
+  for (let i = 0; i < route.length; i++) {
+    const q = route[i];
+    if (!q || !Number.isFinite(q.x) || !Number.isFinite(q.z)) continue;
+    if (_groundPlanner && Math.hypot(q.x - px, q.z - pz) > 2 && !inFootprint(px, pz, 0) && !inFootprint(q.x, q.z, 0)
+      && roomAt(px, pz) < 0 && roomAt(q.x, q.z) < 0) {
+      _groundPlanner.plan(px, pz, q.x, q.z, _legTmp);
+      for (let k = 0; k < _legTmp.length - 1; k++) out.push(_legTmp[k]);
+      _legTmp.length = 0;
+    }
+    out.push(q);   // the route's own node (a detour may have pulled its copy out of a wall margin)
+    px = q.x; pz = q.z;
+  }
+  return out;
+}
+
+const ROUTE_MAX_LEG = 12; // m: bowl routes get a node at least this often (see densifyRoute)
+
+/**
+ * Split legs longer than ROUTE_MAX_LEG of a route that starts at (ax, az) in place. Every node
+ * reached resets the 30 s give-up clock, and the ground leg to a Centre Court aisle can be one
+ * 60 m+ straight line across the club (≈ 45 s at walking pace). Per route, never per frame.
+ */
+function densifyRoute(ax, az, route) {
+  let px = ax, pz = az;
+  for (let i = 0; i < route.length; i++) {
+    const q = route[i], dx = q.x - px, dz = q.z - pz, L = Math.hypot(dx, dz);
+    if (L > ROUTE_MAX_LEG) {
+      const k = Math.ceil(L / ROUTE_MAX_LEG);
+      const extra = [];
+      for (let j = 1; j < k; j++) extra.push({ x: px + (dx * j) / k, z: pz + (dz * j) / k });
+      route.splice(i, 0, ...extra);
+      i += extra.length;
+    }
+    px = q.x; pz = q.z;
+  }
+  return route;
+}
+
+/** Ground height to spawn on at a waypoint / duty point: its own y, else the ground model's. */
+function spawnY(pos) {
+  return Number.isFinite(pos.y) ? pos.y : groundAt(pos.x, pos.z);
+}
 
 /** Yaw a duty point asks for: its `face` (radians, parsed), or none. */
 function faceYaw(pt) {
@@ -259,7 +339,8 @@ function parseDuty(data, waypoints) {
     const o = typeof ref === 'string' ? { spot: ref } : (ref && typeof ref === 'object' ? ref : null);
     const wp = o && wps[o.spot];
     if (!wp || !Number.isFinite(wp.x) || !Number.isFinite(wp.z)) return null;
-    const pt = { key: o.spot, x: wp.x, z: wp.z, face: null, hold: range2(o.hold, null) };
+    // y: the waypoint's own height when it has one (setAway / placeAt use it), else the ground's
+    const pt = { key: o.spot, x: wp.x, z: wp.z, y: Number.isFinite(wp.y) ? wp.y : null, face: null, hold: range2(o.hold, null) };
     if (Number.isFinite(o.face)) pt.face = o.face * DEG;
     else if (typeof o.face === 'string' && wps[o.face]) pt.face = Math.atan2(wps[o.face].x - wp.x, wps[o.face].z - wp.z);
     return pt;
@@ -353,8 +434,23 @@ export class NPC {
     /** Gone home (after hours): hidden, no physics body, update() skipped. See setAway(). */
     this.away = false;
     this._overlaysHidden = false; // name tag + "!" marker suppressed (setOverlaysHidden)
+    /** Centre Court spectator: the reserved stand seat this member is going to / sitting on (goSpectate). */
+    this.spectating = null;
+    /** Ghost body (collision group SPECTATOR): collides with the world, never with people (setGhost). */
+    this.ghost = false;
+    this._leaveWalk = null;       // leaveSpectating()'s target while that walk is on (leavingStands)
+    // Mesh feet height over the ground model (followGroundY; eased only inside the bowl)
+    this._meshY = 0;
+    this._easingY = false;
+    this._groundPX = NaN;
+    this._groundPZ = NaN;
+    // Stranded guard (members idling inside the bowl's footprint walk out; see _bowlGuard)
+    this._bowlCheck = hashString(`${this.id}:bowl`) * BOWL_CHECK; // staggered, no Math.random draw
+    this._bowlIdle = 0;
+    this._bowlTime = 0;
 
     CameraTracker.install(scene);
+    if (!_groundPlanner || _groundPlanner.world !== physicsWorld) _groundPlanner = new RoutePlanner(physicsWorld);
     this._blobs = BlobShadows.get(scene);
     this._blobSlot = this._blobs.alloc();
 
@@ -363,6 +459,7 @@ export class NPC {
     const startWaypoint = this.duty ? this.duty.post : this._getPreferredWaypoint();
     this._createMesh(startWaypoint);
     this._createPhysics(startWaypoint);
+    resetGroundY(this, startWaypoint.x, this.mesh.position.y, startWaypoint.z);
     this._createNameTag();
     this._createExclamation();
   }
@@ -389,6 +486,7 @@ export class NPC {
       for (const [key, wp] of Object.entries(this.waypoints)) {
         const k = key.toLowerCase();
         if (!k.includes(a) || isBusyKey(key)) continue;
+        if (!isWanderable(wp.x, wp.z)) continue;   // never down into the Centre Court bowl
         if (!first) first = wp;
         if (k.startsWith(a) && /^\d+$/.test(k.slice(a.length))) numbered.push(wp);
       }
@@ -405,9 +503,20 @@ export class NPC {
     // Fallback to a random waypoint
     let keys = Object.keys(this.waypoints);
     if (_busyAreas.size) { const free = keys.filter(k => !isBusyKey(k)); if (free.length) keys = free; }
-    const key = keys[Math.floor(Math.random() * keys.length)];
+    let key = keys[Math.floor(Math.random() * keys.length)];
+    // Never down into the Centre Court bowl (court6_center …): pick again among the rest. The first
+    // draw is kept as before, so every other pick (and the Math.random sequence) is unchanged.
+    if (!this._wanderableKey(key)) {
+      const ok = keys.filter(k => this._wanderableKey(k));
+      if (ok.length) key = ok[Math.floor(Math.random() * ok.length)];
+    }
     this._lastWaypointKey = key;
     return this.waypoints[key];
+  }
+
+  _wanderableKey(key) {
+    const wp = this.waypoints[key];
+    return !!wp && isWanderable(wp.x, wp.z);
   }
 
   /** Deterministic fallback look for NPCs without a hand-authored style. */
@@ -459,7 +568,7 @@ export class NPC {
     this.leftArm = this.character.armL;
     this.rightArm = this.character.armR;
 
-    this.mesh.position.set(pos.x, pos.y || 0, pos.z);
+    this.mesh.position.set(pos.x, spawnY(pos), pos.z);
     this.scene.add(this.mesh);
   }
 
@@ -467,7 +576,7 @@ export class NPC {
     const shape = new CANNON.Sphere(SIZES.npcRadius);
     this.body = new CANNON.Body({
       mass: 60,
-      position: new CANNON.Vec3(pos.x, (pos.y || 0) + SIZES.npcRadius, pos.z), // resting on the ground
+      position: new CANNON.Vec3(pos.x, spawnY(pos) + SIZES.npcRadius, pos.z), // resting on the ground
       shape,
       linearDamping: 0.95,
       angularDamping: 1.0,
@@ -596,7 +705,8 @@ export class NPC {
       this.away = false;
       const p = spawn || (this.duty ? this.duty.post : this._getPreferredWaypoint());
       if (!this.body.world) this.physicsWorld.addBody(this.body);
-      if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) this.placeAt(p.x, p.z, null, p.y || 0);
+      // y: the spot's own height if it has one, else the ground there (Ground.groundAt)
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) this.placeAt(p.x, p.z, null, Number.isFinite(p.y) ? p.y : null);
       else this._resetPose();
       this.mesh.visible = true;
       this.wanderTimer = 1 + Math.random() * 4;
@@ -609,6 +719,9 @@ export class NPC {
    */
   _resetPose() {
     if (this.playing || this.state === 'playing') this.stopPlaying();
+    this._releaseSpectating();
+    if (this.ghost) this.setGhost(false);
+    this._leaveWalk = null;
     this._holdSeat = false;
     this._holdFace = null;
     this._cancelSeatTarget();
@@ -640,16 +753,180 @@ export class NPC {
   }
 
   /**
-   * Teleport to (x, z) on ground height `groundY` (e.g. a court pad), facing `yaw` if given.
-   * Resets the pose first (see _resetPose), so the NPC stands idle there.
+   * Teleport to (x, z) on ground height `groundY` (e.g. a court pad; null = the ground model's
+   * height there, Ground.groundAt: 0 on the flat club, the row / pit floor inside the bowl),
+   * facing `yaw` if given. Resets the pose first (see _resetPose), so the NPC stands idle there.
    */
-  placeAt(x, z, yaw = null, groundY = 0) {
+  placeAt(x, z, yaw = null, groundY = null) {
     this._resetPose();
-    this.body.position.set(x, groundY + SIZES.npcRadius + 0.02, z);
+    const gy = Number.isFinite(groundY) ? groundY : groundAt(x, z);
+    this.body.position.set(x, gy + SIZES.npcRadius + 0.02, z);
     this.body.velocity.set(0, 0, 0);
-    this.mesh.position.set(x, groundY, z);
+    this.mesh.position.set(x, gy, z);
+    resetGroundY(this, x, gy, z);
+    this._bowlIdle = 0;   // the stranded guard's clocks start over at a new spot
+    this._bowlTime = 0;
     if (yaw !== null && Number.isFinite(yaw)) this.mesh.rotation.y = yaw;
     this._settleTime = 0; // already resting on the ground (a court pad is higher than 0)
+  }
+
+  /**
+   * Snap the mesh's ground-follow state after another system moved the body directly (e.g. a
+   * match hop onto the pad): the mesh y is recomputed from it every update, eased inside the bowl.
+   * `y` = feet height (default: the ground under the body). A horizontal jump over 1 m snaps
+   * on its own; this is for vertical-only moves.
+   */
+  snapToGround(y = null) {
+    const p = this.body.position;
+    const gy = Number.isFinite(y) ? y : groundAt(p.x, p.z);
+    resetGroundY(this, p.x, gy, p.z);
+    if (!this._sitSeat) this.mesh.position.y = gy;
+  }
+
+  // ── Centre Court spectators (SpectatorDirector) and the bowl (Ground.js) ──
+
+  /**
+   * Ghost body: collision group SPECTATOR (8), which every dynamic body's mask excludes (the
+   * stadium filter), so a ghost still stands on the stands / floor and stops at walls but never
+   * pushes or blocks the player, the cart or other people.
+   */
+  setGhost(on) {
+    this.ghost = !!on;
+    this.body.collisionFilterGroup = this.ghost ? GROUND_GROUPS.SPECTATOR : GROUND_GROUPS.WORLD;
+  }
+
+  /**
+   * Still on the walk out of the stands that leaveSpectating() started (to the SpectatorDirector's
+   * spot on the rim). The ghost stays on until that walk ends, not just until the footprint's
+   * edge, so a leaver passing a cart or the player parked at the aisle top never shoves them.
+   */
+  get leavingStands() {
+    return this._leaveWalk !== null && this.state === 'wandering' && this.currentTarget === this._leaveWalk;
+  }
+
+  /**
+   * Walk to a reserved stand seat (claimed here, even if reserved) along `route` ({x, z} points,
+   * start excluded, goal = the seat's approach point; e.g. planLevelRoute(npc → approach)) and
+   * sit there until leaveSpectating(). `speed` (m/s, > 0) walks there at that pace instead of
+   * SIZES.npcSpeed (a spectator hurrying to fill the stands). Ghost while spectating. Returns
+   * false (and changes nothing) when the NPC is away, playing or talking, or the seat is someone
+   * else's.
+   */
+  goSpectate(seat, route = null, speed = 0) {
+    if (!seat || this.away || this.playing || this.state === 'playing' || this.state === 'talking') return false;
+    if (seat.taken && seat.taken !== this) return false;
+    if (this.state === 'sitting' && this._sitSeat === seat) {
+      // Already on it (a re-issue): just hold it
+      claimSeat(seat, this, true);
+      this.spectating = seat;
+      this._holdSeat = true;
+      this.setGhost(true);
+      return true;
+    }
+    if (this.spectating && this.spectating !== seat) this._releaseSpectating();
+    if (this.state === 'sitting') this._standUp();
+    this._cancelSeatTarget();
+    if (!claimSeat(seat, this, true)) return false;
+    this.spectating = seat;
+    this._holdSeat = true;
+    this._holdFace = null;
+    this.setGhost(true);
+    this._seatTarget = seat;
+    const a = seat.approach || 0.5;
+    this.currentTarget = {
+      x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a,
+      route: Array.isArray(route) && route.length ? route : null,
+    };
+    if (speed > 0 && Number.isFinite(speed)) this.currentTarget.speed = speed;
+    this.state = 'wandering';
+    this._wanderTime = 0;
+    this._reactHold = 0;
+    return true;
+  }
+
+  /**
+   * Stop spectating: get up and walk `route` out (its last point is the target: SpectatorDirector
+   * ends it on the rim beside the aisle top; no route = the nearest exit, planned here). The ghost
+   * stays on while that walk lasts (leavingStands) and goes off once it has ended outside the
+   * stadium footprint (checked in update()).
+   */
+  leaveSpectating(route = null) {
+    const seat = this.spectating;
+    this.spectating = null;
+    this._holdSeat = false;
+    this._holdFace = null;
+    if (this.state === 'sitting') this._standUp();
+    this._cancelSeatTarget();
+    if (seat && seat !== this._sitSeat) releaseSeat(seat, this);
+    if (this.away || this.playing || this.state === 'playing' || this.state === 'talking') return;
+    let last = Array.isArray(route) && route.length ? route[route.length - 1] : null;
+    if (!last || !Number.isFinite(last.x) || !Number.isFinite(last.z)) {
+      last = nearestExit(this.body.position.x, this.body.position.z, _exitPt);
+      route = null;
+    }
+    if (!last) { this.state = 'idle'; return; }
+    // Not precise: the usual 1.5 m arrival, which _updateWandering only accepts outside the
+    // footprint for a target outside it (never on the rail line), so a leaver stops short of its
+    // spot instead of walking onto it (and nobody ends up parked on court6_exit at the Players'
+    // Walk head, where the cart waits)
+    this.currentTarget = { x: last.x, z: last.z, route: route || null };
+    this._leaveWalk = this.currentTarget;
+    this.state = 'wandering';
+    this._wanderTime = 0;
+    this._reactHold = 0;
+  }
+
+  /**
+   * Stranded guard (every BOWL_CHECK s while a bowl exists). A member nobody manages (not away,
+   * playing, spectating or held on a seat) inside the stadium footprint who has been idle or
+   * sitting for GAME.bowlStrandedSeconds walks to the nearest aisle top (the route goes through
+   * planLevelRoute). Still inside after GAME.bowlStuckTeleport s: placed at that exit when the
+   * camera is over BOWL_TELEPORT_CAM m away, or after BOWL_TELEPORT_ANY s regardless.
+   */
+  _bowlGuard(step) {
+    const p = this.body.position;
+    const managed = this.away || this.playing || this.state === 'playing' || this.spectating || this._holdSeat;
+    if (managed || !inFootprint(p.x, p.z, 0)) { this._bowlIdle = 0; this._bowlTime = 0; return; }
+    if (this.state === 'talking') return;   // hold the clocks while the player chats
+    this._bowlTime += step;
+    this._bowlIdle = this.state === 'idle' || this.state === 'sitting' ? this._bowlIdle + step : 0;
+    const stuck = GAME.bowlStuckTeleport ?? 90, strand = GAME.bowlStrandedSeconds ?? 4;
+    if (this._bowlTime >= stuck) {
+      let far = this._bowlTime >= BOWL_TELEPORT_ANY || !CameraTracker.valid;
+      if (!far) {
+        const c = CameraTracker.position, dx = c.x - p.x, dz = c.z - p.z;
+        far = dx * dx + dz * dz > BOWL_TELEPORT_CAM * BOWL_TELEPORT_CAM;
+      }
+      const e = far ? nearestExit(p.x, p.z, _exitPt) : null;
+      if (e) {
+        NPC.bowlStats.teleports++;
+        console.info(`[NPC] ${this.id} was stuck in the stadium for ${Math.round(this._bowlTime)} s: placed at the exit`);
+        this.placeAt(e.x, e.z, null, null);
+        this.wanderTimer = 1 + Math.random() * 3;
+        this._bowlTime = 0;
+        this._bowlIdle = 0;
+      }
+      return;
+    }
+    if (this._bowlIdle < strand) return;
+    this._bowlIdle = 0;
+    if (this.state === 'sitting') { this._standUp(); return; }   // walks out on the next tick
+    const e = nearestExit(p.x, p.z, _exitPt);
+    if (!e) return;
+    NPC.bowlStats.walks++;
+    this._cancelSeatTarget();
+    // precise: stop on the aisle top itself (1.5 m short of it can still be on the rail line)
+    this.currentTarget = { x: e.x, z: e.z, precise: true };
+    this.state = 'wandering';
+    this._wanderTime = 0;
+    this._reactHold = 0;
+  }
+
+  /** Drop the spectator seat claim (the ghost goes off in update() once out of the footprint). */
+  _releaseSpectating() {
+    const seat = this.spectating;
+    this.spectating = null;
+    if (seat && seat !== this._sitSeat && seat !== this._seatTarget) releaseSeat(seat, this);
   }
 
   /**
@@ -745,16 +1022,42 @@ export class NPC {
         break;
     }
 
+    const bp = this.body.position;
+    // In the Centre Court bowl nobody drifts: the frictionless contacts would slide a standing
+    // body off the 0.45 m aisle half-steps and row edges, step after step (walking translates
+    // the body directly). A body standing still on a step's edge above its ground, or on
+    // someone's shoulder (a state above may just have zeroed its velocity), is pushed off it
+    // instead (Player.js slideOffNosing), so it drops onto the tread below rather than creeping
+    // off the corner; a walker keeps its own step.
+    if (inCut(bp.x, bp.z)) {
+      if (bp.y < groundAt(bp.x, bp.z) + SIZES.npcRadius + PERCH_EPS) {
+        this.body.velocity.x = 0;
+        this.body.velocity.z = 0;
+      } else if (!this._moving) slideOffNosing(this.body, SIZES.npcRadius);
+    }
     // Just after spawning, pull a hovering body down briskly (linearDamping also damps gravity)
     if (this._settleTime > 0) {
       this._settleTime -= dt;
-      if (this.body.position.y > SIZES.npcRadius + 0.02) this.body.velocity.y = Math.min(this.body.velocity.y, -6);
+      if (bp.y > groundAt(bp.x, bp.z) + SIZES.npcRadius + 0.02) this.body.velocity.y = Math.min(this.body.velocity.y, -6);
     }
 
-    // Sync mesh to physics (feet on the ground: sphere centre minus its radius); while sitting
+    // Centre Court bowl: a ghost (spectator) turns solid again once out of the footprint (a leaver
+    // once its walk out ends: leavingStands); the stranded guard walks idle members out of it
+    // (1 s ticks, nothing happens on the flat club)
+    if (this._leaveWalk !== null && !this.leavingStands) this._leaveWalk = null;
+    if (this.ghost && !this.spectating && this._leaveWalk === null && !inFootprint(bp.x, bp.z, 0)) this.setGhost(false);
+    this._bowlCheck -= dt;
+    if (this._bowlCheck <= 0) {
+      this._bowlCheck += BOWL_CHECK;
+      if (this._bowlCheck <= 0) this._bowlCheck = BOWL_CHECK;
+      if (getGroundModel()) this._bowlGuard(BOWL_CHECK);
+    }
+
+    // Sync mesh to physics (feet on the ground: sphere centre minus its radius, on the ground
+    // model: eased over the bowl's steps, today's max(0, feet) everywhere else); while sitting
     // (or getting up) the mesh eases between the body and the seat.
-    const gx = this.body.position.x, gz = this.body.position.z;
-    const gy = Math.max(0, this.body.position.y - SIZES.npcRadius);
+    const gx = bp.x, gz = bp.z;
+    const gy = followGroundY(this, gx, gz, bp.y - SIZES.npcRadius, dt);
     const sitTarget = this.state === 'sitting' ? 1 : 0;
     const ds = sitTarget - this._sitBlend;
     this._sitBlend += Math.sign(ds) * Math.min(Math.abs(ds), dt * 2.2);
@@ -768,7 +1071,11 @@ export class NPC {
       );
     } else {
       this.mesh.position.set(gx, gy, gz);
-      if (this._sitSeat && sitTarget === 0) { releaseSeat(this._sitSeat, this); this._sitSeat = null; }
+      // (a spectator walking back to the stand seat they just got up from keeps its claim)
+      if (this._sitSeat && sitTarget === 0) {
+        if (this._sitSeat !== this.spectating && this._sitSeat !== this._seatTarget) releaseSeat(this._sitSeat, this);
+        this._sitSeat = null;
+      }
     }
 
     // Animation: talking looks at the player; mixer rate drops with camera distance
@@ -781,8 +1088,8 @@ export class NPC {
     if (this.fullRateAnim) this.character.updateEvery = 1; // e.g. Rafa as the after-hours opponent
     this.character.update(dt);
 
-    const bs = 0.95 * this.modelScale;
-    this._blobs.set(this._blobSlot, this.mesh.position.x, this.mesh.position.z, bs, bs, 0, Math.max(this.mesh.position.y + 0.02, 0.065));
+    const bs = 0.95 * this.modelScale, mp = this.mesh.position;
+    this._blobs.set(this._blobSlot, mp.x, mp.z, bs, bs, 0, blobGroundY(mp.x, mp.z, mp.y));
 
     this._updateOverlays(dt, playerPos);
   }
@@ -867,7 +1174,8 @@ export class NPC {
       this._wanderTime = 0;
       if (seat) {
         this._seatTarget = seat;
-        this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
+        const a = seat.approach || 0.5;
+        this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a };
       } else {
         this.currentTarget = this._getPreferredWaypoint();
       }
@@ -886,7 +1194,8 @@ export class NPC {
       if (seat.taken || seat.reserved) continue;
       const dx = seat.x - px, dz = seat.z - pz;
       const d = dx * dx + dz * dz;
-      if (d < bestD) { bestD = d; best = seat; }
+      // (same level only: a member up on the lawn never picks a bench down in the bowl)
+      if (d < bestD && sameLevel(seat.x, seat.z, px, pz)) { bestD = d; best = seat; }
     }
     if (best && claimSeat(best, this)) return best;
     return null;
@@ -1011,7 +1320,7 @@ export class NPC {
     for (const seat of seats) {
       if (seat.taken || seat.reserved) continue;
       const d = (seat.x - px) ** 2 + (seat.z - pz) ** 2;
-      if (d < bestD) { bestD = d; best = seat; }
+      if (d < bestD && sameLevel(seat.x, seat.z, px, pz)) { bestD = d; best = seat; }
     }
     return best && claimSeat(best, this) ? best : null;
   }
@@ -1052,7 +1361,10 @@ export class NPC {
     const seat = this._seatTarget;
     const precise = !!this.currentTarget.precise;
 
-    if ((seat && dist < 0.22) || (!seat && dist < (precise ? 0.3 : 1.5))) {
+    // (a loose 1.5 m arrival never leaves someone standing in the bowl's rail line / stands when
+    // the target itself is outside the stadium footprint)
+    if ((seat && dist < 0.22) || (!seat && dist < (precise ? 0.3 : 1.5)
+      && (precise || !inFootprint(this.body.position.x, this.body.position.z, 0) || inFootprint(this.currentTarget.x, this.currentTarget.z, 0)))) {
       this.body.velocity.set(0, this.body.velocity.y, 0);
       this.wanderTimer = Math.random() * 8 + 4;
       if (seat) this._sitDown(seat);
@@ -1088,16 +1400,37 @@ export class NPC {
   _planWanderRoute() {
     this._routeFor = this.currentTarget;
     const t = this.currentTarget;
+    const ax = this.body.position.x, az = this.body.position.z;
     try {
-      // Through building doors / around the club buildings (world/NavRooms.js); straight otherwise
-      this._route = planRoute(this.body.position.x, this.body.position.z, t.x, t.z, this._route || []);
+      const out = this._route || [];
+      if (Array.isArray(t.route) && t.route.length) {
+        // A route handed in with the target (goSpectate / leaveSpectating): walk it as given,
+        // except that its outdoor legs away from the bowl go round court fences and nets
+        this._route = densifyRoute(ax, az, fenceAwareLegs(ax, az, t.route, out));
+      } else if (planLevelRoute(ax, az, t.x, t.z, out, NAV_LEG)) {
+        // Into / out of / inside the Centre Court bowl: down the aisles (Ground.planLevelRoute)
+        this._route = densifyRoute(ax, az, out);
+      } else if (inFootprint(ax, az, 0) && !inFootprint(t.x, t.z, 0) && nearestExit(ax, az, _exitPt)) {
+        // Standing in the bowl's rail line (an aisle opening): out to the aisle top first, then on
+        // round the bowl (the nav graph can't start inside its own blocker)
+        const ex = _exitPt.x, ez = _exitPt.z;
+        bowlGroundLeg(ex, ez, t.x, t.z, out);
+        out.unshift({ x: ex, z: ez });
+        this._route = densifyRoute(ax, az, out);
+      } else {
+        // Through building doors / around the club buildings (world/NavRooms.js); straight otherwise
+        this._route = planRoute(ax, az, t.x, t.z, out);
+      }
     } catch (e) {
       this._route = null;
     }
   }
 
   _cancelSeatTarget() {
-    if (this._seatTarget && this._seatTarget !== this._sitSeat) releaseSeat(this._seatTarget, this);
+    // (a spectator keeps the claim on their stand seat until leaveSpectating, e.g. while talking)
+    if (this._seatTarget && this._seatTarget !== this._sitSeat && this._seatTarget !== this.spectating) {
+      releaseSeat(this._seatTarget, this);
+    }
     this._seatTarget = null;
   }
 
@@ -1137,6 +1470,8 @@ export class NPC {
    */
   startPlaying(courtId, side = null) {
     if (this.state === 'sitting') this._standUp();
+    this._releaseSpectating();
+    if (this.ghost) this.setGhost(false);
     this._cancelSeatTarget();
     this._holdSeat = false;
     if (!this.playing) this._racketWasVisible = this.character.racketVisible;
@@ -1223,7 +1558,9 @@ export class NPC {
     this.character.stop(0.3);
     if (seat && claimSeat(seat, this)) {
       this._seatTarget = seat;
-      this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * 0.5, z: seat.z + Math.cos(seat.yaw) * 0.5 };
+      // (the seat's own approach: 0.38 on a Centre Court stand seat, so the sitter stands on its row)
+      const a = seat.approach || 0.5;
+      this.currentTarget = { x: seat.x + Math.sin(seat.yaw) * a, z: seat.z + Math.cos(seat.yaw) * a };
     } else if (point) {
       this.currentTarget = point.precise ? { x: point.x, z: point.z, precise: true } : { x: point.x, z: point.z };
     } else {
@@ -1415,6 +1752,12 @@ export class NPC {
     }
     this.state = 'idle';
     this.wanderTimer = Math.random() * 5 + 3;
+    // A Centre Court spectator walks back to their stand seat (route planned: Ground.planLevelRoute)
+    if (this.spectating) {
+      this.character.stop(0.4);
+      this.goSpectate(this.spectating, null);
+      return;
+    }
     if (this.duty) {
       // Back to work after a beat; a chat at the post doesn't send them off on a round
       this.wanderTimer = 1.5 + Math.random() * 2;
@@ -1427,3 +1770,8 @@ export class NPC {
     return this.mesh.position.distanceTo(point);
   }
 }
+
+/** Stranded-guard counters (dev / tests): members walked out of the bowl, members teleported out. */
+NPC.bowlStats = { walks: 0, teleports: 0 };
+/** The ground leg NPCs use for Centre Court routes (planLevelRoute's groundLeg; see bowlGroundLeg). */
+NPC.groundLeg = bowlGroundLeg;

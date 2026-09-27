@@ -8,11 +8,26 @@ import { EnvState } from '../graphics/EnvState.js';
 import { withOcclusionFade } from '../graphics/OcclusionFade.js';
 
 /**
- * Court - tennis court: one shader-painted surface (zones, lines, clay dirt), net, chain-link
- * fence with windscreen, benches, light poles and small props.
+ * Court - tennis court: one shader-painted surface (zones, lines, clay dirt, lawn), net,
+ * chain-link fence with windscreen, benches, light poles and small props.
+ *
+ * Surfaces (map.json court `type`, exposed as `court.surface`, plus `isClay` / `isGrass`):
+ *   'hard'  blue acrylic court on a green acrylic surround
+ *   'clay'  red clay with the grooming paint mask (below) and side buffers
+ *   'grass' manicured lawn, court and run-off alike: mow stripes parallel to the net, worn
+ *           earth behind the baselines, chalk lines (COURT_GRASS, Textures.grassCourt)
+ * Hard and grass pads extend HARD_PAD_EXTRA_X past the slab; neighbouring pads only share a
+ * surround (no edging between them) when both courts have the same surface (sharedPadSides).
  *
  * Draw calls per court: surface, matte props, painted-metal props, chain-link, windscreen,
  * net mesh, sign faces, lamp glass, lamp halos (~9, everything else is merged).
+ *
+ * The frame sits at map.json center.y (court.baseY; 0 for every flat court, so they are unchanged)
+ * and the surface at court.surfaceY = baseY + SIZES.courtSurfaceY. A court with a `stadium` block
+ * (court.isStadium: the sunken Centre Court, see StadiumLayout.js / Stadium.js) is a show court:
+ * no chain-link, fence bodies, light poles or signs, low end boards behind the baselines instead,
+ * a body over the umpire chair, and no slab body (the stadium's pit-floor plane carries it;
+ * slabBounds, with its y, stays for TennisCrowd). About 5 draw calls.
  *
  * Clay grooming API (used by CourtMaintenanceSystem, SaveSystem and match play):
  *   id, config, isClay, gridRows, gridCols (paint-mask size), cellSize, maskBounds,
@@ -80,10 +95,16 @@ uniform sampler2D uBaseMap;
 uniform sampler2D uNoiseMap;
 uniform float uBaseScale;
 uniform float uFlood;
+uniform float uSurfY;     // world y of the court surface (center.y + SIZES.courtSurfaceY)
 #ifdef COURT_CLAY
 uniform sampler2D uDirtMap;
 uniform vec4 uGrid;       // mask min x/z (court-local), mask size x/z
 uniform vec2 uStripe;     // bristle lines across the brush, brush width
+#endif
+#ifdef COURT_GRASS
+uniform vec3 uWorn;       // thinning, yellowed grass
+uniform vec3 uEarth;      // bare baseline earth
+uniform vec2 uMow;        // mow stripe width (m), stripe contrast
 #endif
 
 float courtRect(vec2 q, vec2 c, vec2 h, vec2 fw) {
@@ -155,6 +176,44 @@ const SURFACE_FRAG_BODY = /* glsl */`
   // white tape, dusted with clay when the court needs grooming
   vec3 lineCol = mix(uLineColor, base * 1.1, 0.1 + 0.5 * dk);
   col = mix(col, lineCol * (0.94 + 0.06 * nMid), lineM);
+#elif defined(COURT_GRASS)
+  // Manicured lawn: the grain tile twice (a second, larger, turned sample hides the repeat)
+  vec3 lawn = mix(base, texture2D(uBaseMap, cw.yx * (uBaseScale * 0.37) + 0.43).rgb, 0.45);
+  lawn *= 0.93 + 0.12 * nLarge;
+  float nFine = texture2D(uNoiseMap, cw * 0.83 + 0.17).r;
+  // Mow stripes parallel to the net (band edges on the net and the baselines). The blades lean
+  // with the mower, so a band reads light seen along its lean and dark against it (swapping
+  // with the viewing end); a floor keeps them visible from overhead. Faded out before the
+  // bands get thin enough on screen to alias.
+  float mw = (p.y + (nMid - 0.5) * 0.1) / uMow.x;
+  float mfw = fwidth(mw);
+  float tri = abs(fract((mw + 0.5) * 0.5) - 0.5) * 4.0 - 1.0;
+  float band = clamp(tri / (2.0 * mfw + 0.1), -1.0, 1.0) * (1.0 - smoothstep(0.2, 0.55, mfw));
+  vec3 toCam = cameraPosition - vec3(cw.x, uSurfY, cw.y);
+  float lz = toCam.z / max(length(toCam), 1e-3);
+  float stripe = band * (lz * 0.65 + 0.35 * clamp(lz * 4.0, -1.0, 1.0));
+  vec3 grass = lawn * (1.0 + uMow.y * stripe) + vec3(0.012, 0.012, 0.0) * max(stripe, 0.0);
+  // Wear: bare earth behind each baseline (the server / returner spot, thinner along the
+  // baseline) and lightly thinned grass in each service box near the T (split steps)
+  float bd = abs(p.y) - uCourt.y;
+  vec2 cq = vec2(p.x / 2.9, (bd - 0.6) / 1.35);
+  float wr = exp(-dot(cq, cq));
+  float sd = (bd - 0.3) / 0.9;
+  wr = max(wr, exp(-sd * sd) * (1.0 - smoothstep(3.0, 6.4, abs(p.x))) * 0.72);
+  vec2 bq = vec2((abs(p.x) - uCourt.z * 0.3) / 1.2, (abs(p.y) - uCourt.w * 0.72) / 1.7);
+  wr = max(wr, exp(-dot(bq, bq)) * 0.2);
+  wr = wr * (0.7 + 0.6 * nMid) + (nFine - 0.5) * 0.3;
+  float thin = smoothstep(0.12, 0.45, wr);
+  float bare = smoothstep(0.45, 0.8, wr);
+  float tuft = smoothstep(0.58, 0.72, texture2D(uNoiseMap, cw * 2.3 + 0.61).r);
+  vec3 worn = uWorn * (0.86 + 0.28 * nFine) * (0.55 + 1.4 * base.g);
+  vec3 earth = uEarth * (0.84 + 0.3 * texture2D(uNoiseMap, cw * 3.7 + 0.29).r);
+  earth = mix(earth, worn * 0.92, tuft * 0.55);
+  col = mix(grass, worn, thin * 0.9);
+  col = mix(col, earth, bare);
+  // chalk lines: bright on the grass, scuffed where the earth shows through
+  vec3 lineCol = mix(uLineColor * (0.93 + 0.07 * nFine), earth * 1.2, bare * 0.3);
+  col = mix(col, lineCol, lineM);
 #else
   float inside = courtRect(abs(p), vec2(0.0), uCourt.xy, fw);
   col = mix(uOuter, uInner, inside) * base;
@@ -171,15 +230,61 @@ const SURFACE_FRAG_BODY = /* glsl */`
 }
 `;
 
-function createSurfaceMaterial(isClay, uniforms) {
+// One surface program per playing surface (map.json court `type`)
+const SURFACE_MATS = {
+  hard: { roughness: 0.6, name: 'courtSurfaceHard', key: 'court-surface-hard', define: null },
+  clay: { roughness: 0.95, name: 'courtSurfaceClay', key: 'court-surface-clay', define: 'COURT_CLAY' },
+  grass: { roughness: 0.9, name: 'courtSurfaceGrass', key: 'court-surface-grass', define: 'COURT_GRASS' },
+};
+
+/** A court config's playing surface: 'hard' | 'clay' | 'grass' (anything else counts as hard). */
+export function courtSurfaceOf(config) {
+  const t = config && config.type;
+  return t === 'clay' || t === 'grass' ? t : 'hard';
+}
+
+/**
+ * Which sides of `config`'s surround really continue into the neighbouring court's
+ * (map.json sharedPadLeft / sharedPadRight): only when that neighbour is flagged the other
+ * way round, sits on the same row and has the same surface. A hard court next to a grass
+ * court keeps its own edging on that side.
+ */
+export function sharedPadSides(config, all) {
+  const out = { left: false, right: false };
+  if (!config || !Array.isArray(all)) return out;
+  const cx = config.center?.x ?? 0, cz = config.center?.z ?? 0;
+  const neighbour = (dir, flag) => {
+    let best = null, bestD = Infinity;
+    for (const o of all) {
+      if (!o || o === config || !o[flag] || (Number(o.rotation) || 0) !== (Number(config.rotation) || 0)) continue;
+      const dx = ((o.center?.x ?? 0) - cx) * dir;
+      if (dx <= 0 || Math.abs((o.center?.z ?? 0) - cz) > 0.5 || dx >= bestD) continue;
+      best = o; bestD = dx;
+    }
+    return best;
+  };
+  const surface = courtSurfaceOf(config);
+  if (config.sharedPadLeft) {
+    const n = neighbour(-1, 'sharedPadRight');
+    out.left = !!n && courtSurfaceOf(n) === surface;
+  }
+  if (config.sharedPadRight) {
+    const n = neighbour(1, 'sharedPadLeft');
+    out.right = !!n && courtSurfaceOf(n) === surface;
+  }
+  return out;
+}
+
+function createSurfaceMaterial(surface, uniforms) {
+  const spec = SURFACE_MATS[surface] || SURFACE_MATS.hard;
   const m = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: isClay ? 0.95 : 0.6,
+    roughness: spec.roughness,
     metalness: 0,
   });
-  m.name = isClay ? 'courtSurfaceClay' : 'courtSurfaceHard';
-  if (isClay) m.defines = { COURT_CLAY: '' };
-  m.customProgramCacheKey = () => (isClay ? 'court-surface-clay' : 'court-surface-hard');
+  m.name = spec.name;
+  if (spec.define) m.defines = { [spec.define]: '' };
+  m.customProgramCacheKey = () => spec.key;
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -189,8 +294,10 @@ function createSurfaceMaterial(isClay, uniforms) {
       .replace('#include <common>', '#include <common>\n' + SURFACE_FRAG_HEAD)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + SURFACE_FRAG_BODY);
   };
-  // Hard courts: a deeper, wetter blue in rain instead of a grey-sky wash (lilac)
-  if (isClay) registerWet(m, 0.7);
+  // Hard courts: a deeper, wetter blue in rain instead of a grey-sky wash (lilac).
+  // Grass: a darker, slightly glossy soaked lawn.
+  if (surface === 'clay') registerWet(m, 0.7);
+  else if (surface === 'grass') registerWet(m, 0.55);
   else registerWet(m, 0.6, { tint: new THREE.Color(0.86, 0.96, 1.12), wetEnv: 0.5 });
   return m;
 }
@@ -342,6 +449,29 @@ export function courtOcclusionTwin(material) {
   return _shared.twins.get(material) || null;
 }
 
+/**
+ * The court floodlights' lamp-glass material (glows with EnvState.lampFactor). Shared so other
+ * floodlights (the Centre Court masts, the stadium arch lanterns) reuse its program.
+ */
+export function courtLampGlassMaterial() {
+  return sharedMaterials().lampGlass;
+}
+
+/** The court floodlights' additive halo material (a THREE.PointsMaterial, opacity follows the lamps). */
+export function courtHaloMaterial() {
+  return haloMaterial();
+}
+
+/**
+ * Register a THREE.Points of lamp halos (on courtHaloMaterial()) so it is shown and hidden with the
+ * court floodlights (the lamp factor, updated as the court surfaces render).
+ */
+export function registerCourtHalos(points) {
+  if (!points || _shared.halos.includes(points)) return;
+  points.visible = false;
+  _shared.halos.push(points);
+}
+
 /** Hidden meshes so _precompileShaders compiles the twins' programs with the scene. */
 function twinPrecompileGroup() {
   if (_shared.twinGroup) return null;
@@ -420,14 +550,30 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
  * Court - tennis court with surface, lines, net, fencing, and benches
  */
 export class Court {
-  constructor(scene, physicsWorld, config) {
+  /**
+   * @param {object} [opts]
+   * @param {{left:boolean, right:boolean}} [opts.sharedPad] sides whose surround continues into
+   *   the neighbour's (World passes sharedPadSides(config, allConfigs); default: none)
+   */
+  constructor(scene, physicsWorld, config, opts = {}) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.config = config;
     this.mesh = new THREE.Group();
     this.mesh.name = `court:${config.id}`;
     this.id = config.id;
-    this.isClay = config.type === 'clay';
+    // Court frame height (map.json center.y; 0 for every flat court). The sunken stadium court
+    // (a `stadium` block, see StadiumLayout.js) sits below the lawn at baseY.
+    this.baseY = Number(config.center?.y) || 0;
+    this.surfaceY = this.baseY + SURFACE_Y;   // top of the pad (walk / bounce surface)
+    this.isStadium = !!config.stadium;
+    this.surface = courtSurfaceOf(config);   // 'hard' | 'clay' | 'grass'
+    this.isClay = this.surface === 'clay';
+    this.isGrass = this.surface === 'grass';
+    this._sharedPad = {
+      left: !!(opts.sharedPad && opts.sharedPad.left),
+      right: !!(opts.sharedPad && opts.sharedPad.right),
+    };
     this._pad = this._computePad();
 
     // Paint mask for clay court maintenance (see the header comment)
@@ -865,7 +1011,7 @@ export class Court {
     }
   }
 
-  /** Pad extents (court-local). Hard: blue court + green surround; clay: slab + side buffers. */
+  /** Pad extents (court-local). Hard / grass: court + surround; clay: slab + side buffers. */
   _computePad() {
     const w = SIZES.courtWidth, d = SIZES.courtDepth;
     const fenceZ = d / 2 + 0.5;
@@ -926,7 +1072,8 @@ export class Court {
     const { center } = this.config;
     const w = SIZES.courtWidth;
     const d = SIZES.courtDepth;
-    this.mesh.position.set(center.x, 0, center.z);
+    // The court frame sits at center.y (0 for every flat court; the sunken show court below the lawn)
+    this.mesh.position.set(center.x, this.baseY, center.z);
 
     this._mats = sharedMaterials();
     const twinGroup = twinPrecompileGroup();
@@ -941,27 +1088,71 @@ export class Court {
     this._addSurface(center);
     this._addCurbs();
     this._addNet(center, w);
-    this._addFence(center, w, d);
-    this._addLights(w, d);
+    if (this.isStadium) {
+      // Show court (StadiumLayout.js): the bowl is the fence. No chain-link, fence bodies, light
+      // poles (the stadium masts light it) or court signs (the arch carries the name); low end
+      // boards behind the baselines and a body for the umpire chair instead.
+      this._addEndBoards(center);
+    } else {
+      this._addFence(center, w, d);
+      this._addLights(w, d);
+    }
     this._addFurniture(w);
-    this._addSigns(d);
+    if (!this.isStadium) this._addSigns(d);
     this._finalizeParts();
 
     // Physics: ONE static slab per court covering the playing surface and the
     // surround / clay buffer (two overlapping coplanar boxes double the contacts
     // and friction, which slows walking ~5x). World merges contiguous slabs.
+    // The show court has none: its pit floor is the stadium's plane at the court surface.
     const pw = Math.max(w, padX1 - padX0), pd = Math.max(d, 2 * fenceZ);
     const offX = (padX0 + padX1) / 2;
     this.slabBounds = {
       x0: center.x + offX - pw / 2, x1: center.x + offX + pw / 2,
       z0: center.z - pd / 2, z1: center.z + pd / 2,
+      y: this.surfaceY,
     };
-    this.slabBody = new CANNON.Body({
-      mass: 0,
-      position: new CANNON.Vec3(center.x + offX, 0.05, center.z),
-      shape: new CANNON.Box(new CANNON.Vec3(pw / 2, 0.1, pd / 2)),
-    });
-    this.physicsWorld.addBody(this.slabBody);
+    this.slabBody = null;
+    if (!this.isStadium) {
+      this.slabBody = new CANNON.Body({
+        mass: 0,
+        position: new CANNON.Vec3(center.x + offX, this.baseY + 0.05, center.z),
+        shape: new CANNON.Box(new CANNON.Vec3(pw / 2, 0.1, pd / 2)),
+      });
+      this.physicsWorld.addBody(this.slabBody);
+    }
+  }
+
+  /**
+   * Show court end boards (map.json stadium.endBoards): a low windscreen wall behind each
+   * baseline (|v| v0..v1, |u| ≤ halfU, height above the surface) — two single-sided panels with
+   * the club lettering (the `wind` bucket, so after-hours tennis can fade them), a green cap and
+   * five posts; a physics box each. The corners past halfU stay open to walk round.
+   */
+  _addEndBoards(center) {
+    const eb = (this.config.stadium && this.config.stadium.endBoards) || {};
+    const v0 = Number.isFinite(eb.v0) ? eb.v0 : 14.3, v1 = Number.isFinite(eb.v1) ? eb.v1 : 14.45;
+    const halfU = Number.isFinite(eb.halfU) ? eb.halfU : 9.0, h = Number.isFinite(eb.height) ? eb.height : 1.0;
+    const L = 2 * halfU, t = v1 - v0, y0 = SURFACE_Y;
+    const green = COLORS.courtFenceGreen;
+    const tiles = Math.max(1, Math.round(L / 4));
+    const geo = getGeometry(`courtBoard|${L}|${h}|${tiles}`, () => tiledPlane(L, h, tiles, 1));
+    for (const sz of [-1, 1]) {
+      const zi = sz * v0, zo = sz * v1, zc = sz * (v0 + v1) / 2;
+      // PlaneGeometry faces +z: the inner panel faces the court (−sz), the outer one away (+sz)
+      this._parts.wind.push({ geometry: geo, matrix: makeMatrix(0, y0 + h / 2, zi, sz > 0 ? Math.PI : 0) });
+      this._parts.wind.push({ geometry: geo, matrix: makeMatrix(0, y0 + h / 2, zo, sz > 0 ? 0 : Math.PI) });
+      this._add('matte', roundedBox(L + 0.08, 0.06, t + 0.08, 0.02), 0, y0 + h + 0.03, zc, green);
+      for (let i = 0; i <= 4; i++) {
+        this._add('metal', boxGeo(0.09, h + 0.02, t + 0.06), -halfU + (L * i) / 4, y0 + (h + 0.02) / 2, zc, green);
+      }
+      const body = new CANNON.Body({
+        mass: 0,
+        position: new CANNON.Vec3(center.x, this.baseY + y0 + h / 2, center.z + zc),
+        shape: new CANNON.Box(new CANNON.Vec3(halfU, h / 2, t / 2)),
+      });
+      this.physicsWorld.addBody(body);
+    }
   }
 
   _surfaceY(x, z) {
@@ -987,19 +1178,27 @@ export class Court {
       uLineColor: { value: new THREE.Color(COLORS.courtLine) },
       uInner: { value: new THREE.Color(COLORS.courtHardInner) },
       uOuter: { value: new THREE.Color(COLORS.courtHardOuter) },
-      uBaseMap: { value: this.isClay ? Textures.clay() : Textures.acrylic() },
+      uBaseMap: {
+        value: this.isClay ? Textures.clay() : this.isGrass ? Textures.grassCourt({ tone: COLORS.courtGrass }) : Textures.acrylic(),
+      },
       uNoiseMap: { value: Textures.noise({ scale: 8 }) },
-      uBaseScale: { value: this.isClay ? 0.26 : 0.4 },
+      uBaseScale: { value: this.isClay ? 0.26 : this.isGrass ? 0.42 : 0.4 },
       uFlood: _shared.flood,
+      uSurfY: { value: this.surfaceY },
     };
     if (this.isClay) {
       uniforms.uDirtMap = { value: this.dirtTexture };
       uniforms.uGrid = { value: new THREE.Vector4(p.x0, p.z0, this.gridCols / MASK_RES, this.gridRows / MASK_RES) };
       uniforms.uStripe = { value: new THREE.Vector2(15, GAME.groomBrushWidth || 3) };
+    } else if (this.isGrass) {
+      uniforms.uWorn = { value: new THREE.Color(COLORS.courtGrassWorn) };
+      uniforms.uEarth = { value: new THREE.Color(COLORS.courtGrassEarth) };
+      // ten stripes from the net to each baseline
+      uniforms.uMow = { value: new THREE.Vector2(HALF_L / 10, 0.14) };
     }
     this._surfaceUniforms = uniforms;
 
-    const surface = new THREE.Mesh(geo, createSurfaceMaterial(this.isClay, uniforms));
+    const surface = new THREE.Mesh(geo, createSurfaceMaterial(this.surface, uniforms));
     surface.receiveShadow = true;
     surface.userData.noMerge = true;
     surface.name = 'courtSurface';
@@ -1011,7 +1210,7 @@ export class Court {
   _addCurbs() {
     const p = this._pad;
     const h = SURFACE_Y + 0.025;
-    const c = this.isClay ? COLORS.courtCurb : 0x2c5a40;
+    const c = this.isClay ? COLORS.courtCurb : this.isGrass ? COLORS.courtGrassCurb : 0x2c5a40;
     const pw = p.x1 - p.x0;
     const midX = (p.x0 + p.x1) / 2;
     // back edges (under the fences)
@@ -1020,11 +1219,11 @@ export class Court {
     }
     // side edges (skipped where a neighbouring clay court continues the surface)
     const sideLen = p.z1 - p.z0 - CURB_W * 2;
-    // (also skipped where two hard-court surrounds meet: map.json sharedPadLeft / sharedPadRight)
-    if (!(this.isClay && this.config.adjacentLeft) && !this.config.sharedPadLeft) {
+    // (also skipped where two surrounds of the same surface meet: sharedPadSides)
+    if (!(this.isClay && this.config.adjacentLeft) && !this._sharedPad.left) {
       this._add('matte', boxGeo(CURB_W, h, sideLen), p.x0 + CURB_W / 2, h / 2, 0, c);
     }
-    if (!(this.isClay && this.config.adjacentRight) && !this.config.sharedPadRight) {
+    if (!(this.isClay && this.config.adjacentRight) && !this._sharedPad.right) {
       this._add('matte', boxGeo(CURB_W, h, sideLen), p.x1 - CURB_W / 2, h / 2, 0, c);
     }
   }
@@ -1083,7 +1282,7 @@ export class Court {
     const netShape = new CANNON.Box(new CANNON.Vec3((w - 0.4) / 2, SIZES.netHeight / 2, 0.08));
     const netBody = new CANNON.Body({
       mass: 0,
-      position: new CANNON.Vec3(center.x, SIZES.netHeight / 2, center.z),
+      position: new CANNON.Vec3(center.x, this.baseY + SIZES.netHeight / 2, center.z),
       shape: netShape,
     });
     this.physicsWorld.addBody(netBody);
@@ -1195,6 +1394,15 @@ export class Court {
     if (!this.config.adjacentLeft) {
       if (umpire) {
         this._addUmpireChair(-(w / 2 + 0.95), 0, 1);
+        if (this.isStadium) {
+          // Show courts: a body over the chair's footprint (the pit is walked, routes go round it)
+          const body = new CANNON.Body({
+            mass: 0,
+            position: new CANNON.Vec3(this.config.center.x - (w / 2 + 0.95), this.surfaceY + 1.2, this.config.center.z),
+            shape: new CANNON.Box(new CANNON.Vec3(0.5, 1.2, 0.6)),
+          });
+          this.physicsWorld.addBody(body);
+        }
         this._addBench(-sideX, -2.3, 1);
         this._addBench(-sideX, 2.3, 1);
       } else {
@@ -1214,13 +1422,37 @@ export class Court {
     const nBalls = 3 + Math.floor(r() * 3);
     for (let i = 0; i < nBalls; i++) {
       const x = (r() - 0.5) * (w - 2);
-      const z = (r() < 0.5 ? -1 : 1) * (13.4 + r() * 0.9);
+      let z = (r() < 0.5 ? -1 : 1) * (13.4 + r() * 0.9);
+      if (this.isStadium) z = Math.sign(z) * Math.min(Math.abs(z), 14.2);   // in front of the end boards
       this._add('matte', sphereGeo(0.045, 8, 6), x, this._surfaceY(x, z) + 0.045, z, COLORS.tennisBall);
     }
 
     // Clay-court maintenance bits
     if (this.isClay && !this.config.adjacentLeft) this._addLineBroom(-w / 2 + 0.6, -14.2);
     if (this.isClay && !this.config.adjacentRight) this._addHoseReel(w / 2 + 2.5, -13.6);
+    // Grass: the line-marking trolley parked by the back fence. On a show court it stands on the
+    // walkway in the corner past the end boards' west end (the boards stop at |u| 9): after-hours
+    // tennis fades what stands behind the camera's baseline only above 0.28 m, so behind the
+    // baseline its wheels' lower halves stayed solid in view; neither end camera sees this corner.
+    if (this.isGrass) {
+      if (this.isStadium) this._addLineMarker(-10.3, -14.7, SURFACE_Y);
+      else this._addLineMarker(-5.2, -13.55);
+    }
+  }
+
+  /** Wheeled chalk line marker (grass courts), handle toward the fence; y: its ground (court-local). */
+  _addLineMarker(x, z, y = this._surfaceY(x, z)) {
+    const green = COLORS.courtFenceGreen, dark = 0x3a3f3a;
+    this._add('matte', roundedBox(0.34, 0.24, 0.46, 0.05), x, y + 0.27, z, 0xe9e5d8);
+    this._add('matte', roundedBox(0.36, 0.04, 0.48, 0.015), x, y + 0.4, z, green);
+    for (const sx of [-1, 1]) {
+      this._add('metal', cylinderGeo(0.13, 0.13, 0.04, 14), x + sx * 0.2, y + 0.13, z - 0.1, dark, 0, 1, 0, Math.PI / 2);
+      this._add('metal', cylinderGeo(0.045, 0.045, 0.05, 10), x + sx * 0.2, y + 0.13, z - 0.1, 0xb0b5b0, 0, 1, 0, Math.PI / 2);
+      // handle tubes rising toward the fence
+      this._add('metal', cylinderGeo(0.014, 0.014, 0.78, 6), x + sx * 0.13, y + 0.62, z - 0.47, green, 0, 1, -0.62, 0);
+    }
+    this._add('metal', cylinderGeo(0.07, 0.07, 0.03, 12), x, y + 0.07, z + 0.2, dark, 0, 1, 0, Math.PI / 2);
+    this._add('metal', cylinderGeo(0.02, 0.02, 0.34, 8), x, y + 0.94, z - 0.7, 0x2a2d2a, 0, 1, 0, Math.PI / 2);
   }
 
   /** Slatted wooden bench; `dir` = +1 faces +x, -1 faces -x. Long axis along z. */

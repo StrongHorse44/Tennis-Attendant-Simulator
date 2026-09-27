@@ -281,18 +281,39 @@ export class Clouds {
   }
 }
 
+/** The club's ground plane before it grew east (World's plane: 240 × 200 around the origin). */
+const BASE_EXTENTS = Object.freeze({ x0: -120, x1: 120, z0: -100, z1: 100 });
+
 /**
- * Distant horizon: rolling hills ring, a backdrop treeline ring and an outer ground annulus.
+ * Distant horizon: rolling hills ring, a backdrop treeline ring and an outer ground disc.
  * 3 draw calls total, all fogged so they fade into the sky.
+ *
+ * @param {{x0:number,x1:number,z0:number,z1:number}} [ext] the world ground plane's extents
+ *   (Ground.getGroundExtents()). The outer ground has a hole the size of the plane (shrunk by
+ *   1 m, so the lawn overlaps it) instead of lying under it — nothing covers a sunken court —
+ *   and the treeline ring is stretched beyond any side of the plane that reaches past the
+ *   original 240 × 200 one, so it never stands in the lawn's hills.
  */
 export class Horizon {
-  constructor() {
+  constructor(ext = BASE_EXTENTS) {
     this.group = new THREE.Group();
     this.group.name = 'Horizon';
     const rand = seededRandom(4242);
+    const e = ext && [ext.x0, ext.x1, ext.z0, ext.z1].every(Number.isFinite) && ext.x0 < ext.x1 && ext.z0 < ext.z1 ? ext : BASE_EXTENTS;
 
-    // Outer ground (under the main ground plane, fills to the fog distance)
-    const groundGeo = new THREE.RingGeometry(95, SKY_RADIUS * 0.95, 48, 1);
+    // Outer ground (around the main ground plane, fills to the fog distance). Built in the XY
+    // plane with y = −z, then laid flat.
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, SKY_RADIUS * 0.95, 0, Math.PI * 2, false);
+    const hole = new THREE.Path();
+    const hx0 = e.x0 + 1, hx1 = e.x1 - 1, hy0 = -(e.z1 - 1), hy1 = -(e.z0 + 1);
+    hole.moveTo(hx0, hy0);
+    hole.lineTo(hx1, hy0);
+    hole.lineTo(hx1, hy1);
+    hole.lineTo(hx0, hy1);
+    hole.lineTo(hx0, hy0);
+    shape.holes.push(hole);
+    const groundGeo = new THREE.ShapeGeometry(shape, 24);
     groundGeo.rotateX(-Math.PI / 2);
     this.groundMaterial = new THREE.MeshStandardMaterial({ color: 0x5a9044, roughness: 1 });
     const ground = new THREE.Mesh(groundGeo, this.groundMaterial);
@@ -415,14 +436,20 @@ export class Horizon {
     const blob = new THREE.IcosahedronGeometry(1, 0);
     blob.deleteAttribute('uv');
     const broadGreens = [0x3f7a3a, 0x4a8740, 0x356b36, 0x5a8f45].map(c => new THREE.Color(c));
+    // How far each side of the plane reaches past the original one (the ring moves out as far)
+    const grow = {
+      w: Math.max(0, BASE_EXTENTS.x0 - e.x0), east: Math.max(0, e.x1 - BASE_EXTENTS.x1),
+      s: Math.max(0, BASE_EXTENTS.z0 - e.z0), n: Math.max(0, e.z1 - BASE_EXTENTS.z1),
+    };
     for (let ring = 0; ring < 2; ring++) {
       const rx = 132 + ring * 16, rz = 116 + ring * 16;
       const count = 110 + ring * 20;
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2 + rand() * 0.04;
         const jitter = (rand() - 0.5) * 9;
-        const x = Math.cos(a) * (rx + jitter);
-        const z = Math.sin(a) * (rz + jitter);
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const x = ca < 0 ? ca * (rx + grow.w + jitter) : ca * (rx + grow.east + jitter);
+        const z = sa < 0 ? sa * (rz + grow.s + jitter) : sa * (rz + grow.n + jitter);
         const conifer = rand() < 0.55;
         const h = (conifer ? 6 : 5) + rand() * 5 + ring * 1.5;
         if (conifer) {

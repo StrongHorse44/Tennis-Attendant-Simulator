@@ -15,6 +15,8 @@
  *   weather / weatherUntil  forced weather in the morning (a rain day, a sunny pool party)
  *   schedule              { maxConcurrent, format, matches: [...] } merged into schedule.json
  *                         (MatchSystem.setSchedule via onScheduleChange, only at day start / load)
+ *   crowd                 × the Centre Court crowd (0.5..2.5, 1 when absent): SpectatorDirector reads
+ *                         today.crowd (or getCrowd()) for spectators and the stands' impostors
  *
  * Pure logic (no DOM / three.js): Game wires the hooks, `npm run validate` checks the data
  * with validateEvents().
@@ -110,6 +112,9 @@ export class EventSystem {
   }
 
   getTodayId() { const e = this.getToday(); return e ? e.id : null; }
+
+  /** Today's Centre Court crowd factor (events.json `crowd`, clamped 0.5..2.5; 1 when absent). */
+  getCrowd() { const e = this.getToday(); return clamp(e && e.crowd, 0.5, 2.5, 1); }
 
   /** "Saturday · Member Tournament" style label parts for the HUD / report. */
   describe() {
@@ -208,7 +213,7 @@ export function validateEvents(data, { templateIds = null, missionIds = null, fa
     if (!e.announce) warn(`${at}: no "announce" text for the clock-in radio card`);
     const num = (k, lo, hi) => { if (e[k] !== undefined && !(Number.isFinite(e[k]) && e[k] >= lo && e[k] <= hi)) err(`${at}: ${k} must be ${lo}..${hi}`); };
     num('dispatchRate', 0.25, 3); num('tipMultiplier', 0.5, 3); num('groomBonusMultiplier', 1, 5); num('boardSize', 2, 4);
-    num('weatherUntil', 0, 24);
+    num('weatherUntil', 0, 24); num('crowd', 0.5, 2.5);
     if (e.minDay !== undefined && !(Number.isInteger(e.minDay) && e.minDay >= 1)) err(`${at}: minDay must be an integer >= 1`);
     if (e.weather !== undefined && !WEATHERS.includes(e.weather)) err(`${at}: weather must be one of ${WEATHERS.join('/')}`);
     for (const [k, known] of [['templateBoost', templateIds], ['missionBoost', missionIds]]) {

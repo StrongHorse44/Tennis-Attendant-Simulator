@@ -7,6 +7,7 @@ import {
 } from '../graphics/GeometryUtils.js';
 import { seededRandom } from '../graphics/Textures.js';
 import { ITEMS } from '../systems/InventorySystem.js';
+import { groundAt } from './Ground.js';
 
 /**
  * ItemProps — the physical side of errand items (ITEMS in InventorySystem.js).
@@ -397,15 +398,16 @@ export class ItemProps {
     };
     if (pick(`${area}_${kind}_${itemId}`) || pick(`${area}_${kind}`)) return out;
 
-    // Fallback: courts → on the pad between the baseline and the north fence; other areas →
-    // their marker / centre point on the ground.
+    // Fallback: courts → on the pad between the baseline and the north fence (its surface: the
+    // court's center.y + the pad height, e.g. the sunken Centre Court); other areas → their
+    // marker / centre point on the ground.
     const areas = this.mapData.areas || {};
     const court = (areas.courts || []).find(c => c && c.id === area);
     out.ry = 0;
     out.key = `${area}_${kind}`;
     if (court && court.center) {
       out.x = court.center.x + 3;
-      out.y = SIZES.courtSurfaceY;
+      out.y = (Number(court.center.y) || 0) + SIZES.courtSurfaceY;
       out.z = court.center.z + (SIZES.courtDepth || 28) / 2 - 1.3;
       return out;
     }
@@ -417,18 +419,21 @@ export class ItemProps {
 
   /**
    * Top of whatever is under (x, z) below head height (floor, pad, table…): one ray, only
-   * for spots without map data (called when a prop spawns, never per frame).
+   * for spots without map data (called when a prop spawns, never per frame). Heights are
+   * relative to the ground there (Ground.groundAt: 0 on the flat club, a stand row or the pit
+   * floor in the Centre Court bowl).
    */
   _surfaceAt(x, z) {
     if (!this._ray) {
       this._ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 3);
       this._hits = [];
     }
+    const g = groundAt(x, z);
     const ray = this._ray;
-    ray.ray.origin.set(x, 2.4, z);
+    ray.ray.origin.set(x, g + 2.4, z);
     const hits = this._hits;
     hits.length = 0;
-    let best = 0.02;
+    let best = g + 0.02;
     try {
       this.scene.traverseVisible((ob) => {
         if (!ob.isMesh || ob.isSkinnedMesh || ob.isInstancedMesh) return;
@@ -438,7 +443,7 @@ export class ItemProps {
       });
       hits.sort(byDistance);
       for (let i = 0; i < hits.length; i++) {
-        if (hits[i].point.y < 1.3) { best = Math.max(0.02, hits[i].point.y); break; }
+        if (hits[i].point.y < g + 1.3) { best = Math.max(g + 0.02, hits[i].point.y); break; }
       }
     } catch (e) { /* keep the default */ }
     hits.length = 0;

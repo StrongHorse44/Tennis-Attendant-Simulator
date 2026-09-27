@@ -40,6 +40,8 @@ import { ITEMS } from './systems/InventorySystem.js';
 import { MatchSystem } from './systems/MatchSystem.js';
 import { ItemProps } from './world/ItemProps.js';
 import { TennisSession } from './tennis/TennisSession.js';
+import { SpectatorDirector } from './systems/SpectatorDirector.js';
+import { groundAt, levelOf } from './world/Ground.js';
 
 /** Seconds of unpaused play between autosaves. */
 /** Staff whereabouts hints (MissionSystem._whereabouts): how to say where someone is. */
@@ -416,6 +418,16 @@ class Game {
     if (this.scheduleData) this.events.setBaseSchedule(this.scheduleData);
     else this.matches.load();
 
+    // Centre Court: the scoreboards follow its match; members come down to watch from the stands
+    this.world.stadium?.setMatchSource(this.matches);
+    this.spectators = new SpectatorDirector({
+      npcs: this.npcs, matches: this.matches, missions: this.missionSystem, sound: this.sound,
+      stadium: this.world.stadium, weather: this.weather, events: this.events,
+      announce: (t) => this.hud.showNotification(t, 4),
+    });
+    this.matches.onPointEnd = (id, info) => this.spectators.onPoint(id, info);
+    this.matches.onMatchEvent = (id, kind, m) => this.spectators.onMatchEvent(id, kind, m);
+
     // Radio dispatch: a card with "On it" / "Busy" (Busy just passes, no penalty)
     this.missionSystem.onRadioDispatch = (mission) => {
       this.sound.playRadioChirp();
@@ -686,7 +698,8 @@ class Game {
       const wp = wps[id + '_marker'] || wps[id + '_center'] || wps[id] || fallback;
       if (wp && Number.isFinite(wp.x) && Number.isFinite(wp.z)) points.set(id, { x: wp.x, z: wp.z, h });
     };
-    for (const c of areas.courts || []) add(c.id, c.center, MARKER_HEIGHT_COURT);
+    // (a sunken court's marker floats above its floor: base y + its own height)
+    for (const c of areas.courts || []) add(c.id, c.center, (Number(c.center?.y) || 0) + (Number.isFinite(c.markerHeight) ? c.markerHeight : MARKER_HEIGHT_COURT));
     for (const id of DETECTABLE_AREAS) if (areas[id]) add(id, areas[id].center, areas[id].markerHeight || MARKER_HEIGHT[id] || 3.4);
     return points;
   }
@@ -1254,7 +1267,10 @@ class Game {
       if (!court.center) continue;
       const dx = Math.abs(pos.x - court.center.x);
       const dz = Math.abs(pos.z - court.center.z);
-      if (dx < SIZES.courtWidth / 2 + 3 && dz < SIZES.courtDepth / 2 + 3) {
+      // (map.json `detect` widens it: Centre Court counts its stands)
+      const hw = court.detect && Number.isFinite(court.detect.width) ? court.detect.width / 2 : SIZES.courtWidth / 2 + 3;
+      const hd = court.detect && Number.isFinite(court.detect.depth) ? court.detect.depth / 2 : SIZES.courtDepth / 2 + 3;
+      if (dx < hw && dz < hd) {
         return court.id;
       }
     }
@@ -1283,7 +1299,10 @@ class Game {
     };
     if (npc.away) return null;
     if (npc.playing && npc.playing.courtId) return `playing a match on ${courtLabel(npc.playing.courtId)}`;
-    const id = this._detectCurrentArea(npc.body.position);
+    const p = npc.body.position;
+    if (npc.spectating) return `watching the match from the ${courtLabel(this.world.stadiumLayout?.id || 'court6')} stands`;
+    if (levelOf(p.x, p.z) === 'stand') return `up in the ${courtLabel(this.world.stadiumLayout?.id || 'court6')} stands`;
+    const id = this._detectCurrentArea(p);
     if (!id) return null;
     if (/^court/.test(id)) return `over on ${courtLabel(id)}`;
     return PLACE_PHRASES[id] || null;
@@ -1532,8 +1551,8 @@ class Game {
       this.saveGame();
     }
 
-    // Update physics
-    this.physicsWorld.step(1 / 60, dt, 3);
+    // Update physics (World.stepPhysics: stadium masks before, rescue after; never step directly)
+    this.world.stepPhysics(dt);
 
     // Update player / cart
     const moveDir = this.input.getMoveDirection();
@@ -1567,6 +1586,7 @@ class Game {
       npc.update(dt, playerWorldPos);
     }
     if (this.matches) this.matches.update(dt); // after NPCs: swings start on the frame they are due
+    if (this.spectators) this.spectators.update(dt);
 
     // Update world (fountain, etc.)
     this.world.update(dt, playerWorldPos);
@@ -1772,11 +1792,14 @@ class Game {
     cam.getWorldDirection(fwd);
     const extent = Quality.settings.shadowExtent || 30;
     const h = Math.hypot(fwd.x, fwd.z) || 1;
+    // The ground the camera looks down to: the pit floor while you are in the Centre Court bowl
+    const t = this.player.getPosition();
+    const gy = Math.min(0, groundAt(t.x, t.z));
     let dist = extent * 0.7;
-    if (fwd.y < -0.02) dist = Math.min(dist, (-cam.position.y / fwd.y) * h);
+    if (fwd.y < -0.02) dist = Math.min(dist, ((cam.position.y - gy) / -fwd.y) * h);
     this._shadowFocus.set(
       cam.position.x + (fwd.x / h) * dist,
-      0,
+      gy,
       cam.position.z + (fwd.z / h) * dist
     );
     return this._shadowFocus;
@@ -1870,16 +1893,34 @@ class Game {
       const parallel = r.extensions && r.extensions.has && r.extensions.has('KHR_parallel_shader_compile');
       const compile = (s, c) => (parallel ? r.compileAsync(s, c) : (r.compile(s, c), Promise.resolve()));
       const all = compile(this.scene, this.camera);
+      const aoAll = this._precompileAoNormals(compile);
       for (const o of shown) o.visible = false;
       shown.length = 0;
       const current = compile(this.scene, this.camera);
+      const aoCurrent = this._precompileAoNormals(compile);
       r.setRenderTarget(prevRT);
-      await Promise.race([Promise.all([all, current]), new Promise((res) => setTimeout(res, 8000))]);
+      await Promise.race([Promise.all([all, current, aoAll, aoCurrent]), new Promise((res) => setTimeout(res, 8000))]);
     } catch (err) {
       console.warn('Shader pre-compile skipped:', err);
     } finally {
       for (const o of shown) o.visible = false;
       if (r.getRenderTarget() !== prevRT) r.setRenderTarget(prevRT);
+    }
+  }
+
+  /**
+   * GTAO (high) renders a normal pass with an override material, which renderer.compile does
+   * not see: compile its variants too (skinned / instanced meshes, with the night lights on as
+   * well), or they compile on the first dark frame. Meshes wear the normal material only for
+   * the synchronous part of the compile call.
+   */
+  _precompileAoNormals(compile) {
+    const nm = this.postFX && this.postFX.aoPass && this.postFX.aoPass.normalMaterial;
+    if (!nm) return Promise.resolve();
+    const swapped = [];
+    this.scene.traverse((o) => { if (o.isMesh && o.material && o.visible) { swapped.push(o, o.material); o.material = nm; } });
+    try { return compile(this.scene, this.camera); } catch (err) { return Promise.resolve(); } finally {
+      for (let i = 0; i < swapped.length; i += 2) swapped[i].material = swapped[i + 1];
     }
   }
 

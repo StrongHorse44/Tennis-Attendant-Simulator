@@ -15,10 +15,23 @@ const MIN_SIZE = 0.2;      // skip boxes thinner than this in both axes (fence w
 const _q = new CANNON.Quaternion();
 const _v = new CANNON.Vec3();
 
+// Obstacles with no physics box behind them (e.g. the stadium footprint: the hole in the ground
+// is a filtered plane, not a wall). Every planner appends them, grown by MARGIN, with no y band.
+const _virtualRects = [];
+let _virtualVersion = 0;
+
 export class RoutePlanner {
   constructor(physicsWorld) {
     this.world = physicsWorld;
     this.rects = null; // [{x0, z0, x1, z1}] grown by MARGIN
+    this._virtualVersion = -1;
+  }
+
+  /** Adds a rectangle { x0, z0, x1, z1 } every planner treats as an obstacle (world space, not grown). */
+  static addVirtualRect({ x0, z0, x1, z1 }) {
+    if (![x0, z0, x1, z1].every(Number.isFinite)) return;
+    _virtualRects.push({ x0: Math.min(x0, x1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), z1: Math.max(z0, z1) });
+    _virtualVersion++;
   }
 
   _build() {
@@ -45,7 +58,11 @@ export class RoutePlanner {
         rects.push({ x0: cx - ex - MARGIN, z0: cz - ez - MARGIN, x1: cx + ex + MARGIN, z1: cz + ez + MARGIN });
       }
     }
+    for (const r of _virtualRects) {
+      rects.push({ x0: r.x0 - MARGIN, z0: r.z0 - MARGIN, x1: r.x1 + MARGIN, z1: r.z1 + MARGIN });
+    }
     this.rects = rects;
+    this._virtualVersion = _virtualVersion;
   }
 
   /**
@@ -54,7 +71,7 @@ export class RoutePlanner {
    */
   plan(ax, az, bx, bz, out = []) {
     out.length = 0;
-    if (!this.rects) this._build();
+    if (!this.rects || this._virtualVersion !== _virtualVersion) this._build();
     // Standing inside a grown rect (hugging a wall): step out to its nearest edge first
     for (let k = 0; k < 3; k++) {
       const r = this.rects.find(q => inside(q, ax, az));

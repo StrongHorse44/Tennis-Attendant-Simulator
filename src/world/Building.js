@@ -282,6 +282,8 @@ export const ATLAS = {
   board: [512, 444, 512, 384],
   rackets: [0, 756, 500, 110],
   apparel: [0, 878, 500, 110],
+  // Centre Court arch sign (Stadium.js): a 3.2 × 0.8 m board, so the region keeps its 4 : 1 aspect
+  centreCourt: [512, 840, 512, 128],
 };
 
 export function regionUV(r) {
@@ -330,12 +332,14 @@ export function drawBoard(ctx, [x, y, w, h], title, sub) {
   const mainY = sub ? y + h * 0.44 : y + h * 0.53;
   ctx.font = `bold ${Math.round(h * (sub ? 0.4 : 0.5))}px Georgia, 'Times New Roman', serif`;
   try { ctx.letterSpacing = `${Math.round(h * 0.03)}px`; } catch (e) { /* older canvas */ }
-  ctx.fillText(title, x + w / 2, mainY);
+  // maxWidth only squeezes text that would run past the inner border (boards that fit are unchanged)
+  const inner = w - h * 0.36;
+  ctx.fillText(title, x + w / 2, mainY, inner);
   if (sub) {
     ctx.font = `bold ${Math.round(h * 0.13)}px Georgia, 'Times New Roman', serif`;
     try { ctx.letterSpacing = `${Math.round(h * 0.03)}px`; } catch (e) { /* noop */ }
     ctx.fillStyle = '#c9a54c';
-    ctx.fillText(sub, x + w / 2, y + h * 0.76);
+    ctx.fillText(sub, x + w / 2, y + h * 0.76, inner);
   }
   try { ctx.letterSpacing = '0px'; } catch (e) { /* noop */ }
 }
@@ -451,6 +455,7 @@ function signAtlas() {
     drawTaskBoard(ctx, ATLAS.board, rand);
     drawBoard(ctx, ATLAS.rackets, 'RACKETS');
     drawBoard(ctx, ATLAS.apparel, 'APPAREL');
+    drawBoard(ctx, ATLAS.centreCourt, 'CENTRE COURT', 'GREENBRIAR · EST. 1962');
     ctx.restore();
   }, { key: 'bld-signAtlas', wrap: THREE.ClampToEdgeWrapping, seed: 7 });
 }

@@ -6,7 +6,7 @@ import { EnvState } from '../graphics/EnvState.js';
 import {
   getGeometry, roundedBox as rbox, cylinderGeo, sphereGeo, boxGeo, mergeParts, makeMatrix,
 } from '../graphics/GeometryUtils.js';
-import { BlobShadows, glowMaterial, hashString } from './CharacterModel.js';
+import { BlobShadows, glowMaterial, hashString, blobGroundY } from './CharacterModel.js';
 
 // ───────────────────────────── Geometry builders (cached) ─────────────────────────────
 // All in cart-local UNSCALED units (the group is scaled by SIZES.cartScale). Front is -Z.
@@ -638,6 +638,8 @@ export class GolfCart {
       }
     }
 
+    if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = 0;
+
     // Drive: track speed internally so ground friction can't eat our velocity
     if (forward < -0.1) {
       // Accelerate forward
@@ -861,8 +863,9 @@ export class GolfCart {
     );
     const q = this.body.quaternion;
     const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
-    this._blobs.set(this._blobSlot, this.mesh.position.x, this.mesh.position.z,
-      SIZES.cartWidth * s * 1.35, SIZES.cartLength * s * 1.2, yaw, Math.max(this.mesh.position.y + 0.02, 0.065));
+    const mp = this.mesh.position;
+    this._blobs.set(this._blobSlot, mp.x, mp.z,
+      SIZES.cartWidth * s * 1.35, SIZES.cartLength * s * 1.2, yaw, blobGroundY(mp.x, mp.z, mp.y));
   }
 
   /** Effective brush sweep width (m): GAME.groomBrushWidth plus the rank perk bonus. */

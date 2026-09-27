@@ -6,6 +6,8 @@ import { SIZES } from '../utils/Constants.js';
  *  - Scenery benches (patio, garden): the instanced 'Benches' groups (bench faces +Z locally).
  *  - Court benches: each `court:<id>` group is probed with downward rays at the spots where
  *    Court._addFurniture puts its side benches; only planks that are actually there count.
+ *    Heights are relative to the court group's y (the sunken Centre Court sits at its baseY);
+ *    seats are registered at their absolute y.
  * Other modules can add seats with registerSeat().
  *
  * A seat: { id, x, y (seat top, world), z, yaw (facing, radians; 0 = +Z), taken }.
@@ -25,10 +27,14 @@ const _fwd = new THREE.Vector3();
 /**
  * opts.reserved: only claimSeat(seat, who, true) takes it (a staff post seat, e.g. the lifeguard
  * chair; wandering members and rain shelters skip it). opts.approach: how far in front of the seat
- * the sitter stands before sitting down (default 0.5 m).
+ * the sitter stands before sitting down (default 0.5 m). opts.stadium: stand info of a Centre
+ * Court seat ({ side, row, aisleId, along, box }), kept as seat.stadium (null otherwise).
  */
 export function registerSeat(x, y, z, yaw, id = `seat${_seats.length}`, opts = null) {
-  const seat = { id, x, y, z, yaw, taken: null, reserved: !!(opts && opts.reserved), approach: (opts && opts.approach) || 0.5 };
+  const seat = {
+    id, x, y, z, yaw, taken: null, reserved: !!(opts && opts.reserved), approach: (opts && opts.approach) || 0.5,
+    stadium: (opts && opts.stadium) || null,
+  };
   _seats.push(seat);
   return seat;
 }
@@ -64,25 +70,25 @@ function scanCourts(scene) {
     // Wooden bench planks are merged into the court's matte bucket; fall back to everything
     const targets = court.children.filter(c => c.isMesh && /matte/i.test(c.name));
     const list = targets.length ? targets : court.children.filter(c => c.isMesh && c.name !== 'courtSurface');
-    const cx = court.position.x, cz = court.position.z;
+    const cx = court.position.x, cy = court.position.y, cz = court.position.z;
     const found = [];
     for (const sideX of [w / 2 + 1.2, (SIZES.clayCourtBuffer || 0) + w / 2 + 1.2]) {
       for (const sgn of [-1, 1]) {
         for (const bz of [0, -2.3, 2.3]) {
           const x = cx + sgn * sideX, z = cz + bz;
           if (found.some(f => Math.abs(f.x - x) < 0.5 && Math.abs(f.z - z) < 1)) continue;
-          ray.set(_p.set(x, 3, z), down);
+          ray.set(_p.set(x, cy + 3, z), down);
           ray.far = 4;
           hits.length = 0;
           ray.intersectObjects(list, false, hits);
           const h = hits[0];
           if (!h) continue;
-          const top = h.point.y;
-          if (top < 0.4 || top > 0.9 || (h.face && h.face.normal && Math.abs(h.face.normal.y) < 0.5)) continue;
+          const top = h.point.y;   // absolute; the plank top is 0.4..0.9 above the court's base
+          if (top - cy < 0.4 || top - cy > 0.9 || (h.face && h.face.normal && Math.abs(h.face.normal.y) < 0.5)) continue;
           // Confirm a plank run along z (two seat spots 0.4 either side of the centre)
           let ok = 0;
           for (const dz of [-0.4, 0.4]) {
-            ray.set(_p.set(x, 3, z + dz), down);
+            ray.set(_p.set(x, cy + 3, z + dz), down);
             hits.length = 0;
             ray.intersectObjects(list, false, hits);
             if (hits[0] && Math.abs(hits[0].point.y - top) < 0.04) ok++;
@@ -108,7 +114,9 @@ export function findSeats(scene) {
 }
 
 export function claimSeat(seat, who, allowReserved = false) {
-  if (!seat || (seat.taken && seat.taken !== who)) return false;
+  if (!seat) return false;
+  if (seat.taken && seat.taken === who) return true;   // re-claiming your own seat always works
+  if (seat.taken && seat.taken !== who) return false;
   if (seat.reserved && !allowReserved) return false;
   seat.taken = who;
   return true;
