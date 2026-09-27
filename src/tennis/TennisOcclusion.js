@@ -6,7 +6,7 @@ import { courtOcclusionTwin } from '../world/Court.js';
  * TennisOcclusion — keeps the after-hours tennis view clear: everything standing between the
  * broadcast camera and the play is made see-through, and put back exactly as it was when the
  * session ends. It works on whichever court the session plays (session.frame: Court 1 hard,
- * Court 2 grass, Court 5 clay, ...) and at either end.
+ * Court 5 clay, the sunken grass Centre Court, ...) and at either end.
  *
  *   const occ = new TennisOcclusion(game);
  *   occ.begin(session);            // TennisSession.begin(), once the court / sides are set
@@ -18,7 +18,8 @@ import { courtOcclusionTwin } from '../world/Court.js';
  *  - Court meshes (every court's matte / metal / chain-link / windscreen / sign / lamp-glass
  *    material is patched at creation by withOcclusionFade, see graphics/OcclusionFade.js): the
  *    shared uniforms describe, in the session court's frame, the half-space behind the baseline
- *    at the camera's end, limited across the court (|u| < U_MAX), above the curbs, plus
+ *    at the camera's end, limited across the court (|u| < U_MAX), above the curbs (MIN_Y above
+ *    the court frame: this.minY = frame.y0 + MIN_Y, world y −2.72 on the sunken court), plus
  *    camera→player-chest and camera→ball segments that stop short of their focus. Every court's
  *    meshes that reach into that region are faded, not only the session court's, which is what
  *    the neighbours need:
@@ -28,7 +29,12 @@ import { courtOcclusionTwin } from '../world/Court.js';
  *      Court 5 (clay), +v end: the camera sits over Court 2's pad, so Court 2's -v fence, lamps
  *        and sign fade with Court 5's own; Court 4's fence where it continues Court 5's (to
  *        |u| < U_MAX) too;
- *      Court 5, -v end: its own fence and lamps; the south tree belt is handled below.
+ *      Court 5, -v end: its own fence and lamps; the south tree belt is handled below;
+ *      Centre Court (court6, sunken), either end: its low end boards (windscreen panels, cap,
+ *        posts) and whatever else of the court stands behind that baseline (the line-marking
+ *        trolley). The stands, rail, masts and scoreboards are not court meshes (Stadium.js,
+ *        StadiumRoot) and never fade: the camera sits above the end stand's rows, which step down
+ *        toward the court, so they never cover the play.
  *    The strength ramps in over RAMP s; each end has its own strength and follows the camera (it
  *    swaps as the camera glides over the net on a change of ends).
  *  - Explicit hides, restored in end():
@@ -56,7 +62,7 @@ const NEAR_V = HALF_L + 0.5;    // the fade ramps in over 0.5 m from here: full 
 const U_MAX = 10.2;             // across-court limit: a court's fence ends at |u| 9, the next hard court's
                                 // starts at 11 (clay neighbours continue at 8: faded to here)
 const U_FEATHER = 0.6;
-const MIN_Y = 0.28;             // curbs, base plates, stray balls and the surface stay solid
+const MIN_Y = 0.28;             // curbs, base plates, stray balls and the surface stay solid (above the court frame)
 const KEEP = 0.87;              // fraction of pixels removed at full fade (2/16 remain as a faint ghost)
 const RAMP = 0.4;               // s, fade in at begin / swap ends
 const NET_GUARD = 1.2;          // the segments never reach within this of the net (v)
@@ -89,6 +95,7 @@ export class TennisOcclusion {
     this.game = game;
     this.active = false;
     this.frame = null;
+    this.minY = MIN_Y;          // world y below which nothing fades (the court frame's y0 + MIN_Y)
     this.k = 0;                 // master ramp 0..1
     this.ends = [0, 0];         // current strength of the +v / -v end fade
     this.target = [0, 0];
@@ -110,6 +117,7 @@ export class TennisOcclusion {
     if (!session || !session.frame) return false;
     this.active = true;
     this.frame = session.frame;
+    this.minY = (Number(this.frame.y0) || 0) + MIN_Y;
     this.k = 0;
     const side = session.sides && session.sides[0] < 0 ? -1 : 1;
     this.camSign = side;
@@ -117,7 +125,7 @@ export class TennisOcclusion {
     this.target[1] = this.ends[1] = side > 0 ? 0 : 1;
     const f = this.frame, U = OCC_UNIFORMS;
     U.uOccFrame.value.set(f.cx, f.cz, f.c, f.s);
-    U.uOccZone.value.set(NEAR_V, U_MAX, U_FEATHER, MIN_Y);
+    U.uOccZone.value.set(NEAR_V, U_MAX, U_FEATHER, this.minY);
     U.uOccEnds.value.set(this.ends[0], this.ends[1], NET_GUARD, side);
     U.uOccA.value.w = 0;
     U.uOccB.value.w = 0;
@@ -202,7 +210,7 @@ export class TennisOcclusion {
     const across = 1 - smooth(U_MAX, U_MAX + U_FEATHER, Math.abs(u));
     const e = Math.max(smooth(0, 1, this.ends[0]) * smooth(NEAR_V, NEAR_V + 0.5, v),
       smooth(0, 1, this.ends[1]) * smooth(NEAR_V, NEAR_V + 0.5, -v));
-    return e * across * smooth(MIN_Y, MIN_Y + 0.2, y);
+    return e * across * smooth(this.minY, this.minY + 0.2, y);
   }
 
   _uv(x, z, out) {
@@ -317,7 +325,7 @@ export class TennisOcclusion {
   /** Does a world box reach into the fade region of either end (setup only)? */
   _boxInRegion(box, uv, eitherEnd) {
     const r = this._boxUV(box, uv);
-    if (r.uAbs >= U_MAX + U_FEATHER || box.max.y <= MIN_Y) return false;
+    if (r.uAbs >= U_MAX + U_FEATHER || box.max.y <= this.minY) return false;
     return eitherEnd ? (r.vMax > NEAR_V || r.vMin < -NEAR_V) : false;
   }
 
@@ -331,7 +339,7 @@ export class TennisOcclusion {
       const pr = this._projects[i], p = pr.p;
       const inPos = pr.vMax > NEAR_V && e0 > HIDE_AT;
       const inNeg = pr.vMin < -NEAR_V && e1 > HIDE_AT;
-      const hide = !!p.shown && pr.uAbs < U_MAX + U_FEATHER && pr.yMax > MIN_Y && (inPos || inNeg);
+      const hide = !!p.shown && pr.uAbs < U_MAX + U_FEATHER && pr.yMax > this.minY && (inPos || inNeg);
       if (hide !== pr.hidden) {
         pr.hidden = hide;
         p.group.visible = hide ? false : !!p.shown;

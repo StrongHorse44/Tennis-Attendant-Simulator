@@ -5,8 +5,9 @@ import { storageGet, storageSet } from '../systems/SaveSystem.js';
 import { getClipEventRacketPoint } from '../entities/CharacterAnimations.js';
 import {
   TennisBallSim, BallPredictor, planFlight, SPIN, SURFACES, G, R, SURF, BALL_Y, HALF_L, SINGLES_W,
-  SERVICE_L, FENCE_V, BASE_V, LINE_TOL, ROLL_VY, netTop, bounceBall, crossTime,
+  SERVICE_L, FENCE_V, BASE_V, LINE_TOL, ROLL_VY, netTop, bounceBall, crossTime, setCourtBase, SURF_REL,
 } from './TennisBallSim.js';
+import { groundAt, inFootprint, nearestExit } from '../world/Ground.js';
 import { TennisScore, FORMATS } from './TennisScore.js';
 import { TennisAI, DIFFICULTY } from './TennisAI.js';
 import { TennisHUD } from './TennisHUD.js';
@@ -19,8 +20,10 @@ import { TennisCoach } from './TennisCoach.js';
 
 /**
  * TennisSession — the after-hours tennis mode: an evening hit with Coach Rafa under the
- * floodlights, on hard (Court 1), clay (Court 5) or grass (Court 2), calm or windy. Drills (forehand / backhand / volley / serve, fed by Rafa, with
- * scored targets) or a practice match (real scoring, three formats, three difficulties).
+ * floodlights, on hard (Court 1), clay (Court 5) or grass (Centre Court: the sunken show court
+ * court6, whose frame sits at its map.json center.y — see CourtFrame.y0 / _applyCourtBase), calm
+ * or windy. Drills (forehand / backhand / volley / serve, fed by Rafa, with scored targets) or a
+ * practice match (real scoring, three formats, three difficulties).
  *
  * While active, Game._update hands the whole frame to update(dt): the session steps physics,
  * NPCs, weather and the world itself, drives the player (joystick / WASD + SWING / shot
@@ -107,8 +110,9 @@ export const WINDS = {
 };
 
 // The court for each playing surface (map.json ids): the menu picks a surface, the session
-// moves to its court. A court's surface is its map.json `type`.
-export const SURFACE_COURTS = { hard: 'court1', clay: 'court5', grass: 'court2' };
+// moves to its court. A court's surface is its map.json `type`. Grass is Centre Court, the
+// sunken show court (its surface sits at y −2.85: every height goes through frame.y0 / SURF).
+export const SURFACE_COURTS = { hard: 'court1', clay: 'court5', grass: 'court6' };
 export const SURFACE_LABELS = { hard: 'Hard', clay: 'Clay', grass: 'Grass' };
 export function surfaceOf(court) {
   const t = court && court.config && court.config.type;
@@ -118,8 +122,14 @@ export function surfaceOf(court) {
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _exit = { x: 0, z: 0, y: 0 };
 const _R = STROKES.map(() => new THREE.Vector3());
 
+/**
+ * The session court's frame: centre, rotation (court-local u across, v along; the net is v = 0)
+ * and heights: y0 = the court frame's world y (court.baseY: 0 on the flat courts, below the lawn
+ * on the sunken Centre Court), surfY = its playing surface.
+ */
 class CourtFrame {
   constructor(court) {
     const cfg = court.config || {};
@@ -128,6 +138,8 @@ class CourtFrame {
     this.cx = cfg.center?.x ?? 0; this.cz = cfg.center?.z ?? 0;
     this.r = Number(cfg.rotation) || 0;
     this.c = Math.cos(this.r); this.s = Math.sin(this.r);
+    this.y0 = Number.isFinite(court.baseY) ? court.baseY : 0;
+    this.surfY = Number.isFinite(court.surfaceY) ? court.surfaceY : this.y0 + SURF_REL;
   }
   wx(u, v) { return this.cx + u * this.c + v * this.s; }
   wz(u, v) { return this.cz - u * this.s + v * this.c; }
@@ -169,6 +181,7 @@ export class TennisSession {
     if (game.scene) {
       try { this._buildBallFx(); } catch (err) { console.error('TennisSession: ball / FX', err); this.ball = this.fx = null; }
     }
+    this._applyCourtBase();
 
     this.ctl = { moveX: 0, moveY: 0, swing: false, shot: 1 };
     this._prevSwing = false;
@@ -258,6 +271,18 @@ export class TennisSession {
     }
   }
 
+  /**
+   * The playing surface follows the session court's height (frame.y0): the ball physics
+   * (TennisBallSim SURF / BALL_Y, live bindings), the ball's ground, the landing marks. Called
+   * whenever the frame changes (construction, begin, setSurface); a no-op change on the flat courts.
+   */
+  _applyCourtBase() {
+    setCourtBase(this.frame ? this.frame.y0 : 0);
+    this.surfY = SURF;
+    if (this.ball) this.ball.groundY = SURF;
+    if (this.fx) this.fx._markY = SURF;
+  }
+
   // ─────────────────────────── availability / entry ───────────────────────────
 
   /** Rafa's dialogue hook: after closing time he offers a hit (true if handled). */
@@ -296,6 +321,7 @@ export class TennisSession {
   begin(from = 'report') {
     if (this.active || !this.frame || !this.coachNpc) return false;
     this._build();
+    this._applyCourtBase();
     const g = this.game;
     this.from = from;
     this.active = true;
@@ -324,6 +350,9 @@ export class TennisSession {
       // After hours: every member match winds up (Rafa may be booked on another court)
       for (const m of g.matches.matches.slice()) { try { g.matches._finish(m); } catch (e) { /* ignore */ } }
     }
+    // Centre Court's spectators and crowd impostors go home too (optional systems)
+    try { g.spectators?.releaseAll?.('tennis'); } catch (e) { /* ignore */ }
+    try { g.world?.stadium?.setCrowd?.(0, true); } catch (e) { /* ignore */ }
     NPC.setAreaBusy(this.frame.id, true);
 
     // Player: on foot, racket out, no collisions (we place the body ourselves)
@@ -383,12 +412,27 @@ export class TennisSession {
     p.character.setBallVisible(false);
     p.character.anim.autoIdleVariants = true;
     p.character.stop(0.2);
-    // Walk off beside the court (bench side)
-    const wp = g.mapData && g.mapData.waypoints && g.mapData.waypoints[`${this.frame.id}_bench`];
-    const x = wp ? wp.x - 1.2 : this.frame.wx(-9.5, 2), z = wp ? wp.z : this.frame.wz(-9.5, 2);
-    p.body.position.set(x, SIZES.playerRadius * SIZES.playerScale, z);
+    // Walk off beside the court (bench side); a court with an `<id>_exit` waypoint (the sunken
+    // Centre Court: the head of the Players' Walk, up on the lawn) is left from exactly there
+    const wps = g.mapData && g.mapData.waypoints;
+    const ex = wps && wps[`${this.frame.id}_exit`];
+    const wp = ex ? null : wps && wps[`${this.frame.id}_bench`];
+    const x = ex ? ex.x : wp ? wp.x - 1.2 : this.frame.wx(-9.5, 2), z = ex ? ex.z : wp ? wp.z : this.frame.wz(-9.5, 2);
+    const src = ex || wp;
+    const gy = src && Number.isFinite(src.y) ? src.y : groundAt(x, z);
+    p.body.position.set(x, gy + SIZES.playerRadius * SIZES.playerScale, z);
     p.body.velocity.set(0, 0, 0);
-    p.mesh.position.set(x, 0, z);
+    p.mesh.position.set(x, gy, z);
+    // Rafa must not stay behind in the bowl: up the nearest aisle to the lawn
+    if (inFootprint(npc.body.position.x, npc.body.position.z)) {
+      const out = nearestExit(npc.body.position.x, npc.body.position.z, _exit);
+      if (out) {
+        // (never on top of the player at the same aisle head: a step along the rim path)
+        const side = Math.hypot(out.x - x, out.z - z) < 1.2 ? 1.4 : 0;
+        const dx = out.x - this.frame.cx, dz = out.z - this.frame.cz, dl = Math.hypot(dx, dz) || 1;
+        npc.placeAt(out.x - (dz / dl) * side, out.z + (dx / dl) * side, null, 0);
+      }
+    }
     if (g.matches) g.matches.enabled = this._saved ? this._saved.matches : true;
     const w = g.weather;
     w.stadium = 0;
@@ -450,10 +494,11 @@ export class TennisSession {
     if (!court) return false;
     if (this.frame && court.id === this.frame.id) { this._setSurfaceKey(surfaceOf(court)); return true; }
     if (this.active && this.phase !== 'menu') return false;
-    if (!this.active) { this.frame = new CourtFrame(court); this._setSurfaceKey(surfaceOf(court)); return true; }
+    if (!this.active) { this.frame = new CourtFrame(court); this._applyCourtBase(); this._setSurfaceKey(surfaceOf(court)); return true; }
     try { this.occ.end(); } catch (err) { console.error('TennisOcclusion', err); }
     NPC.setAreaBusy(this.frame.id, false);
     this.frame = new CourtFrame(court);
+    this._applyCourtBase();
     this._setSurfaceKey(surfaceOf(court));
     NPC.setAreaBusy(this.frame.id, true);
     const npc = this.coachNpc;
@@ -660,7 +705,7 @@ export class TennisSession {
     g.world.update(dt, pp);
     g.weather.weatherTimer = Math.max(g.weather.weatherTimer, 30); // hold the weather
     this._advanceDay(dt);
-    _v1.set(this.frame.cx, 0, this.frame.cz);
+    _v1.set(this.frame.cx, this.frame.y0, this.frame.cz);
     g.weather.setShadowFocus(_v1);
     g.weather.update(dt);
     this.cam.update(this, dt);
@@ -741,7 +786,8 @@ export class TennisSession {
   _placePlayer(u, v) {
     const g = this.game, p = g.player, f = this.frame;
     const x = f.wx(u, v), z = f.wz(u, v);
-    p.body.position.set(x, SIZES.playerRadius * SIZES.playerScale, z);
+    // (the body keeps its flat-court relation to the court frame: y0 + r, the mesh on the surface)
+    p.body.position.set(x, f.y0 + SIZES.playerRadius * SIZES.playerScale, z);
     p.body.velocity.set(0, 0, 0);
     p.mesh.position.set(x, SURF, z);
     this.pl.u = u; this.pl.v = v; this.pl.vu = 0; this.pl.vv = 0;
@@ -837,7 +883,7 @@ export class TennisSession {
     if (pl.tracking) pl.moved += moved * dt;
     const x = f.wx(pl.u, pl.v), z = f.wz(pl.u, pl.v);
     p.body.position.x = x; p.body.position.z = z;
-    p.body.position.y = SIZES.playerRadius * SIZES.playerScale;
+    p.body.position.y = f.y0 + SIZES.playerRadius * SIZES.playerScale;
     p.body.velocity.set(0, 0, 0);
     p.mesh.position.set(x, SURF, z);
     // Face the net while playing (serve: the target box)

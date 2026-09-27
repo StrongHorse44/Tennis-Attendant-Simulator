@@ -1,19 +1,25 @@
 import { SIZES } from '../utils/Constants.js';
-import { findSeats } from '../entities/Seats.js';
+import { findSeats, claimSeat } from '../entities/Seats.js';
 import { CameraTracker } from '../entities/CharacterModel.js';
 import { getClip } from '../entities/CharacterAnimations.js';
+import { groundAt, getGroundModel } from '../world/Ground.js';
 
 /**
  * TennisCrowd — after hours the members have gone home and a few staff stay to watch the
- * attendant play Coach Rafa, on whichever court the session uses (Court 1 hard, Court 2 grass,
- * Court 5 clay, or any other). Spots are planned per court from what is there (_planSpots): the
- * court's own benches on a side without a neighbouring court, standing room by that side's bench
- * line, and — on a side that touches another court (clay: map.json adjacentLeft / adjacentRight) —
- * the junction between the two courts at the net line, beside the cooler / bin. Every spot is
- * outside the doubles alleys (court-local |u| >= 8.5) and within |v| <= 5 of the net, so nobody
- * ever stands between the camera (behind a baseline) and the play. On Court 1: Jess and Gus on
- * the west benches, Hank on the east bench, Marcus standing at the east sideline. Rafa (the
- * opponent) is left alone; Dani and Otis stay at their posts.
+ * attendant play Coach Rafa, on whichever court the session uses (Court 1 hard, Court 5 clay,
+ * the sunken grass Centre Court, or any other). Spots are planned per court from what is there
+ * (_planSpots): the court's own benches on a side without a neighbouring court, standing room by
+ * that side's bench line, and — on a side that touches another court (clay: map.json adjacentLeft /
+ * adjacentRight) — the junction between the two courts at the net line, beside the cooler / bin.
+ * Every spot is outside the doubles alleys (court-local |u| >= 8.5) and within |v| <= 5 of the
+ * net, so nobody ever stands between the camera (behind a baseline) and the play. On Court 1:
+ * Jess and Gus on the west benches, Hank on the east bench, Marcus standing at the east sideline.
+ * On Centre Court (a stadium court) the seats are its reserved stand seats by the side aisles
+ * (Seats.js `court:court6@stand:…`, seat.stadium; the players' pad benches are not used), the
+ * front row preferred (trySeat cost + 0.8 per row): Jess and Gus in the west stand beside the
+ * Players' Walk, Hank in the east stand, Marcus standing on the green walkway in front of the
+ * east stand. Heights come from Ground.groundAt (a court pad: its surfaceY). Rafa (the opponent)
+ * is left alone; Dani and Otis stay at their posts.
  *
  * begin(session)          members away (NPC.setAway), every member match ended, the staff walk
  *                         in, sit / stand facing the court, wave and say hello
@@ -42,7 +48,9 @@ import { getClip } from '../entities/CharacterAnimations.js';
  * method swallows its own errors, and update() allocates nothing.
  */
 
-const SURF = SIZES.courtSurfaceY ?? 0.15;
+const SURF_REL = SIZES.courtSurfaceY ?? 0.15;
+const ROW_COST = 0.8;            // stadium seats: per row back (the front row is preferred)
+const STADIUM_STAND_IN = 0.4;    // stadium standers: this far inside the pit floor's edge (the walkway)
 
 /**
  * Who watches, in the court frame (u across the court, v along it; the net is v = 0), and where
@@ -141,6 +149,7 @@ export class TennisCrowd {
     this._lineCd = 0;
     this._lastSpeaker = null;
     this._arrived = false;
+    this._y0 = 0;                // the session court frame's y (the sunken court sits below the lawn)
     // Crowd sounds by SND index: pending time + level (same-type requests merge), cooldown, last level
     this._sndT = new Float64Array(SND.length).fill(Infinity);
     this._sndK = new Float32Array(SND.length);
@@ -165,6 +174,7 @@ export class TennisCrowd {
     if (!f || !g || !Array.isArray(g.npcs)) return;
     this.active = true;
     this.t = 0;
+    this._y0 = Number(f.y0) || 0;
     this._minorCd = 2;
     this._encourageCd = 8;
     this._lineCd = 0;
@@ -239,6 +249,7 @@ export class TennisCrowd {
     if (!this.active) { this._begin(session); return; }
     const f = session && session.frame;
     if (!f) return;
+    this._y0 = Number(f.y0) || 0;
     // Nothing pending from the old court: reactions, lines, sounds
     this._sndT.fill(Infinity);
     this._lineCd = 1.5;
@@ -287,13 +298,20 @@ export class TennisCrowd {
     const seats = findSeats(g.scene);
     const prefix = `court:${f.id}@`;
     const open = [!cfg.adjacentLeft, !cfg.adjacentRight]; // -u side, +u side
+    // A stadium court (the sunken Centre Court): the staff watch from its stands, not from the
+    // players' benches on the pad; standers wait on the walkway in front of the stands
+    const stadium = !!(f.court && f.court.isStadium);
+    const L = stadium ? getGroundModel() : null;
+    const floorU = L && L.id === f.id && L.U ? L.U[0] : Infinity;
 
     // The court's seats (only where the sitter stays outside the play area)
     const seatList = [];
     const benchU = [Infinity, Infinity];
     for (const s of seats) {
       if (!s.id || !s.id.startsWith(prefix)) continue;
-      const ax = s.x + Math.sin(s.yaw) * 0.5, az = s.z + Math.cos(s.yaw) * 0.5;
+      if (stadium && !s.stadium) continue;
+      const ap = s.approach ?? 0.5;
+      const ax = s.x + Math.sin(s.yaw) * ap, az = s.z + Math.cos(s.yaw) * ap;
       const au = f.lu(ax, az), av = f.lv(ax, az), su = f.lu(s.x, s.z), sv = f.lv(s.x, s.z);
       if (Math.abs(au) < MIN_U || Math.abs(sv) > MAX_V) continue;
       const side = su < 0 ? 0 : 1;
@@ -332,7 +350,8 @@ export class TennisCrowd {
         const t = s.seat.taken;
         // Free, ours, a member's who went home, or Rafa's (he just stood up to play)
         if (t && t !== npc && !t.away && t !== coach) continue;
-        const d = Math.abs(s.v - v);
+        // (stand seats: the front row first)
+        const d = Math.abs(s.v - v) + ROW_COST * (s.seat.stadium?.row ?? 0);
         if (d < bd) { bd = d; best = s; }
       }
       if (!best) return null;
@@ -343,7 +362,9 @@ export class TennisCrowd {
     const tryStand = (side, v) => {
       if (!open[side]) return null;
       const sgn = side ? 1 : -1;
-      const u = sgn * (Number.isFinite(benchU[side]) ? Math.max(MIN_U + 0.1, benchU[side] - STAND_BACK) : MIN_U + 0.4);
+      let u = sgn * (Number.isFinite(benchU[side]) ? Math.max(MIN_U + 0.1, benchU[side] - STAND_BACK) : MIN_U + 0.4);
+      // Stadium: on the walkway in front of the stands (level with the court), not in a row
+      if (Number.isFinite(floorU) && Math.abs(u) > floorU - STADIUM_STAND_IN) u = sgn * Math.max(MIN_U + 0.1, floorU - STADIUM_STAND_IN);
       // Clear of this side's benches and of anyone else standing there: v, then further out, then in
       const free = (c) => !seatList.some(s => s.side === side && Math.abs(s.v - c) < 1.3)
         && !standers.some(o => Math.abs(o.u - u) < 1 && Math.abs(o.v - c) < 1.2);
@@ -405,8 +426,15 @@ export class TennisCrowd {
 
   _walkIn(sp) {
     const npc = sp.npc;
-    if (sp.seat) npc.shelter(sp.seat, null);
-    else npc.shelter(null, { x: sp.x, z: sp.z, precise: true, face: sp.yaw });
+    const seat = sp.seat;
+    if (seat) {
+      // A reserved seat (Centre Court's stand seats) is claimed for them first: shelter() then
+      // re-claims its own seat. If shelter released it on the way (it was already their target),
+      // claim it again and send them once more.
+      claimSeat(seat, npc, true);
+      npc.shelter(seat, null);
+      if (seat.reserved && npc._seatTarget !== seat && npc._sitSeat !== seat && claimSeat(seat, npc, true)) npc.shelter(seat, null);
+    } else npc.shelter(null, { x: sp.x, z: sp.z, precise: true, face: sp.yaw });
   }
 
   /** Arrived (sitting on the seat / standing at the spot)? */
@@ -422,7 +450,8 @@ export class TennisCrowd {
   _snapInPlace(sp) {
     const npc = sp.npc;
     if (sp.seat) {
-      const ax = sp.seat.x + Math.sin(sp.seat.yaw) * 0.5, az = sp.seat.z + Math.cos(sp.seat.yaw) * 0.5;
+      const ap = sp.seat.approach ?? 0.5;
+      const ax = sp.seat.x + Math.sin(sp.seat.yaw) * ap, az = sp.seat.z + Math.cos(sp.seat.yaw) * ap;
       npc.placeAt(ax, az, sp.seat.yaw, this._groundY(ax, az));
     } else {
       npc.placeAt(sp.x, sp.z, sp.yaw, this._groundY(sp.x, sp.z));
@@ -459,7 +488,7 @@ export class TennisCrowd {
       // (placeAt frees the bench the player is put beside)
       const p = npc.duty ? npc.duty.post : this._homeSpot(npc, cx, cz);
       if (p) {
-        npc.placeAt(p.x, p.z, Number.isFinite(p.face) ? p.face : null, 0);
+        npc.placeAt(p.x, p.z, Number.isFinite(p.face) ? p.face : null, Number.isFinite(p.y) ? p.y : groundAt(p.x, p.z));
         npc.wanderTimer = 1 + rnd() * 3;
       } else {
         npc.releaseShelter();
@@ -780,26 +809,26 @@ export class TennisCrowd {
     } catch (e) { /* audio is optional */ }
   }
 
-  /** Mild distance attenuation: camera → the middle of the spectators. */
+  /** Mild distance attenuation: camera → the middle of the spectators (heights above the court). */
   _volume() {
     if (!CameraTracker.valid || !this.spectators.length) return 0.85;
     let x = 0, z = 0;
     for (const sp of this.spectators) { x += sp.x; z += sp.z; }
     x /= this.spectators.length; z /= this.spectators.length;
-    const c = CameraTracker.position;
-    const d = Math.sqrt((c.x - x) ** 2 + c.y * c.y + (c.z - z) ** 2);
+    const c = CameraTracker.position, cy = c.y - this._y0;
+    const d = Math.sqrt((c.x - x) ** 2 + cy * cy + (c.z - z) ** 2);
     return Math.max(0.45, Math.min(1, 1.2 - d / 60));
   }
 
   // ─────────────────────────── helpers ───────────────────────────
 
-  /** Ground height at (x, z): the top of a court pad, else the lawn. */
+  /** Ground height at (x, z): the top of a court pad, else the ground (the lawn, or a row / the pit floor in the bowl). */
   _groundY(x, z) {
     const courts = (this.game.world && this.game.world.courts) || [];
     for (const c of courts) {
       const b = c.slabBounds;
-      if (b && x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) return SURF;
+      if (b && x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) return Number.isFinite(c.surfaceY) ? c.surfaceY : SURF_REL;
     }
-    return 0;
+    return groundAt(x, z);
   }
 }
