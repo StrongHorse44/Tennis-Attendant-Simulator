@@ -21,6 +21,14 @@ import { SIZES, COLORS } from '../utils/Constants.js';
  * tread is raised by R / 2, so every rise on an aisle is R / 2 (climbable) while row risers (R)
  * block walkers.
  *
+ * Besides the heights, the layout carries everything Stadium builds and the planners walk:
+ *   seats / spectatorSeatSpecs   every visual seat; the reserved NPC seats (Seats.registerSeat args)
+ *   boxes                        the physics boxes (stand rows, aisle half-steps, rim); their
+ *                                max-of-tops is groundAt (selfCheck I3)
+ *   openings / railRuns / bollards  the rim rail (gaps 0.9..1.2 m: walkers pass, the cart can't)
+ *   planPitLeg / planLevelRoute  pit-floor and level-changing routes through the aisles
+ *   selfCheck / validateStadiumMap  invariants I1-I6 and config ranges (npm run validate)
+ *
  * Everything is allocation-free except the per-route planners.
  */
 

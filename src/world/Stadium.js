@@ -61,7 +61,7 @@ const C = {
   trim: COLORS.stadiumTrim ?? 0xd9a441,
   board: 0x173a28,
   mast: 0x2b4a36,
-  lampHead: 0x3a3f3a,
+  lampHead: 0x4c544e,
   brass: 0xc9a54c,
 };
 
@@ -69,6 +69,7 @@ const SHIRTS = [0xf4efe6, 0xe9dfc6, 0x2f3e5c, 0x8fae8b, 0x9cc3e0, 0xe8b4b8, 0xd9
 const SKINS = [0xf1c9a5, 0xd9a47e, 0xa8744f, 0x7a4f33];
 
 const HANDRAIL_H = 0.9;      // Players' Walk handrails above the nosing line
+const SIGN_Y = 3.7;          // arch sign centre (the 3.2 × 0.8 boards span y 3.3..4.1)
 const CHEER_TIME = 0.35;     // crowd lift duration (s)
 const CROWD_RATE = 6;        // crowd impostors added / removed per second
 const SCORE_POLL = 0.5;      // scoreboard poll (s)
@@ -339,7 +340,8 @@ export class Stadium {
    * it). Runs every 120 frames from postFrame in dev builds; returns a list of problems.
    */
   debugCheck() {
-    const L = this.layout, B = this.physicsWorld.bodies, out = [];
+    const L = this.layout, B = this.physicsWorld.bodies, out = this._dbgOut || (this._dbgOut = []);
+    out.length = 0;
     for (let i = 0; i < B.length; i++) {
       const b = B[i];
       if (b.type !== DYN) continue;
@@ -748,8 +750,8 @@ export class Stadium {
       const si = a.sideIndex, d = cutOf(si) + L.arch.d, c0 = at(si, d, a.at), ry = si < 2 ? 0 : Math.PI / 2;
       P(boxGeo(0.4, 0.3, 3.7), makeMatrix(c0.x, 3.1, c0.z, ry), C.rail);
       P(boxGeo(0.44, 0.04, 3.74), makeMatrix(c0.x, 3.27, c0.z, ry), C.trim);
-      P(boxGeo(0.08, 0.92, 3.34), makeMatrix(c0.x, 3.75, c0.z, ry), C.board);
-      P(boxGeo(0.1, 0.04, 3.38), makeMatrix(c0.x, 4.23, c0.z, ry), C.trim);
+      P(boxGeo(0.08, 0.9, 3.34), makeMatrix(c0.x, SIGN_Y, c0.z, ry), C.board);
+      P(boxGeo(0.1, 0.04, 3.38), makeMatrix(c0.x, SIGN_Y + 0.47, c0.z, ry), C.trim);
       for (const p of L.arch.piers) {
         // outward face (toward the club): d grows away from the court
         const out = at(si, d + 0.34, p === L.arch.piers[0] ? a.at + L.arch.pierAlong : a.at - L.arch.pierAlong);
@@ -970,8 +972,8 @@ export class Stadium {
     const outYaw = [-Math.PI / 2, Math.PI / 2, 0, Math.PI][si];
     const ox = Math.sin(outYaw), oz = Math.cos(outYaw);
     const parts = [
-      { geometry: face, matrix: makeMatrix(c.x + ox * 0.045, 3.75, c.z + oz * 0.045, outYaw) },
-      { geometry: face, matrix: makeMatrix(c.x - ox * 0.045, 3.75, c.z - oz * 0.045, outYaw + Math.PI) },
+      { geometry: face, matrix: makeMatrix(c.x + ox * 0.045, SIGN_Y, c.z + oz * 0.045, outYaw) },
+      { geometry: face, matrix: makeMatrix(c.x - ox * 0.045, SIGN_Y, c.z - oz * 0.045, outYaw + Math.PI) },
     ];
     this._addMesh('CentreCourtSign', mergeParts(parts), Mat.signs(), false, true);
   }
