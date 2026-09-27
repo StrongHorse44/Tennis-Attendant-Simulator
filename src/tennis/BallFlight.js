@@ -300,6 +300,9 @@ export class BallFlight {
         s.x = h.x; s.y = h.y; s.z = h.z; s.vx = h.vx; s.vy = h.vy; s.vz = h.vz;
         if (outside || h.y - R >= top) {
           this._event('cross', te, h.x, h.y, h.z, h.vx, h.vy, h.vz, u, 0, h.y, -1);
+          // (0.1 mm past the plane: the next step must not find the same crossing again)
+          const d = h.vx * fr.s + h.vz * fr.c >= 0 ? 1e-4 : -1e-4;
+          s.x += d * fr.s; s.z += d * fr.c;
         } else {
           const f2 = (h.y - (top - NET_BAND * R)) / ((1 + NET_BAND) * R);  // 0 low in the band … 1 just clipped
           const lvel = h.vx * fr.s + h.vz * fr.c, uvel = h.vx * fr.c - h.vz * fr.s;
@@ -715,6 +718,9 @@ export function flightSelfCheck() {
     if (d > 0.03) errs.push(`landing off the plan by ${d.toFixed(3)} m`);
     const nc = f.netCross();
     if (!nc || nc.type !== 'cross') errs.push(`expected a clean net crossing, got ${nc && nc.type}`);
+    let nNet = 0;
+    for (let i = 0; i < f.nEvents; i++) { const ty = f.events[i].type; if (ty === 'cross' || ty === 'netcord' || ty === 'net') nNet++; }
+    if (nNet !== 1) errs.push(`expected one net-plane event, got ${nNet}`);
     const sp0 = Math.hypot(out.vx, out.vy, out.vz), sp1 = Math.hypot(b.vx, b.vy, b.vz);
     if (!(sp1 < sp0)) errs.push('drag did not slow the ball');
   }
