@@ -1361,7 +1361,7 @@ export class TennisCoach {
   _voice(text) {
     if (!text || text.indexOf('{') < 0) return text;
     const st = this.strat;
-    return voice(text, !!(st && st.isTour()), st ? st.oppName() : '');
+    return voice(text, !!(st && st.isTour()), st ? st.oppName() : '', st ? st.oppPronoun() : 'he');
   }
 
   /** Call a TennisStrategy method: a strategy error never breaks the technique coach (logged once). */

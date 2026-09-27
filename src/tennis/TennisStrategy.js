@@ -139,17 +139,36 @@ const V_HE = {
   he: 'he', He: 'He', him: 'him', Him: 'Him', his: 'his', His: 'His', "he's": "he's", "He's": "He's",
   has: 'has', is: 'is', s: 's', es: 'es', does: 'does', "doesn't": "doesn't", "isn't": "he isn't",
 };
+const V_SHE = {
+  he: 'she', He: 'She', him: 'her', Him: 'Her', his: 'her', His: 'Her', "he's": "she's", "He's": "She's",
+  has: 'has', is: 'is', s: 's', es: 'es', does: 'does', "doesn't": "doesn't", "isn't": "she isn't",
+};
+const V_THEY = {
+  he: 'they', He: 'They', him: 'them', Him: 'Them', his: 'their', His: 'Their', "he's": "they're", "He's": "They're",
+  has: 'have', is: 'are', s: '', es: '', does: 'do', "doesn't": "don't", "isn't": "they aren't",
+};
 const TOK = /\{([A-Za-z']+)\}/g;
 
 /**
  * The opponent's voice: '{He} serve{s} wide' → 'I serve wide' (a practice match: Rafa is the
- * opponent) or 'He serves wide' (tour: Rafa coaches from the box). {Name} is the opponent's name
- * in the tour ('He' without one). Text without a token is returned as is (no allocation).
+ * opponent) or 'He serves wide' / 'She serves wide' / 'They serve wide' (tour: Rafa coaches from
+ * the box; `pronoun` is the opponent's: 'he' | 'she' | 'they', default 'he'). {Name} is the
+ * opponent's name in the tour (the pronoun without one). Text without a token is returned as is.
  */
-export function voice(text, tour, name) {
+export function voice(text, tour, name, pronoun = 'he') {
   if (!text || text.indexOf('{') < 0) return text;
-  const V = tour ? V_HE : V_ME;
-  return text.replace(TOK, (m, k) => (k === 'Name' ? (tour && name ? name : V.He) : V[k] !== undefined ? V[k] : m));
+  const V = !tour ? V_ME : pronoun === 'she' ? V_SHE : pronoun === 'they' ? V_THEY : V_HE;
+  if (V !== V_THEY) return text.replace(TOK, (m, k) => (k === 'Name' ? (tour && name ? name : V.He) : V[k] !== undefined ? V[k] : m));
+  // They: a verb token agrees with the pronoun token before it ('{He} serve{s}' → 'They serve')
+  // but not with a possessive's noun ('{his} backhand {is}' → 'their backhand is')
+  let subj = true;
+  return text.replace(TOK, (m, k) => {
+    if (k === 'Name') { subj = !(tour && name); return tour && name ? name : V.He; }
+    if (k === 'he' || k === 'He' || k === "he's" || k === "He's") { subj = true; return V[k]; }
+    if (k === 'his' || k === 'His' || k === 'him' || k === 'Him') { subj = false; return V[k]; }
+    if (V[k] === undefined) return m;
+    return subj ? V[k] : V_HE[k];
+  });
 }
 
 /** 'easy' → 0 (basic), 'medium' → 1 (intermediate), anything else ('hard', 'tour') → 2 (advanced). */
@@ -996,6 +1015,8 @@ export class TennisStrategy {
   tier() { const s = this.c.s; return tierOf(s && s.ai && s.ai.diffKey); }
   isTour() { const s = this.c.s; return !!this.opp || !!(s && s.ai && s.ai.diffKey === 'tour'); }
   oppName() { const o = this.opp; return o ? String(o.short || o.name || '') : ''; }
+  /** The tour opponent's pronoun: 'he' | 'she' | 'they' (tour.json players; default 'he'). */
+  oppPronoun() { const p = this.opp && this.opp.pronoun; return p === 'she' || p === 'they' ? p : 'he'; }
 
   /** Strategy may speak: a match, tips on. */
   on() { const s = this.c.s; return !!s && s.mode === 'match' && this.c._tipsOn(); }
@@ -1650,7 +1671,7 @@ export class TennisStrategy {
       else if (r >= 1400) out.push('An even match on paper. The first-serve percentage decides it.');
       else out.push("You're the favourite. No free points: make {him} earn everything.");
     }
-    for (let i = 0; i < out.length; i++) out[i] = voice(out[i], true, name);
+    for (let i = 0; i < out.length; i++) out[i] = voice(out[i], true, name, this.oppPronoun());
     return out;
   }
 
@@ -1693,7 +1714,7 @@ export class TennisStrategy {
     if (work) out.push(work.text);
     if (out.length < 2) out.push(won ? 'Same plan next round. Your patterns, your pace.' : 'Next time: first serves in, deep returns, and patience.');
     const name = this.oppName();
-    for (let i = 0; i < out.length; i++) out[i] = voice(out[i], this.isTour(), name);
+    for (let i = 0; i < out.length; i++) out[i] = voice(out[i], this.isTour(), name, this.oppPronoun());
     return out.slice(0, 3);
   }
 
