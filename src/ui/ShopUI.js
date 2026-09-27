@@ -112,6 +112,7 @@ const SHOP_CSS = `
 .ccs-price { margin-right: auto; font-family: var(--cc-font-display); font-size: 18px; color: #ffe39a; font-variant-numeric: tabular-nums; }
 .ccs-price small { font-family: var(--cc-font-ui); font-size: 11.5px; color: var(--cc-danger); margin-left: 6px; }
 .ccs-price.is-owned { color: var(--cc-cream-dim); font-family: var(--cc-font-ui); font-size: 13px; }
+.ccs-price s { font-family: var(--cc-font-ui); font-size: 12px; color: var(--cc-cream-dim); margin-right: 6px; }
 .ccs-btn { min-height: 44px; padding: 8px 16px; font-size: 14.5px; }
 .ccs-btn[aria-disabled="true"] { opacity: 0.55; cursor: default; }
 .ccs-btn--ghost { background: transparent; border-color: rgba(244, 232, 193, 0.2); }
@@ -188,6 +189,11 @@ const CLOSE_ICON = svg('<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" str
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => '$' + Math.round(n || 0).toLocaleString('en-US');
+/** An item's price: the full one struck through before a discounted one (the pro career's gear sponsorship). */
+const priceHtml = (it, shop) => {
+  const p = shop.priceOf ? shop.priceOf(it) : it.price;
+  return p < it.price ? `<s aria-label="was ${money(it.price)}">${money(it.price)}</s>${money(p)}` : money(it.price);
+};
 const col = (c, d) => (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : d);
 
 // ───────────────────────────── item art (inline SVG from the item's colours) ─────────────────────────────
@@ -522,10 +528,10 @@ export class ShopUI {
     } else if (this.mode === 'locker') {
       act = '';
     } else if (locked) {
-      act = `<span class="ccs-price">${money(it.price)}</span><button type="button" class="cc-btn ccs-btn" aria-disabled="true" data-act="locked" data-id="${esc(it.id)}">Needs ${esc(shop.rankTitle(shop.rankNeeded(it)))}</button>`;
+      act = `<span class="ccs-price">${priceHtml(it, shop)}</span><button type="button" class="cc-btn ccs-btn" aria-disabled="true" data-act="locked" data-id="${esc(it.id)}">Needs ${esc(shop.rankTitle(shop.rankNeeded(it)))}</button>`;
     } else {
-      const short = it.price - this.profile.wallet;
-      act = `<span class="ccs-price">${money(it.price)}${short > 0 ? `<small>need ${money(short)} more</small>` : ''}</span>
+      const short = shop.priceOf(it) - this.profile.wallet;
+      act = `<span class="ccs-price">${priceHtml(it, shop)}${short > 0 ? `<small>need ${money(short)} more</small>` : ''}</span>
         <button type="button" class="cc-btn ${short > 0 ? '' : 'ccs-btn--gold '}ccs-btn" ${short > 0 ? 'aria-disabled="true"' : ''} data-act="buy" data-id="${esc(it.id)}">Buy</button>`;
     }
     card.innerHTML = `<div class="ccs-card__art">${itemArt(it, shop)}</div>

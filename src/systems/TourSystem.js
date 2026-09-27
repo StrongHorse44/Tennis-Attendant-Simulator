@@ -182,9 +182,8 @@ export class TourSystem {
   }
 
   /**
-   * Jess's sponsorship on the pro path: the share of a tennis-gear price paid back (0 otherwise).
-   * Hook for the shop: Game credits it back after a gear purchase (ShopSystem is untouched); a
-   * shop UI can show `price × (1 − tour.gearDiscount())` for gear-category items.
+   * Jess's sponsorship on the pro path: the share off a tennis-gear price (0 otherwise). Game
+   * hands it to the shop (ShopSystem.discountFor), which charges and shows the lower price.
    */
   gearDiscount() { return this.careerEffects().gearDiscount; }
 

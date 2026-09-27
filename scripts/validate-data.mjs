@@ -20,6 +20,10 @@
  * npcs.json, the home court against map.json), then a headless 12-week run of the TourSystem (the
  * player entering and playing, walkovers, week rollovers, a save round trip) whose rankings and
  * draws must stay well-formed, and tour opponents' AI tables (TourDifficulty) must stay sane.
+ * The tennis physics core (src/tennis, pure JS): flightSelfCheck (integrated flights, bounces,
+ * net / fence events, the shot planner), impactSelfCheck (the racket-ball impact and its inverse)
+ * and shotSelfCheck (a shot made inside its green window lands on its target; early / late
+ * errors go where they should).
  * Exits 1 on any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
@@ -635,9 +639,28 @@ async function simulateTour(data, npcData) {
   return `tour: ${t.data.tournaments.length} tournaments, ${t.data.venues.length} venues, ${t.field.players.size} players; 12-week run: ${entries} entries, ${played} matches, ${walkovers} walkovers, ${titles} titles, state ≤ ${(maxState / 1024).toFixed(1)} KB${aiNote} (${ms} ms)`;
 }
 
+// ── tennis physics core self-checks (no data involved: a code change can't silently break them) ──
+let physicsLine = '';
+try {
+  const t0 = Date.now();
+  const [{ flightSelfCheck }, { impactSelfCheck }, { shotSelfCheck }] = await Promise.all([
+    import('../src/tennis/BallFlight.js'), import('../src/tennis/RacketImpact.js'), import('../src/tennis/ShotMaker.js'),
+  ]);
+  const found = [
+    ...flightSelfCheck().map(m => `BallFlight: ${m}`),
+    ...impactSelfCheck().map(m => `RacketImpact: ${m}`),
+    ...(await shotSelfCheck()).map(m => `ShotMaker: ${m}`),
+  ];
+  for (const m of found) errors.push(`tennis physics self-check: ${m}`);
+  physicsLine = `tennis physics: flight, impact and shot self-checks ${found.length ? `${found.length} failed` : 'pass'} (${Date.now() - t0} ms)`;
+} catch (e) {
+  errors.push(`tennis physics self-check crashed: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
+}
+
 for (const w of warnings) console.warn('warn  ' + w);
 console.log(`validate-data: ${nTemplates} mission templates (${nSamples} sampled missions${stadiumId ? `; ${stadiumTemplates.size} can target ${stadiumId}: ${[...stadiumTemplates].join(', ')}` : ''}), ${nEvents} events checked`);
 if (tourLine) console.log(`validate-data: ${tourLine}`);
+if (physicsLine) console.log(`validate-data: ${physicsLine}`);
 for (const e of errors) console.error('ERROR ' + e);
 const n = map && missions && Array.isArray(missions.missions) ? missions.missions.length : 0;
 console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches, ${nShop} shop items checked, ${errors.length} error(s), ${warnings.length} warning(s)`);

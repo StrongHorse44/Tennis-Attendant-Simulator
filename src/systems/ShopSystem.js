@@ -23,6 +23,8 @@ import { TENNIS_STATS } from './PlayerProfile.js';
  *   onPurchase({ kind, id, name, amount })  – any spend (toast / sound)
  *   onProjectsChanged([[id, funded], ...])  – after a load: show / hide every club upgrade
  *   hasRankCap() → bool             – a rank perk cap is earned (a bought hat then waits in the Locker)
+ *   discountFor(item) → 0..0.9      – a share off an item's price (the pro career: Jess's gear
+ *                                     sponsorship); priceOf(item) applies it, buy() charges it
  *
  * Pure logic (no three.js / DOM) so scripts/validate-data.mjs can import validateShop.
  */
@@ -246,6 +248,8 @@ export class ShopSystem {
     this.onLook = null;
     this.onProjectFunded = null;
     this.onPurchase = null;
+    /** Game sets this: the share off an item's price right now (0 = full price). */
+    this.discountFor = null;
     /** Game sets this: may the horn sound now (in the cart, not paused)? */
     this.canHonk = () => false;
     this.sound = null;
@@ -294,6 +298,15 @@ export class ShopSystem {
   rankNeeded(item) { return item && Number.isInteger(item.minRank) ? item.minRank : 0; }
 
   isLocked(item) { return this.rankNeeded(item) > this.getRankIndex(); }
+
+  /** What the item costs the player now: its price less any discountFor() share (whole dollars). */
+  priceOf(item) {
+    if (!item) return 0;
+    let d = 0;
+    if (this.discountFor) { try { d = Number(this.discountFor(item)) || 0; } catch (e) { d = 0; } }
+    d = Math.min(0.9, Math.max(0, d));
+    return d > 0 ? Math.round(item.price * (1 - d)) : item.price;
+  }
 
   rankTitle(i) { const r = this.ranks[i]; return r ? r.title : `rank ${i + 1}`; }
 
@@ -350,15 +363,16 @@ export class ShopSystem {
   /**
    * Buy an item. Wears it at once, except a hat while the rank perk cap is earned (the gold cap
    * stays until the player picks the hat in the Locker) — pass { equip: true } to force.
-   * Returns { ok, reason?: 'unknown' | 'owned' | 'locked' | 'funds', item, equipped }.
+   * Charges priceOf(item). Returns { ok, reason?: 'unknown' | 'owned' | 'locked' | 'funds', item, equipped }.
    */
   buy(id, { equip } = {}) {
     const item = this.getItem(id);
     if (!item) return { ok: false, reason: 'unknown' };
     if (this.profile.owns(id)) return { ok: false, reason: 'owned', item };
     if (this.isLocked(item)) return { ok: false, reason: 'locked', item };
-    if (!this.profile.canAfford(item.price)) return { ok: false, reason: 'funds', item, short: item.price - this.profile.wallet };
-    if (item.price > 0 && !this._pay(item.price, item.name, 'item', id)) return { ok: false, reason: 'funds', item };
+    const price = this.priceOf(item);
+    if (!this.profile.canAfford(price)) return { ok: false, reason: 'funds', item, short: price - this.profile.wallet };
+    if (price > 0 && !this._pay(price, item.name, 'item', id)) return { ok: false, reason: 'funds', item };
     this.profile.grant(id);
     const wear = equip ?? !(item.slot === 'hat' && this.hasRankCap && this.hasRankCap());
     if (wear) this.profile.equip(item.slot, id);

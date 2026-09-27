@@ -782,7 +782,7 @@ class Game {
         this.hud.showMoneyFloat(amount, NaN, NaN, 'task');
         if (kind === 'prize') this.sound.playCoin();   // Junior Tour prize money
       }
-      // ('refund' / 'sponsor': entry fees and gear rebates back into the wallet, shown above)
+      // ('refund': a withdrawn entry fee back into the wallet, shown above)
     };
     shift.onRankUp = (rank) => {
       this.sound.playRankUp();
@@ -819,7 +819,6 @@ class Game {
           if (this.paused) return;
           this.pause('tour');
           frozeGame = this.paused;
-          if (this.pauseMenu?.isOpen) this.pauseMenu.close(); // pause() opens it for reasons it doesn't list
           this.pauseMenu?.setButtonVisible(false);
         },
         onClose: ({ changed } = {}) => {
@@ -996,21 +995,12 @@ class Game {
   }
 
   /**
-   * Jess's sponsorship on the pro path: a share of every tennis-gear price comes back at the till
-   * (tour.gearDiscount(); ShopSystem itself is untouched, so its prices show in full).
+   * Jess's sponsorship on the pro path: tennis gear (the shop's 'gear' slots) costs
+   * tour.gearDiscount() less (ShopSystem.discountFor → priceOf; the cards show both prices).
    */
-  _tourGearRebate(p) {
-    const d = this.tour ? this.tour.gearDiscount() : 0;
-    if (!(d > 0) || !p || p.kind !== 'item' || !this.shop) return;
-    const item = this.shop.getItem(p.id);
-    const slot = item && this.shop.data && this.shop.data.slots ? this.shop.data.slots[item.slot] : null;
-    if (!slot || slot.category !== 'gear') return;
-    const back = Math.round((Number(p.amount) || 0) * d);
-    if (back <= 0 || typeof this.shift.refund !== 'function') return;
-    this.shift.refund(back, 'sponsor');
-    const st = this.profile && this.profile.shop;
-    if (st) { st.spentToday = Math.max(0, st.spentToday - back); st.spentTotal = Math.max(0, st.spentTotal - back); }
-    this.hud.showNotification(`Jess's sponsorship: $${back} back on the ${item.name}.`, 3.5, 'sparkle');
+  _gearDiscountFor(item) {
+    if (!item || item.category !== 'gear' || !this.tour) return 0;
+    return this.tour.gearDiscount();
   }
 
   // ───────────────────────────── club shop ─────────────────────────────
@@ -1042,10 +1032,8 @@ class Game {
       (this._shopCelebrate || (this._shopCelebrate = [])).push(project); // confetti + toast once the overlay closes
       this._pausedRenderPending = true;
     };
-    shop.onPurchase = (p) => {
-      try { this._tourGearRebate(p); } catch (e) { console.warn('Gear rebate:', e); } // pro path: Jess's sponsorship
-      this.hud.setWallet(this.shift.wallet);
-    };
+    shop.discountFor = (item) => this._gearDiscountFor(item); // pro path: Jess's sponsorship
+    shop.onPurchase = () => this.hud.setWallet(this.shift.wallet);
     setClubTalkProvider(() => shop.clubTalk()); // members mention funded projects in small talk
     shop.applyAll();
 
@@ -1079,7 +1067,7 @@ class Game {
       if (!greeting && v && Array.isArray(v.greeting) && v.greeting.length) greeting = v.greeting[Math.floor(Math.random() * v.greeting.length)];
       // Pro path: Jess sponsors your tennis gear
       const d = this.tour ? this.tour.gearDiscount() : 0;
-      if (vendor === 'jess_nakamura' && d > 0) greeting = `Our touring pro! ${Math.round(d * 100)}% of every tennis-gear price comes back to you at the till. My treat.`;
+      if (vendor === 'jess_nakamura' && d > 0) greeting = `Our touring pro! Every piece of tennis gear is ${Math.round(d * 100)}% off for you. My treat.`;
     }
     this.shopUI.open({ mode, vendor, tab, greeting });
     return true;
@@ -1896,7 +1884,8 @@ class Game {
 
   /**
    * Freeze the game: physics, game time, weather, missions/radio timers, NPCs, input and audio.
-   * reason: 'menu' | 'button' | 'key' | 'hidden' | 'shop' (shop overlay: no pause menu) | 'report' | 'gpu'
+   * reason: 'menu' | 'button' | 'key' | 'hidden' | 'shop' / 'tour' (the shop / tour hub overlay: no
+   * pause menu) | 'report' | 'gpu'
    */
   pause(reason = 'menu') {
     if (!this._ready || this.paused) return;
@@ -1907,8 +1896,9 @@ class Game {
     this.input.setEnabled(false);
     this.sound.setPaused(true);
     if (this.dialogueBox && this.dialogueBox.setPaused) this.dialogueBox.setPaused(true);
-    // The report card and the GPU-reset panel are their own modals; everything else opens the pause menu
-    if (this.pauseMenu && reason !== 'report' && reason !== 'gpu' && reason !== 'shop') this.pauseMenu.open();
+    // The report card, the shop, the tour hub and the GPU-reset panel are their own modals;
+    // everything else opens the pause menu
+    if (this.pauseMenu && reason !== 'report' && reason !== 'gpu' && reason !== 'shop' && reason !== 'tour') this.pauseMenu.open();
   }
 
   resume() {

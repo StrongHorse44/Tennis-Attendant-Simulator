@@ -192,6 +192,13 @@ export class ShiftReport {
           <div class="ccr-promo__badge" aria-hidden="true">★</div>
           <div><div class="ccr-promo__t" data-r="promoT"></div><div class="ccr-promo__u" data-r="promoU"></div></div>
         </div>
+        <!-- Tonight's tournament match comes first: further down, a short screen hid it under the sticky "Next day" -->
+        <button type="button" class="cc-btn ccr-tour" data-r="tour" hidden>
+          <span class="ccr-tour__ic" aria-hidden="true">🏆</span>
+          <span class="ccr-tour__tx"><b data-r="tourLine"></b><small data-r="tourSub"></small></span>
+          <span class="ccr-tour__go" aria-hidden="true">▸</span>
+        </button>
+        <div class="ccr-tourerr" data-r="tourErr" role="alert" hidden>The match couldn’t start. Try again, or hit with Rafa instead.</div>
         <div class="ccr-grid">
           <div class="ccr-stat"><b data-r="tasks">0</b><span>Tasks done</span></div>
           <div class="ccr-stat"><b data-r="tips">$0</b><span>Tips</span><small data-r="tipsN"></small></div>
@@ -215,12 +222,6 @@ export class ShiftReport {
           <div class="ccr-bar"><i data-r="bar"></i></div>
           <div class="ccr-next" data-r="next"></div>
         </div>
-        <button type="button" class="cc-btn ccr-tour" data-r="tour" hidden>
-          <span class="ccr-tour__ic" aria-hidden="true">🏆</span>
-          <span class="ccr-tour__tx"><b data-r="tourLine"></b><small data-r="tourSub"></small></span>
-          <span class="ccr-tour__go" aria-hidden="true">▸</span>
-        </button>
-        <div class="ccr-tourerr" data-r="tourErr" role="alert" hidden>The match couldn’t start. Try again, or hit with Rafa instead.</div>
         <button type="button" class="cc-btn ccr-btn2" data-r="tennis">🎾 Stay for a hit with Coach Rafa</button>
         <button type="button" class="ccr-link" data-r="hub" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 5.5H5c0 2.8 1.4 4.3 3.3 4.5M16 5.5h3c0 2.8-1.4 4.3-3.3 4.5M12 13v3.5M8.5 20.5h7M9.7 16.5h4.6l.6 4H9.1z"/></g></svg>Junior Tour: draw &amp; rankings ›</button>
         <div class="ccr-skip" data-r="skip" role="alert" hidden>
@@ -358,7 +359,8 @@ export class ShiftReport {
     r.close.classList.toggle('is-done', !!rep.closingDone);
     r.close.textContent = `${rep.closingDone ? '✓' : '–'} Closing duties`;
 
-    r.rank.textContent = rep.rank.title;
+    // A chosen career (Junior Tour → Hank's crossroads) heads the rank line: "Touring Pro · Senior Attendant"
+    r.rank.textContent = rep.careerTitle ? `${rep.careerTitle} · ${rep.rank.title}` : rep.rank.title;
     r.pts.textContent = rep.next ? `${rep.points} / ${rep.next.points} pts` : `${rep.points} pts`;
     r.next.textContent = rep.next
       ? `+${rep.pointsGained} pts today. Next: ${rep.next.title}. ${rep.next.unlock || ''}`
