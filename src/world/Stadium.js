@@ -74,6 +74,8 @@ const CHEER_TIME = 0.35;     // crowd lift duration (s)
 const CROWD_RATE = 6;        // crowd impostors added / removed per second
 const SCORE_POLL = 0.5;      // scoreboard poll (s)
 const PTS = ['0', '15', '30', '40', 'AD'];
+const NONE2 = Object.freeze(['', '']);
+const ZERO2 = Object.freeze([0, 0]);
 
 const _col = new THREE.Color();
 const _m4 = new THREE.Matrix4();
@@ -421,6 +423,41 @@ export class Stadium {
   setMatchSource(matchSystem) {
     this.matches = matchSystem || null;
     this._sbT = 0;
+  }
+
+  /**
+   * A score of the caller's own on both faces (after-hours tennis) instead of the MatchSystem
+   * booking: o = { names: [a, b], games: [n, n], points: [s, s], server: 0 | 1, sets: [n, n] }
+   * ('CENTRE COURT', then a row per player: name · serve dot · games · points, and a sets column
+   * once a set has been won). null goes back to the MatchSystem source. The canvas is redrawn
+   * only when a value changes; a repeated call with the same values allocates nothing.
+   */
+  setScoreOverride(o) {
+    const ov = this._ov;
+    if (!ov) return;
+    if (!o) {
+      if (!ov.on) return;
+      ov.on = false;
+      // the next poll (now) redraws whatever the MatchSystem shows
+      this._sbMatch = undefined;
+      this._sbKey = -1;
+      this._sbStart = -2;
+      this._sbT = 0;
+      try { this._pollScoreboard(); } catch (e) { /* cosmetic */ }
+      return;
+    }
+    const n = o.names || NONE2, g = o.games || ZERO2, p = o.points || NONE2, s = o.sets || ZERO2;
+    const server = o.server === 1 ? 1 : 0;
+    const g0 = g[0] | 0, g1 = g[1] | 0, s0 = s[0] | 0, s1 = s[1] | 0;
+    if (ov.on && n[0] === ov.n0 && n[1] === ov.n1 && g0 === ov.g0 && g1 === ov.g1 && p[0] === ov.p0 && p[1] === ov.p1
+        && server === ov.server && s0 === ov.s0 && s1 === ov.s1) return;
+    ov.on = true;
+    ov.n0 = n[0]; ov.n1 = n[1];
+    ov.g0 = g0; ov.g1 = g1;
+    ov.p0 = p[0]; ov.p1 = p[1];
+    ov.s0 = s0; ov.s1 = s1;
+    ov.server = server;
+    this._drawOverride();
   }
 
   // ───────────────────────────── concrete ─────────────────────────────
@@ -863,11 +900,14 @@ export class Stadium {
     this._sbP0 = null;
     this._sbP1 = null;
     this._sbNext = { start: 0, players: [null, null] };
+    // setScoreOverride state: the values last drawn
+    this._ov = { on: false, n0: '', n1: '', g0: 0, g1: 0, p0: '', p1: '', s0: 0, s1: 0, server: 0 };
     this._drawIdle(null);
   }
 
   /** Allocation-free poll: redraw only when a number (score, next booking) changes. */
   _pollScoreboard() {
+    if (this._ov.on) return;   // setScoreOverride owns the faces
     const ms = this.matches, id = this.layout.id;
     let m = null;
     if (ms) {
@@ -977,6 +1017,43 @@ export class Stadium {
       ctx.fillText(String(sc.games[i] | 0), 390, y);
       ctx.fillStyle = '#f4e8c1';
       ctx.fillText(i === 0 ? ptsOf(a, b) : ptsOf(b, a), 482, y);
+    }
+    tex.needsUpdate = true;
+  }
+
+  /** The setScoreOverride score: the match layout, plus a SETS column once a set is won. */
+  _drawOverride() {
+    const { ctx, tex } = this._sb, ov = this._ov;
+    const sets = ov.s0 + ov.s1 > 0;
+    const xg = sets ? 400 : 390, xs = 312, nameW = (sets ? xs - 44 : xg - 58) - 52;
+    this._drawFrame(ctx);
+    ctx.font = '600 16px sans-serif';
+    ctx.fillStyle = 'rgba(244,232,193,0.55)';
+    ctx.textAlign = 'right';
+    if (sets) ctx.fillText('SETS', xs, 90);
+    ctx.fillText('GAMES', xg, 90);
+    ctx.fillText('PTS', 482, 90);
+    for (let i = 0; i < 2; i++) {
+      const y = 140 + i * 66;
+      ctx.textAlign = 'left';
+      ctx.font = '600 34px sans-serif';
+      ctx.fillStyle = '#f4e8c1';
+      ctx.fillText(String((i === 0 ? ov.n0 : ov.n1) ?? '').toUpperCase(), 52, y, nameW);
+      if (ov.server === i) {
+        ctx.fillStyle = '#d8e04e';
+        ctx.beginPath();
+        ctx.arc(32, y - 11, 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.textAlign = 'right';
+      if (sets) {
+        ctx.fillStyle = 'rgba(244,232,193,0.8)';
+        ctx.fillText(String(i === 0 ? ov.s0 : ov.s1), xs, y);
+      }
+      ctx.fillStyle = '#ffe39a';
+      ctx.fillText(String(i === 0 ? ov.g0 : ov.g1), xg, y);
+      ctx.fillStyle = '#f4e8c1';
+      ctx.fillText(String((i === 0 ? ov.p0 : ov.p1) ?? ''), 482, y, 76);
     }
     tex.needsUpdate = true;
   }
