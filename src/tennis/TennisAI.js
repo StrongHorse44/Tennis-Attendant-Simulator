@@ -8,7 +8,8 @@ import { RafaTactics } from './TennisTactics.js';
  * TennisAI — Coach Rafa across the net: his eyes, feet and racket (the decisions about what to
  * do with the ball live in TennisTactics).
  *
- * Reading: when a ball comes his way he walks the predicted, spin-aware flight (BallPredictor)
+ * Reading: when a ball comes his way he walks its real flight (BallPredictor: the same
+ * integrated flight the ball flies — drag, lift, the bounce, the net, the wall)
  * and scores every candidate contact for five strokes — forehand / backhand after the bounce,
  * forehand / backhand volley out of the air, and the overhead smash for lobs and high balls —
  * using each clip's racket-head contact probe (getClipEventRacketPoint) to find the spot he has
@@ -19,13 +20,16 @@ import { RafaTactics } from './TennisTactics.js';
  * clip he starts from: a relaxed full swing when he is early, a compact one (the backswing
  * already made, e.g. the block return of a fast serve) when he is rushed. The clip always runs
  * at timeScale 1 (well inside the one-shot early-end limit). At swing start the real racket
- * probe goes to session.scheduleContact(1, tc, racketPoint), so the ball meets the strings.
+ * probe goes to session.scheduleContact(1, tc, racketPoint): his racket meets the true ball then
+ * (his string contact and timing error are sampled from his skill by TennisTactics, and the
+ * physics decides where the shot goes); a racket too far from the ball is still a miss.
  *
  * Positioning: returns stand deeper against fast serves and step in on second serves; after
  * each shot he recovers to the centre of the player's possible angles (or follows an approach
  * shot / a serve to the net). Difficulty (DIFFICULTY) sets all of it, so Easy stays friendly:
- * slower, safer, no net rushes, patient in long rallies. Also feeds balls in the drills and
- * serves in matches.
+ * slower feet and read, a looser racket (he misses more), no net rushes or drop shots, a gentler
+ * serve with more double faults — he still hits a live ball, so rallies stay short enough to feel
+ * like tennis. Also feeds balls in the drills and serves in matches.
  */
 
 export const DIFFICULTY = {
@@ -33,66 +37,74 @@ export const DIFFICULTY = {
     label: 'Easy', xp: 0.8,
     // Spin he puts on the ball (× the shot profiles), how much of the wind he allows for
     spin: 0.85, wind: 0.5,
-    // Eyes and feet: reaction (s), foot speed (m/s), reach tolerance (m), the most the ball may be
-    // re-aimed onto his racket (m, horizontal), lunge (how far out of reach he still swings),
-    // early (steps in to take short balls on the rise), netSpeed (× foot speed at the net: lunges)
-    react: 0.36, speed: 4.6, tol: 0.2, bend: 0.9, lunge: 0.6, early: 0, netSpeed: 0.75,
-    // Rally ball: pace (m/s), depth band (m from the net), width (fraction of the half court),
-    // how far inside the lines he aims, scatter [u, depth, net clearance] (m), mishit rate per
-    // shot (raised by a hard ball, a risky shot, nerves and long rallies), flat / slice share
-    pace: [11.5, 14], depth: [7.6, 10], width: 0.5, safeU: 1.3, safeV: 2.0,
-    sigma: [0.7, 0.85, 0.13], err: 0.13, flat: 0.08, slice: 0.22,
+    // Eyes and feet: reaction (s), foot speed (m/s), reach tolerance (m), the most his racket may
+    // be off the ball and still take it (m, horizontal), lunge (how far out of reach he still
+    // swings), early (steps in to take short balls on the rise), netSpeed (× foot speed at the net)
+    react: 0.3, speed: 4.95, tol: 0.2, bend: 0.9, lunge: 0.6, early: 0, netSpeed: 0.75,
+    // Rally ball: launch speed off his racket (m/s), depth band (m from the net), width (fraction
+    // of the half court), how far inside the lines he aims (m), flat / slice share
+    shotSpeed: [25, 28], depth: [8.6, 11], width: 0.66, safeU: 1.45, safeV: 1.6, flat: 0.2, slice: 0.22,
+    // Execution — the physics decides where it goes (ShotMaker): sigmaT = his timing error σ (s)
+    // against the ideal contact (widened by a hard ball, a stretch, nerves, a long rally), gw =
+    // his green half-width (s: inside it the ball lands where he aimed), sigmaC = where it meets
+    // his strings (σ of a / b, 1 = the frame), tailT = how far past the green a mishit goes (σ, s).
+    // err = the chance of a mishit per shot (raised by a hard ball, a risky shot, nerves, long rallies)
+    exec: { sigmaT: 0.034, gw: 0.045, sigmaC: 0.26, tailT: 0.06 }, err: 0.068,
     // Tactics: risk appetite, patience (fewer risky shots as a rally grows), target shares (open
     // court, behind a runner, the weaker wing), approach off short balls and net position, depth
     // behind the baseline, drop shots / drop volleys, lobs against a net player / when stretched
-    aggression: 0.1, patience: 0.6, openCourt: 0.35, behind: 0, weakWing: 0,
+    aggression: 0.45, patience: 0.2, openCourt: 0.6, behind: 0, weakWing: 0,
     approach: 0, netDepth: 4.8, backDepth: 0.45, drop: 0, dropVolley: 0, lobAtNet: 0.35, lobDefend: 0.2,
-    smashPace: [12.5, 15],
+    smashSpeed: [22, 26.5],
     // Return of serve: reaction, extra reach, depth behind the baseline (+ per m/s of serve pace
-    // above 16), step in on second serves (m)
-    ret: { react: 0.32, tol: 0.1, bend: 1.0, back: 0.5, paceBack: 0.1, stepIn: 0.6 },
-    // Serve: pace, fault rates, placement (wide / at the weaker wing), spin mix (kick = high bounce,
-    // slice = low skid, the rest flat), serve-and-volley
-    serve: { pace: [12.5, 15], fault1: 0.14, fault2: 0.04, wide: 0.3, kick1: 0, slice1: 0.6, kick2: 0, slice2: 1, weak: 0, serveVolley: 0 },
+    // above 24), step in on second serves (m)
+    ret: { react: 0.32, tol: 0.1, bend: 1.0, back: 0.5, paceBack: 0.08, stepIn: 0.6 },
+    // Serve: launch speed (m/s), his toss timing σ on first / second serves (s: the faults come
+    // from it) and green half-width, placement (wide / at the weaker wing), spin mix (kick = high
+    // bounce, slice = low skid, the rest flat), serve-and-volley
+    serve: { speed: [24, 28.5], sigmaT1: 0.06, sigmaT2: 0.047, gw: 0.04, wide: 0.3, kick1: 0, slice1: 0.6, kick2: 0, slice2: 1, weak: 0, serveVolley: 0 },
   },
   medium: {
     label: 'Medium', xp: 1, spin: 1, wind: 0.7,
     react: 0.28, speed: 5.1, tol: 0.18, bend: 0.95, lunge: 0.75, early: 0.35, netSpeed: 0.75,
-    pace: [15, 18.2], depth: [8.6, 11], width: 0.76, safeU: 1.0, safeV: 1.45,
-    sigma: [0.6, 0.75, 0.12], err: 0.065, flat: 0.2, slice: 0.2,
+    shotSpeed: [24.5, 27.5], depth: [8.6, 11.1], width: 0.76, safeU: 1.3, safeV: 1.15, flat: 0.2, slice: 0.2,
+    exec: { sigmaT: 0.034, gw: 0.044, sigmaC: 0.22, tailT: 0.055 }, err: 0.046,
     aggression: 0.62, patience: 0.1, openCourt: 0.55, behind: 0.08, weakWing: 0.15,
     approach: 0.25, netDepth: 4.3, backDepth: 0.35, drop: 0.05, dropVolley: 0.12, lobAtNet: 0.35, lobDefend: 0.28,
-    smashPace: [15, 18.5],
-    ret: { react: 0.22, tol: 0.35, bend: 1.15, back: 0.65, paceBack: 0.14, stepIn: 0.8 },
-    serve: { pace: [14.5, 18], fault1: 0.18, fault2: 0.05, wide: 0.45, kick1: 0, slice1: 0.4, kick2: 0, slice2: 0.8, weak: 0.15, serveVolley: 0 },
+    smashSpeed: [26, 31],
+    ret: { react: 0.22, tol: 0.35, bend: 1.15, back: 0.65, paceBack: 0.11, stepIn: 0.8 },
+    serve: { speed: [28, 33], sigmaT1: 0.058, sigmaT2: 0.04, gw: 0.042, wide: 0.45, kick1: 0, slice1: 0.4, kick2: 0, slice2: 0.8, weak: 0.15, serveVolley: 0 },
   },
   hard: {
     label: 'Hard', xp: 1.35, spin: 1.1, wind: 0.85,
     react: 0.2, speed: 5.75, tol: 0.15, bend: 1.0, lunge: 0.85, early: 0.7, netSpeed: 0.72,
-    pace: [15.5, 19], depth: [9.2, 11.2], width: 0.78, safeU: 0.9, safeV: 1.3,
-    sigma: [0.44, 0.55, 0.09], err: 0.035, flat: 0.24, slice: 0.14,
+    shotSpeed: [25, 28.5], depth: [9.2, 11.4], width: 0.76, safeU: 1.1, safeV: 0.95, flat: 0.18, slice: 0.14,
+    exec: { sigmaT: 0.032, gw: 0.046, sigmaC: 0.18, tailT: 0.05 }, err: 0.04,
     aggression: 0.7, patience: 0, openCourt: 0.62, behind: 0.15, weakWing: 0.35,
     approach: 0.38, netDepth: 3.9, backDepth: 0.25, drop: 0.1, dropVolley: 0.25, lobAtNet: 0.45, lobDefend: 0.35,
-    smashPace: [16, 19.5],
-    ret: { react: 0.17, tol: 0.55, bend: 1.25, back: 0.75, paceBack: 0.16, stepIn: 1.0 },
-    serve: { pace: [16, 19.5], fault1: 0.22, fault2: 0.06, wide: 0.5, kick1: 0.04, slice1: 0.35, kick2: 0.1, slice2: 0.6, weak: 0.35, serveVolley: 0.12 },
+    smashSpeed: [28, 33],
+    ret: { react: 0.17, tol: 0.55, bend: 1.25, back: 0.75, paceBack: 0.13, stepIn: 1.0 },
+    serve: { speed: [31, 37], sigmaT1: 0.055, sigmaT2: 0.041, gw: 0.044, wide: 0.5, kick1: 0.04, slice1: 0.35, kick2: 0.1, slice2: 0.6, weak: 0.35, serveVolley: 0.12 },
   },
 };
 
 /**
  * How Rafa adapts his game to the surface: added to the difficulty's shares (clamped 0..1),
- * `pace` scales his rally pace, `back` moves his baseline spot (m, + deeper), `react` his read.
+ * `pace` scales his rally speed, `back` moves his baseline spot (m, + deeper), `react` his read.
  * Clay: patient, heavy topspin from deep, more drop shots and kick serves, rarely at the net.
  * Grass: flatter and lower — more slices, approaches and serve-and-volley, closer to the line.
  * `adapt` (optional, per difficulty key, default 1): how much of the style that level plays —
  * on grass Easy and Medium Rafa keep more of their usual game, Hard plays all of it.
- * `err` (optional) scales his mishit rate on the surface at every level: the low, skidding
- * grass bounce that makes his pace hurt also rushes him (without it grass Medium played a few
- * points harder for the bot than the hard court).
+ * `err` (optional) scales his mishit rate (and timing σ a little) on the surface at every level:
+ * the low, skidding grass bounce that makes his pace hurt also rushes him; the slow, high clay
+ * bounce gives him time.
  */
 export const SURFACE_STYLE = {
   hard: {},
-  clay: { flat: -0.06, slice: -0.06, drop: 0.06, dropVolley: 0.04, approach: -0.12, aggression: -0.12, patience: 0.25, pace: 0.97, back: 0.9, kick1: 0.12, kick2: 0.3, slice1: -0.1, slice2: -0.25, serveVolley: -0.1, lobDefend: 0.08 },
+  clay: {
+    flat: -0.06, slice: -0.06, drop: 0.06, dropVolley: 0.04, approach: -0.12, aggression: -0.12, patience: 0.25, pace: 0.97, back: 0.9, kick1: 0.12, kick2: 0.3, slice1: -0.1, slice2: -0.25, serveVolley: -0.1, lobDefend: 0.08,
+    err: 0.85,
+  },
   grass: {
     flat: 0.08, slice: 0.14, drop: -0.04, approach: 0.14, aggression: 0.1, patience: -0.1, pace: 1.02, back: -0.35, kick1: -0.04, kick2: -0.1, slice1: 0.1, slice2: 0.1, serveVolley: 0.12,
     adapt: { easy: 0.5, medium: 0.7, hard: 1 },
@@ -105,9 +117,18 @@ const SERVE_KEYS = ['kick1', 'kick2', 'slice1', 'slice2', 'serveVolley'];
 /** A difficulty adjusted for a surface (a fresh object; the DIFFICULTY table is never mutated). */
 export function difficultyFor(key, surface) {
   const base = DIFFICULTY[key] || DIFFICULTY.medium, st = SURFACE_STYLE[surface] || SURFACE_STYLE.hard;
-  const d = { ...base, serve: { ...base.serve }, ret: { ...base.ret }, surface: surface || 'hard' };
-  // this level's share of the surface style (1 = all of it)
-  const a = st.adapt && Number.isFinite(st.adapt[key]) ? clamp(st.adapt[key], 0, 1) : 1;
+  const a = st.adapt && Number.isFinite(st.adapt[key]) ? st.adapt[key] : 1;
+  return adaptDifficulty(base, surface, a);
+}
+
+/**
+ * `base` (a DIFFICULTY-shaped object) played on `surface` with `share` (0..1) of the surface's
+ * style: a fresh object, the base is never mutated.
+ */
+export function adaptDifficulty(base, surface, share = 1) {
+  const st = SURFACE_STYLE[surface] || SURFACE_STYLE.hard;
+  const d = { ...base, serve: { ...base.serve }, ret: { ...base.ret }, exec: { ...base.exec }, surface: surface || 'hard' };
+  const a = clamp(Number.isFinite(share) ? share : 1, 0, 1);
   for (const k of SHARE_KEYS) if (st[k]) d[k] = clamp(base[k] + st[k] * a, 0, 1);
   for (const k of SERVE_KEYS) if (st[k]) d.serve[k] = clamp(base.serve[k] + st[k] * a, 0, 1);
   // kick + slice shares must leave room for flat serves
@@ -115,9 +136,48 @@ export function difficultyFor(key, surface) {
     const tot = d.serve['kick' + n] + d.serve['slice' + n];
     if (tot > 1) { d.serve['kick' + n] /= tot; d.serve['slice' + n] /= tot; }
   }
-  if (st.pace) { const p = a === 1 ? st.pace : 1 + (st.pace - 1) * a; d.pace = [base.pace[0] * p, base.pace[1] * p]; }
+  if (st.pace) {
+    const p = a === 1 ? st.pace : 1 + (st.pace - 1) * a;
+    d.shotSpeed = [base.shotSpeed[0] * p, base.shotSpeed[1] * p];
+  }
   if (st.back) d.backDepth = base.backDepth + st.back * a;
-  if (st.err) d.err = base.err * st.err;
+  if (st.err) { d.err = base.err * st.err; d.exec.sigmaT = base.exec.sigmaT * (1 + (st.err - 1) * 0.4); }
+  return d;
+}
+
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const pair = (v, def) => (Array.isArray(v) && v.length === 2 && Number.isFinite(v[0]) && Number.isFinite(v[1]) ? [Math.min(v[0], v[1]), Math.max(v[0], v[1])] : def.slice());
+
+/**
+ * A complete DIFFICULTY-shaped object from a partial / custom one (tour opponents): missing or
+ * non-numeric knobs come from Medium; legacy keys are understood (pace → shotSpeed, smashPace →
+ * smashSpeed, serve.pace → serve.speed, serve.fault1 / fault2 → the toss timing σ); any other
+ * keys (label, rating, styleKey, surface, surfaceApplied …) are kept as they are. A fresh object:
+ * obj is never mutated.
+ */
+export function normalizeDifficulty(obj) {
+  const M = DIFFICULTY.medium, o = isObj(obj) ? obj : {};
+  const d = { ...M, ...o };
+  d.serve = { ...M.serve, ...(isObj(o.serve) ? o.serve : {}) };
+  d.ret = { ...M.ret, ...(isObj(o.ret) ? o.ret : {}) };
+  d.exec = { ...M.exec, ...(isObj(o.exec) ? o.exec : {}) };
+  // every numeric knob stays a number (a missing / NaN one falls back to Medium's)
+  for (const k in M) if (typeof M[k] === 'number' && !Number.isFinite(d[k])) d[k] = M[k];
+  for (const g of ['serve', 'ret', 'exec']) for (const k in M[g]) if (typeof M[g][k] === 'number' && !Number.isFinite(d[g][k])) d[g][k] = M[g][k];
+  // legacy average paces (m/s over the court) → launch speeds
+  if (!o.shotSpeed && Array.isArray(o.pace)) d.shotSpeed = o.pace.map(p => 8 + 1.05 * p);
+  if (!o.smashSpeed && Array.isArray(o.smashPace)) d.smashSpeed = o.smashPace.map(p => 6 + 1.35 * p);
+  if (isObj(o.serve) && !o.serve.speed && Array.isArray(o.serve.pace)) d.serve.speed = o.serve.pace.map(p => 8 + 1.45 * p);
+  if (isObj(o.serve) && Number.isFinite(o.serve.fault1) && !Number.isFinite(o.serve.sigmaT1)) d.serve.sigmaT1 = clamp(0.02 + 0.2 * o.serve.fault1, 0.02, 0.09);
+  if (isObj(o.serve) && Number.isFinite(o.serve.fault2) && !Number.isFinite(o.serve.sigmaT2)) d.serve.sigmaT2 = clamp(0.012 + 0.35 * o.serve.fault2, 0.012, 0.06);
+  d.shotSpeed = pair(d.shotSpeed, M.shotSpeed);
+  d.smashSpeed = pair(d.smashSpeed, M.smashSpeed);
+  d.serve.speed = pair(d.serve.speed, M.serve.speed);
+  d.depth = pair(d.depth, M.depth);
+  for (const k of ['sigmaT', 'gw', 'sigmaC', 'tailT']) if (!Number.isFinite(d.exec[k]) || d.exec[k] < 0) d.exec[k] = M.exec[k];
+  if (!Number.isFinite(d.err)) d.err = M.err;
+  if (typeof d.label !== 'string') d.label = 'Opponent';
+  if (!Number.isFinite(d.xp)) d.xp = 1;
   return d;
 }
 
@@ -136,6 +196,7 @@ const START_MIN = [0.24, 0.24, 0.1, 0.1, 0.3];
 const LOW = [0.52, 0.45, 0.62, 0.55, 0.45];
 const HIGH = [0.85, 0.8, 0.5, 0.45, 0.55];
 const SWING_T = CT[0];     // forehand contact (drill feeds; kept for older imports)
+export const SERVE_PACE_REF = 24;   // a typical serve's average pace to the bounce (m/s): he stands deeper against faster ones
 const INF = Infinity;
 const clamp = THREE.MathUtils.clamp;
 const _v = new THREE.Vector3();
@@ -168,7 +229,25 @@ export class TennisAI {
   setDifficulty(key, surface = this.surface) {
     this.diffKey = DIFFICULTY[key] ? key : 'medium';
     this.surface = surface || 'hard';
+    this.custom = null;
     this.diff = difficultyFor(this.diffKey, this.surface);
+    this._resetStats();
+    this.tactics.scout.reset();
+  }
+
+  /**
+   * A custom opponent (the Junior Tour): a DIFFICULTY-shaped object (missing keys from Medium,
+   * legacy pace / fault keys understood, extra keys kept — normalizeDifficulty), played on
+   * `surface` with obj.surfaceAdapt (0..1, default 1) of that surface's style — none when
+   * obj.surfaceApplied (a table already made for the surface, e.g. blended from difficultyFor
+   * results: adapting it again would double the clay / grass offsets). diffKey reads 'tour'.
+   */
+  setCustomDifficulty(obj, surface = this.surface) {
+    this.diffKey = 'tour';
+    this.surface = surface || 'hard';
+    this.custom = normalizeDifficulty(obj);
+    const adapt = obj && obj.surfaceApplied ? 0 : obj && Number.isFinite(obj.surfaceAdapt) ? obj.surfaceAdapt : 1;
+    this.diff = adapt > 0 ? adaptDifficulty(this.custom, this.surface, adapt) : this.custom;
     this._resetStats();
     this.tactics.scout.reset();
   }
@@ -205,7 +284,7 @@ export class TennisAI {
     const s = this.s, f = s.frame, npc = this.npc, d = this.diff;
     if (s.mode === 'match' && s.srv && s.srv.who === 0 && Math.abs(Math.abs(v) - (HALF_L + 0.7)) < 0.05) {
       const r = d.ret;
-      let depth = HALF_L + r.back + (this.tactics.scout.servePace - 16) * r.paceBack;
+      let depth = HALF_L + r.back + (this.tactics.scout.servePace - SERVE_PACE_REF) * r.paceBack;
       if (s.srv.second) depth -= r.stepIn;
       depth = clamp(depth, HALF_L - 1.2, HALF_L + 1.6);
       v = Math.sign(v) * depth;
@@ -240,7 +319,7 @@ export class TennisAI {
     this.tSplit = this.tMove = this.tSwing = this.tRecover = this.tFaceNet = INF;
     this.plan.ok = false;
     const ret = s.fl.kind === 'serve';
-    this.inPace = s.fl.pace || Math.hypot(b.v0.x, b.v0.z);   // average pace to the bounce (the ball slows in the air)
+    this.inPace = s.fl.pace || 15;   // average pace to the bounce (the ball slows in the air)
     // Scouting: which wing hit it, did it go in, and the serve pace
     if (ret) { if (!s.fl.let) this.tactics.scout.onServe(this.inPace); }
     else if (s.swing && s.fl.hitter === 0) this.tactics.scout.onShot(s.swing.clip, willBeIn, s.pl.v * s.sides[0], s.pl.u);
@@ -313,7 +392,7 @@ export class TennisAI {
     const speed = netMode && myV < SERVICE_L + 0.5 ? d.speed * d.netSpeed : d.speed;
     let bestScore = INF;
     pl.ok = false;
-    const t1 = Math.min(t + 3.4, (s.fl.tGround === INF ? t + 3.4 : s.fl.tGround + 1.9));
+    const t1 = Math.min(t + 3.4, (s.fl.tGround === INF ? t + 3.4 : s.fl.tGround + 1.9), s.ball.tLive);
     for (let tt = t + 0.12; tt < t1; tt += 0.02) {
       const nb = pred.at(tt);
       const tot = s.ball.bounced + nb;
