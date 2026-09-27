@@ -34,6 +34,7 @@ import {
 import { PauseMenu } from './ui/PauseMenu.js';
 import { ShiftSystem } from './systems/ShiftSystem.js';
 import { ShiftReport } from './ui/ShiftReport.js';
+import { TourUI } from './ui/TourUI.js';
 import { MissionMarkers } from './systems/MissionMarkers.js';
 import { buildWorldFacts, DETECTABLE_AREAS, INDOOR_AREAS, OUTDOOR_EXTRA_AREAS } from './systems/MissionValidation.js';
 import { ITEMS } from './systems/InventorySystem.js';
@@ -777,7 +778,63 @@ class Game {
     this.shiftReport = new ShiftReport({
       onNextDay: () => this.startNextDay(),
       onTennis: () => { if (this.tennis) this.tennis.begin('report'); }, // after-hours tennis (src/tennis)
+      // Junior Tour (wired below): tonight's tournament match, the link to the tour hub
+      onTourMatch: (spec) => this.startTourMatch(spec),
+      getTourMatch: () => this.tour?.getTonight?.(this.weather.day) ?? null,
+      onTourHub: () => this.openTourHub({ tab: 'week' }),
+      getTourAvailable: () => !!this.tour?.accepted,
     });
+
+    // ── Tour UI wiring ──────────────────────────────────────────────────────────────────────
+    // The Junior Tour hub (TourUI), its story cards (Rafa's offer, Hank's crossroads, tournament
+    // results) and the pause-menu button. The tour (this.tour, TourSystem) is created later and may
+    // be missing: every call into it is guarded. Like the shop, the hub freezes the game as its own
+    // modal (no pause menu); over the pause menu or the report card the game is already paused.
+    {
+      let frozeGame = false;
+      this.tourUI = new TourUI({
+        getHub: () => this.tour?.getHub?.() ?? null,
+        enter: (id) => this.tour?.enter?.(id) ?? { ok: false, reason: 'The tour desk is closed right now.' },
+        withdraw: (id) => this.tour?.withdraw?.(id) ?? { ok: false, reason: 'The tour desk is closed right now.' },
+        canPlayTonight: () => !!this.shiftReport?.isOpen,
+        onPlayTonight: (spec) => this.startTourMatch(spec),
+        onFeedback: (kind) => { if (kind === 'error') this.sound.playUIClick(); },
+        onOpen: () => {
+          if (this.paused) return;
+          this.pause('tour');
+          frozeGame = this.paused;
+          if (this.pauseMenu?.isOpen) this.pauseMenu.close(); // pause() opens it for reasons it doesn't list
+          this.pauseMenu?.setButtonVisible(false);
+        },
+        onClose: ({ changed } = {}) => {
+          this.hud?.setWallet(this.shift.wallet, true); // entry fees / prize money
+          if (frozeGame) {
+            frozeGame = false;
+            this.pauseMenu?.setButtonVisible(true);
+            if (this.paused && this.pauseReason === 'tour') this.resume();
+          }
+          if (changed) this.saveGame();
+        },
+      });
+      /** Open the tour hub: opts { tab: 'week' | 'draw' | 'rankings' | 'calendar' | 'profile' | 'scouting' }. */
+      this.openTourHub = (opts) => this.tourUI.open(opts);
+      /** Play a tournament match (report card / hub "Play now"): TennisSession's tour mode at the venue. */
+      this.startTourMatch = (spec) => {
+        if (!spec) return false;
+        try {
+          if (typeof this.tennis?.beginTour === 'function') return this.tennis.beginTour(spec) !== false;
+          if (typeof this.tour?.playMatch === 'function') return this.tour.playMatch(spec) !== false;
+        } catch (err) {
+          console.error('Tour match:', err);
+        }
+        return false;
+      };
+      PauseMenu.setTourHooks({
+        getTourAvailable: () => !!this.tour?.accepted,
+        onTour: () => this.openTourHub({ tab: 'week' }),
+      });
+    }
+    // ── end Tour UI wiring ──
   }
 
   /** Clock in (clock-in card, or the end of the first-day tutorial). */
