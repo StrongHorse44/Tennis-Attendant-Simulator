@@ -16,6 +16,7 @@
  */
 
 import { sanitizeProfile } from './PlayerProfile.js';
+import { groundAt, inFootprint, pushOutOfFootprint } from '../world/Ground.js';
 
 export const SAVE_KEY = 'courtcall.save.v1';
 export const SAVE_BACKUP_KEY = 'courtcall.save.v1.backup';
@@ -25,6 +26,10 @@ export const SAVE_VERSION = 1;
 const WEATHERS = ['sunny', 'cloudy', 'rainy', 'windy'];
 const GROOM_RATINGS = ['needsWork', 'good', 'excellent'];
 const MAX_COORD = 1000;
+// Saved body heights: the sunken Centre Court floor is at y −2.85 (bodies rest ≈ −2.5), so the
+// floor of the clamp is −6 (was −1); the ground-aware restore below lifts anything under its ground.
+const MIN_Y = -6, MAX_Y = 20;
+const _push = { x: 0, z: 0 };
 
 // ───────────────────────────── storage helpers ─────────────────────────────
 
@@ -80,7 +85,7 @@ function sanitizePos(p) {
   if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > MAX_COORD || Math.abs(z) > MAX_COORD) return null;
   return {
     x,
-    y: Number.isFinite(y) ? Math.min(20, Math.max(-1, y)) : 1,
+    y: Number.isFinite(y) ? Math.min(MAX_Y, Math.max(MIN_Y, y)) : 1,
     z,
     // Wrap (not clamp): rotation.y is unbounded after walking in circles
     yaw: Number.isFinite(p.yaw) ? Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)) : 0,
@@ -507,7 +512,14 @@ export function applySaveData(game, data) {
   step('cart', () => {
     if (!data.cart) return;
     const c = data.cart;
-    placeBody(cart.body, c.x, Math.max(c.y, 0.2), c.z, c.yaw);
+    // The cart never goes down into the Centre Court bowl (the rail stops it): a save (or a crafted
+    // one) with it inside the stadium footprint puts it back on the lawn beside it
+    let cx = c.x, cz = c.z;
+    if (inFootprint(cx, cz, 0.3)) {
+      pushOutOfFootprint(cx, cz, 1.6, _push);
+      cx = _push.x; cz = _push.z;
+    }
+    placeBody(cart.body, cx, Math.max(c.y, 0.2), cz, c.yaw);
     cart.currentSpeed = 0;
     if (typeof cart._syncMesh === 'function') cart._syncMesh();
     if (c.hasBrush && !cart.hasBrush) cart.attachBrush();
@@ -518,11 +530,16 @@ export function applySaveData(game, data) {
     if (player.isInCart) player.exitCart();
     if (data.player) {
       const p = data.player;
-      placeBody(player.body, p.x, Math.max(p.y, 0.3), p.z);
+      // Ground-aware: never under the ground at (x, z) (0 on the flat club, a stand row or the
+      // pit floor in the Centre Court bowl); a body above it (an old save over the stands) drops
+      // onto the row below
+      const gy = groundAt(p.x, p.z);
+      placeBody(player.body, p.x, Math.max(p.y, gy + 0.3), p.z);
       if (player.mesh) {
-        player.mesh.position.set(p.x, 0, p.z);
+        player.mesh.position.set(p.x, gy, p.z);
         player.mesh.rotation.y = p.yaw;
       }
+      if (typeof player.snapToGround === 'function') player.snapToGround(gy);
       if (player.facing) player.facing.set(Math.sin(p.yaw), 0, Math.cos(p.yaw));
     }
     if (data.inCart) {
