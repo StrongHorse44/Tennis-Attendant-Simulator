@@ -544,7 +544,7 @@ export class TennisHUD {
         <div class="cct-seg" data-m="surface" role="group" aria-label="Court surface">
           <button type="button" class="cc-btn" data-v="hard">Hard<small>Court 1</small></button>
           <button type="button" class="cc-btn" data-v="clay">Clay<small>Court 5</small></button>
-          <button type="button" class="cc-btn" data-v="grass">Grass<small>Court 2</small></button>
+          <button type="button" class="cc-btn" data-v="grass">Grass<small>Centre Court</small></button>
         </div>
         <div class="cct-surf" data-m="surfnote"></div>
         <div class="cct-seg" data-m="wind" role="group" aria-label="Wind">

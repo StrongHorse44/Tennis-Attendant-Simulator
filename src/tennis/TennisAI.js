@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { SIZES } from '../utils/Constants.js';
 import { getClipEventRacketPoint, CLIP_DEFS } from '../entities/CharacterAnimations.js';
-import { BallPredictor, HALF_L, SERVICE_L } from './TennisBallSim.js';
+import { BallPredictor, HALF_L, SERVICE_L, SURF } from './TennisBallSim.js';
 import { RafaTactics } from './TennisTactics.js';
 
 /**
@@ -203,6 +204,13 @@ export class TennisAI {
     npc.body.position.x = x; npc.body.position.z = z;
     npc.body.velocity.set(0, 0, 0);
     npc.mesh.position.x = x; npc.mesh.position.z = z;
+    // Coming from another level (the lawn → the sunken Centre Court, or back): straight onto this
+    // court's surface instead of a fall through the bowl (a flat court's pad is within 0.3 already)
+    const nr = SIZES.npcRadius;
+    if (Math.abs(npc.body.position.y - (SURF + nr)) > 0.3) {
+      npc.body.position.y = SURF + nr + 0.02;
+      npc.mesh.position.y = SURF;
+    }
     npc.mesh.rotation.y = this.yaw;
     npc.setFacing(this.yaw, true);
     this.reset();

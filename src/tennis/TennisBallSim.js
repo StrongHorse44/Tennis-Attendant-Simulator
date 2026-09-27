@@ -28,13 +28,27 @@ import { createCanvasTexture } from '../graphics/Textures.js';
  * low and fast (grass), and gyro spin kicks sideways. The ball and BallPredictor share the same
  * functions, so the AI and the timing ring read exactly the flight that will happen.
  *
- * Also exports the court constants shared by the tennis modules.
+ * Also exports the court constants shared by the tennis modules. Heights: SURF / BALL_Y are live
+ * bindings for the session's court (setCourtBase): a flat court's frame sits at y 0 (SURF 0.15),
+ * the sunken Centre Court's at its map.json center.y (SURF −2.85). Session-only state: no daytime
+ * system may import SURF / BALL_Y (MatchSystem keeps its own court frames).
  */
 
 export const G = GRAVITY;
 export const R = BALL_RADIUS;
-export const SURF = SIZES.courtSurfaceY ?? 0.15;
-export const BALL_Y = SURF + R;          // ball centre touching the court
+export const SURF_REL = SIZES.courtSurfaceY ?? 0.15;   // court surface above the court's frame
+export let SURF = SURF_REL;              // court surface (world y) of the session's court
+export let BALL_Y = SURF + R;            // ball centre touching the court
+
+/**
+ * Move the playing surface to a court whose frame sits at world y `y0` (court.baseY: 0 for the
+ * flat courts, below the lawn for the sunken show court). Every importer sees the new SURF /
+ * BALL_Y (ES module live bindings); TennisSession._applyCourtBase calls it on a court change.
+ */
+export function setCourtBase(y0) {
+  SURF = (Number.isFinite(y0) ? y0 : 0) + SURF_REL;
+  BALL_Y = SURF + R;
+}
 export const HALF_L = 12.3;              // baseline (court-local v)
 export const SINGLES_W = 4.65;           // singles sideline (court-local u)
 export const SERVICE_L = 6.62;           // service line
