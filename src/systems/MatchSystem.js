@@ -568,6 +568,8 @@ export class MatchSystem {
           const gy = groundAt(g.x, g.z);
           b.y = gy + SIZES.npcRadius + 0.02;
           npc.mesh.position.y = gy;
+          // (the NPC's eased ground-follow state too: a short or vertical-only hop doesn't snap by itself)
+          npc.snapToGround(gy);
         }
         npc.body.velocity.set(0, 0, 0);
         p.ri = p.route.length;
