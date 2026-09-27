@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
-import { getMaterial, registerWet, registerNightGlow } from '../graphics/Materials.js';
+import { mat, getMaterial, registerWet, registerNightGlow } from '../graphics/Materials.js';
 import { Textures, createCanvasTexture, seededRandom } from '../graphics/Textures.js';
 import { roundedBox, boxGeo, cylinderGeo, sphereGeo, getGeometry, mergeParts, makeMatrix } from '../graphics/GeometryUtils.js';
 import { EnvState } from '../graphics/EnvState.js';
@@ -28,6 +28,11 @@ import { withOcclusionFade } from '../graphics/OcclusionFade.js';
  * no chain-link, fence bodies, light poles or signs, low end boards behind the baselines instead,
  * a body over the umpire chair, and no slab body (the stadium's pit-floor plane carries it;
  * slabBounds, with its y, stays for TennisCrowd). About 5 draw calls.
+ *
+ * Venue courts (Venues.js: the Junior Tour's other clubs) pass constructor opts — paint colours,
+ * a sponsor windscreen material, the fence style (chain-link / full windscreen / hedge / none,
+ * reach, height, side runs), no poles / signs / stray balls, a shared surface material — and are
+ * disposed again (dispose(), setBodiesEnabled()). Without opts a court builds exactly as before.
  *
  * Clay grooming API (used by CourtMaintenanceSystem, SaveSystem and match play):
  *   id, config, isClay, gridRows, gridCols (paint-mask size), cellSize, maskBounds,
@@ -450,6 +455,39 @@ export function courtOcclusionTwin(material) {
 }
 
 /**
+ * Give an opaque material (a venue windscreen, a hedge...) a see-through twin so after-hours
+ * tennis fades it like the court's own: withOcclusionFade(material.clone()), which shares the
+ * program of the court twins as long as the material's program parameters match one (a plain
+ * MeshStandardMaterial with a map, or with vertex colours). Returns the twin. Pair it with
+ * unregisterOcclusionTwin() when the material is disposed (Venues does).
+ */
+export function registerOcclusionTwin(material) {
+  if (!material) return null;
+  let twin = _shared.twins.get(material);
+  if (!twin) {
+    twin = withOcclusionFade(material.clone());
+    twin.name = `${material.name || 'material'}Occ`;
+    _shared.twins.set(material, twin);
+  }
+  return twin;
+}
+
+/** Forget (and dispose) a twin made by registerOcclusionTwin(). */
+export function unregisterOcclusionTwin(material) {
+  const twin = material ? _shared.twins.get(material) : null;
+  if (!twin) return;
+  _shared.twins.delete(material);
+  twin.dispose();
+}
+
+/** The hedge material (the garden's) with its see-through twin: a court's `fence.style: 'hedge'`. */
+function hedgeMaterial() {
+  const m = mat(0xffffff, { map: Textures.hedge({ repeat: [1, 1] }), roughness: 0.95, wet: 0.35, name: 'hedge' });
+  registerOcclusionTwin(m);
+  return m;
+}
+
+/**
  * The court floodlights' lamp-glass material (glows with EnvState.lampFactor). Shared so other
  * floodlights (the Centre Court masts, the stadium arch lanterns) reuse its program.
  */
@@ -516,6 +554,22 @@ function tiledPlane(w, h, uScale, vScale, uOffset = 0) {
   return g;
 }
 
+/** Box-projected UVs in world units / tile (geometry already in place), e.g. a hedge block. */
+function projectUV(geo, tile) {
+  const p = geo.attributes.position, n = geo.attributes.normal;
+  const uv = new Float32Array(p.count * 2);
+  for (let i = 0; i < p.count; i++) {
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i));
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    let u, v;
+    if (ay >= ax && ay >= az) { u = x; v = z; } else if (ax >= az) { u = z; v = y; } else { u = x; v = y; }
+    uv[i * 2] = u / tile;
+    uv[i * 2 + 1] = v / tile;
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return geo;
+}
+
 function hashStr(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -554,11 +608,33 @@ export class Court {
    * @param {object} [opts]
    * @param {{left:boolean, right:boolean}} [opts.sharedPad] sides whose surround continues into
    *   the neighbour's (World passes sharedPadSides(config, allConfigs); default: none)
+   *
+   * Venue options (Venues.js builds other clubs' courts with them; every club court leaves them
+   * unset and builds exactly as before):
+   * @param {{inner?:number, outer?:number, line?:number, curb?:number}} [opts.colors] paint
+   *   (hard: court / surround, any surface: lines, curbs)
+   * @param {THREE.Material} [opts.windscreenMaterial] the windscreen panels' material (a venue's
+   *   sponsor screens; give it a twin with registerOcclusionTwin so it fades like the club's)
+   * @param {{style?:'chainlink'|'windscreen'|'hedge'|'none', halfU?:number, height?:number,
+   *   sides?:boolean}} [opts.fence] back fences: 'chainlink' (default: screen to 1.9 m, chain-link
+   *   above), 'windscreen' (screen to 0.3 m under the top), 'hedge' (clipped hedges), 'none'
+   *   (visuals only: the fence bodies stay, the ball physics keeps its back wall); halfU = reach
+   *   across (default 9), height (default SIZES.fenceHeight); sides: side fences at ±halfU too
+   *   (hedges: low ones)
+   * @param {boolean} [opts.lights=true] the four corner floodlight poles
+   * @param {boolean} [opts.signs=true] the "COURT n" boards
+   * @param {boolean} [opts.strayBalls=true] loose balls by the back fences
+   * @param {string} [opts.surfaceMaterialKey] share one cached surface material per key and
+   *   surface (its uniforms take this court's values): courts that are rebuilt again and again
+   *   (one venue at a time) don't pile up materials in the wetness registry
    */
   constructor(scene, physicsWorld, config, opts = {}) {
     this.scene = scene;
     this.physicsWorld = physicsWorld;
     this.config = config;
+    this._opts = opts || {};
+    /** Every static body this court added (net, fences, slab, show-court boards / chair). */
+    this.bodies = [];
     this.mesh = new THREE.Group();
     this.mesh.name = `court:${config.id}`;
     this.id = config.id;
@@ -1078,7 +1154,7 @@ export class Court {
     this._mats = sharedMaterials();
     const twinGroup = twinPrecompileGroup();
     if (twinGroup) this.mesh.add(twinGroup);
-    this._parts = { matte: [], metal: [], chain: [], wind: [], net: [], sign: [], glass: [] };
+    this._parts = { matte: [], metal: [], chain: [], wind: [], net: [], sign: [], glass: [], hedge: [] };
     this._halo = [];
     this._rand = seededRandom(hashStr(this.id));
 
@@ -1095,10 +1171,10 @@ export class Court {
       this._addEndBoards(center);
     } else {
       this._addFence(center, w, d);
-      this._addLights(w, d);
+      if (this._opts.lights !== false) this._addLights(w, d);
     }
     this._addFurniture(w);
-    if (!this.isStadium) this._addSigns(d);
+    if (!this.isStadium && this._opts.signs !== false) this._addSigns(d);
     this._finalizeParts();
 
     // Physics: ONE static slab per court covering the playing surface and the
@@ -1120,7 +1196,45 @@ export class Court {
         shape: new CANNON.Box(new CANNON.Vec3(pw / 2, 0.1, pd / 2)),
       });
       this.physicsWorld.addBody(this.slabBody);
+      this.bodies.push(this.slabBody);
     }
+  }
+
+  /**
+   * Take this court's bodies out of the physics world (false) or put them back (true): a venue
+   * court kept cached while the club is played. World-merged slabs are left alone.
+   */
+  setBodiesEnabled(on) {
+    const W = this.physicsWorld;
+    if (!W) return;
+    for (const b of this.bodies) {
+      const inWorld = W.bodies.includes(b);
+      if (on && !inWorld) W.addBody(b);
+      else if (!on && inWorld) W.removeBody(b);
+    }
+  }
+
+  /**
+   * Remove the court for good: out of its parent, its bodies out of the physics world, its own
+   * geometries, lamp halos and clay mask texture disposed (shared materials and cached
+   * geometries stay). Only for courts built on demand (Venues.js); the club never disposes one.
+   */
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.setBodiesEnabled(false);
+    if (this.mesh.parent) this.mesh.parent.remove(this.mesh);
+    for (const ch of this.mesh.children) {
+      if (ch.name === 'courtOcclusionTwins') continue;
+      if (ch.isPoints) {
+        const i = _shared.halos.indexOf(ch);
+        if (i >= 0) _shared.halos.splice(i, 1);
+      }
+      if ((ch.isMesh || ch.isPoints) && ch.geometry) ch.geometry.dispose();
+    }
+    if (this.dirtTexture) this.dirtTexture.dispose();
+    if (this.surfaceMesh && !this._opts.surfaceMaterialKey) this.surfaceMesh.material.dispose();
+    this.bodies.length = 0;
   }
 
   /**
@@ -1152,6 +1266,7 @@ export class Court {
         shape: new CANNON.Box(new CANNON.Vec3(halfU, h / 2, t / 2)),
       });
       this.physicsWorld.addBody(body);
+      this.bodies.push(body);
     }
   }
 
@@ -1171,13 +1286,14 @@ export class Court {
     geo.rotateX(-Math.PI / 2);
     geo.translate((p.x0 + p.x1) / 2, SURFACE_Y, 0);
 
+    const paint = this._opts.colors || {};
     const uniforms = {
       uCenter: { value: new THREE.Vector2(center.x, center.z) },
       uCourt: { value: new THREE.Vector4(HALF_W, HALF_L, SINGLES_W, SERVICE_L) },
       uLW: { value: new THREE.Vector2(LINE_W, BASELINE_W) },
-      uLineColor: { value: new THREE.Color(COLORS.courtLine) },
-      uInner: { value: new THREE.Color(COLORS.courtHardInner) },
-      uOuter: { value: new THREE.Color(COLORS.courtHardOuter) },
+      uLineColor: { value: new THREE.Color(paint.line ?? COLORS.courtLine) },
+      uInner: { value: new THREE.Color(paint.inner ?? COLORS.courtHardInner) },
+      uOuter: { value: new THREE.Color(paint.outer ?? COLORS.courtHardOuter) },
       uBaseMap: {
         value: this.isClay ? Textures.clay() : this.isGrass ? Textures.grassCourt({ tone: COLORS.courtGrass }) : Textures.acrylic(),
       },
@@ -1198,7 +1314,24 @@ export class Court {
     }
     this._surfaceUniforms = uniforms;
 
-    const surface = new THREE.Mesh(geo, createSurfaceMaterial(this.surface, uniforms));
+    let material;
+    const key = this._opts.surfaceMaterialKey;
+    if (key) {
+      // One material per key + surface, rebuilt courts write their values into its uniforms
+      material = getMaterial(`${key}|${this.surface}`, () => {
+        const m = createSurfaceMaterial(this.surface, uniforms);
+        m.userData.courtUniforms = uniforms;
+        return m;
+      });
+      const shared = material.userData.courtUniforms;
+      if (shared && shared !== uniforms) {
+        for (const k of Object.keys(uniforms)) if (shared[k]) shared[k].value = uniforms[k].value;
+        this._surfaceUniforms = shared;
+      }
+    } else {
+      material = createSurfaceMaterial(this.surface, uniforms);
+    }
+    const surface = new THREE.Mesh(geo, material);
     surface.receiveShadow = true;
     surface.userData.noMerge = true;
     surface.name = 'courtSurface';
@@ -1210,7 +1343,7 @@ export class Court {
   _addCurbs() {
     const p = this._pad;
     const h = SURFACE_Y + 0.025;
-    const c = this.isClay ? COLORS.courtCurb : this.isGrass ? COLORS.courtGrassCurb : 0x2c5a40;
+    const c = this._opts.colors?.curb ?? (this.isClay ? COLORS.courtCurb : this.isGrass ? COLORS.courtGrassCurb : 0x2c5a40);
     const pw = p.x1 - p.x0;
     const midX = (p.x0 + p.x1) / 2;
     // back edges (under the fences)
@@ -1286,53 +1419,37 @@ export class Court {
       shape: netShape,
     });
     this.physicsWorld.addBody(netBody);
+    this.bodies.push(netBody);
   }
 
   _addFence(center, w, d) {
-    const fenceH = SIZES.fenceHeight;
-    const green = COLORS.courtFenceGreen;
+    // Venue options (defaults: the club's 3 m chain-link over a 1.9 m windscreen, see constructor)
+    const fo = this._opts.fence || {};
+    const style = fo.style || 'chainlink';
+    const fenceH = Number.isFinite(fo.height) ? fo.height : SIZES.fenceHeight;
+    const halfU = Number.isFinite(fo.halfU) ? fo.halfU : null;
+    const green = fo.color ?? COLORS.courtFenceGreen;
+    const wsTop = style === 'windscreen' ? fenceH - 0.3 : WIND_TOP;
 
     // Back fences (behind baselines) — physics unchanged
     const fences = [
-      { pos: [0, fenceH / 2, -d / 2 - 0.5], size: [w + 2, fenceH, 0.1] },
-      { pos: [0, fenceH / 2, d / 2 + 0.5], size: [w + 2, fenceH, 0.1] },
+      { pos: [0, fenceH / 2, -d / 2 - 0.5], size: [halfU !== null ? 2 * halfU : w + 2, fenceH, 0.1] },
+      { pos: [0, fenceH / 2, d / 2 + 0.5], size: [halfU !== null ? 2 * halfU : w + 2, fenceH, 0.1] },
     ];
 
     // Visual extents: trim where a neighbouring court's fence continues (no overlap / z-fight)
-    const x0 = this.config.adjacentLeft ? -w / 2 : -w / 2 - 1;
-    const x1 = this.config.adjacentRight ? w / 2 : w / 2 + 1;
+    const x0 = halfU !== null ? -halfU : this.config.adjacentLeft ? -w / 2 : -w / 2 - 1;
+    const x1 = halfU !== null ? halfU : this.config.adjacentRight ? w / 2 : w / 2 + 1;
     const L = x1 - x0;
     const midX = (x0 + x1) / 2;
-    const linkH = fenceH - WIND_TOP + 0.02;
-    const tiles = Math.max(1, Math.round(L / 8));
-    const baseY = 0;
 
-    for (const f of fences) {
-      const z = f.pos[2];
-      // chain-link above the windscreen
-      this._parts.chain.push({
-        geometry: tiledPlane(L, linkH, L / 0.42, linkH / 0.42),
-        matrix: makeMatrix(midX, WIND_TOP - 0.02 + linkH / 2, z),
-      });
-      // windscreen: two single-sided panels so the lettering reads correctly from both sides
-      const wsH = WIND_TOP - 0.05;
-      const wsGeo = getGeometry(`courtWind|${L}|${wsH}|${tiles}`, () => tiledPlane(L, wsH, tiles, 1));
-      this._parts.wind.push({ geometry: wsGeo, matrix: makeMatrix(midX, 0.05 + wsH / 2, z + 0.012) });
-      this._parts.wind.push({ geometry: wsGeo, matrix: makeMatrix(midX, 0.05 + wsH / 2, z - 0.012, Math.PI) });
-
-      // posts
-      const n = Math.max(1, Math.ceil(L / 3.2));
-      for (let i = 0; i <= n; i++) {
-        if (i === 0 && this.config.adjacentLeft) continue;
-        const x = x0 + (L * i) / n;
-        const end = i === 0 || i === n;
-        const r = end ? 0.06 : 0.045;
-        this._add('metal', cylinderGeo(r, r, fenceH + 0.05, 8), x, baseY + (fenceH + 0.05) / 2, z, green);
-        this._add('metal', sphereGeo(r * 1.15, 8, 5), x, fenceH + 0.05, z, green);
-      }
-      // rails: top, windscreen top, bottom tension
-      for (const [y, r] of [[fenceH, 0.035], [WIND_TOP, 0.025], [0.08, 0.018]]) {
-        this._add('metal', cylinderGeo(r, r, L, 6), midX, y, z, green, 0, 1, 0, Math.PI / 2);
+    if (style === 'hedge') this._addHedges(x0, x1, d / 2 + 0.5, fenceH, fo.sides);
+    else if (style !== 'none') {
+      for (const f of fences) this._addFenceRun(midX, f.pos[2], L, 0, fenceH, wsTop, green, x0, this.config.adjacentLeft && halfU === null);
+      if (fo.sides) {
+        // Side fences along the pads' long edges (corner posts shared with the back runs)
+        const fz = d / 2 + 0.5;
+        for (const x of [x0, x1]) this._addFenceRun(x, 0, 2 * fz, Math.PI / 2, fenceH, wsTop, green, -fz, true, true);
       }
     }
 
@@ -1345,6 +1462,71 @@ export class Court {
         shape: fenceShape,
       });
       this.physicsWorld.addBody(fenceBody);
+      this.bodies.push(fenceBody);
+    }
+  }
+
+  /**
+   * One straight fence run of length L centred on (cx, cz), turned ry about y (0: along x, the
+   * back fences): chain-link above wsTop, the windscreen below it (two single-sided panels so the
+   * lettering reads from both sides), posts every ≤ 3.2 m (a0 = the run's start in its along
+   * coordinate; skipFirst / skipLast leave out an end post shared with another run) and rails.
+   */
+  _addFenceRun(cx, cz, L, ry, fenceH, wsTop, green, a0, skipFirst = false, skipLast = false) {
+    const linkH = fenceH - wsTop + 0.02;
+    const tiles = Math.max(1, Math.round(L / 8));
+    const baseY = 0;
+    const nx = Math.sin(ry), nz = Math.cos(ry);     // the panels' normal
+    const dx = Math.cos(ry), dz = -Math.sin(ry);    // along the run
+    // chain-link above the windscreen
+    this._parts.chain.push({
+      geometry: tiledPlane(L, linkH, L / 0.42, linkH / 0.42),
+      matrix: makeMatrix(cx, wsTop - 0.02 + linkH / 2, cz, ry),
+    });
+    // windscreen: two single-sided panels so the lettering reads correctly from both sides
+    const wsH = wsTop - 0.05;
+    const wsGeo = getGeometry(`courtWind|${L}|${wsH}|${tiles}`, () => tiledPlane(L, wsH, tiles, 1));
+    this._parts.wind.push({ geometry: wsGeo, matrix: makeMatrix(cx + nx * 0.012, 0.05 + wsH / 2, cz + nz * 0.012, ry) });
+    this._parts.wind.push({ geometry: wsGeo, matrix: makeMatrix(cx - nx * 0.012, 0.05 + wsH / 2, cz - nz * 0.012, ry + Math.PI) });
+
+    // posts
+    const n = Math.max(1, Math.ceil(L / 3.2));
+    const aMid = a0 + L / 2;
+    for (let i = 0; i <= n; i++) {
+      if ((i === 0 && skipFirst) || (i === n && skipLast)) continue;
+      const a = a0 + (L * i) / n;
+      const x = ry === 0 ? a : cx + (a - aMid) * dx;
+      const z = ry === 0 ? cz : cz + (a - aMid) * dz;
+      const end = i === 0 || i === n;
+      const r = end ? 0.06 : 0.045;
+      this._add('metal', cylinderGeo(r, r, fenceH + 0.05, 8), x, baseY + (fenceH + 0.05) / 2, z, green);
+      this._add('metal', sphereGeo(r * 1.15, 8, 5), x, fenceH + 0.05, z, green);
+    }
+    // rails: top, windscreen top, bottom tension
+    for (const [y, r] of [[fenceH, 0.035], [wsTop, 0.025], [0.08, 0.018]]) {
+      this._add('metal', cylinderGeo(r, r, L, 6), cx, y, cz, green, ry, 1, 0, Math.PI / 2);
+    }
+  }
+
+  /**
+   * Clipped hedges instead of fences (a lawn club): a tall hedge behind each baseline (its court
+   * face on the fence line) across x0..x1, and, with `sides`, low hedges along the side edges
+   * with a gap either side of the net. Merged into the fadeable 'hedge' bucket.
+   */
+  _addHedges(x0, x1, fz, fenceH, sides) {
+    const h = Math.min(fenceH, 2.1), depth = 0.9, L = x1 - x0;
+    const piece = (w, hh, dd, x, y, z) => {
+      const g = roundedBox(w, hh, dd, 0.16, 2).clone();
+      g.applyMatrix4(_m4.makeTranslation(x, y, z));
+      projectUV(g, 2.5);
+      this._parts.hedge.push({ geometry: g, matrix: null });
+    };
+    for (const sz of [-1, 1]) piece(L, h, depth, (x0 + x1) / 2, h / 2, sz * (fz + depth / 2));
+    if (sides) {
+      const sh = 0.95, gap = 1.6, len = fz - gap;
+      for (const x of [x0 - 0.35, x1 + 0.35]) {
+        for (const sz of [-1, 1]) piece(0.7, sh, len, x, sh / 2, sz * (gap + len / 2));
+      }
     }
   }
 
@@ -1402,6 +1584,7 @@ export class Court {
             shape: new CANNON.Box(new CANNON.Vec3(0.5, 1.2, 0.6)),
           });
           this.physicsWorld.addBody(body);
+          this.bodies.push(body);
         }
         this._addBench(-sideX, -2.3, 1);
         this._addBench(-sideX, 2.3, 1);
@@ -1417,9 +1600,9 @@ export class Court {
     if (!this.isClay && !umpire) this._addBallHopper(4.2, -13.2);
     if (this.isClay && !this.config.adjacentRight) this._addBallHopper(-4.5, 13.3);
 
-    // Stray balls near the back fences
+    // Stray balls near the back fences (a venue's tournament court is swept clean)
     const r = this._rand;
-    const nBalls = 3 + Math.floor(r() * 3);
+    const nBalls = this._opts.strayBalls === false ? 0 : 3 + Math.floor(r() * 3);
     for (let i = 0; i < nBalls; i++) {
       const x = (r() - 0.5) * (w - 2);
       let z = (r() < 0.5 ? -1 : 1) * (13.4 + r() * 0.9);
@@ -1586,14 +1769,16 @@ export class Court {
       ['matte', M.matte, true, true],
       ['metal', M.metal, true, true],
       ['chain', M.chainLink, false, true],
-      ['wind', M.windscreen, true, true],
+      ['wind', this._opts.windscreenMaterial || M.windscreen, true, true],
       ['net', M.net, false, true],
       ['sign', M.sign, false, true],
       ['glass', M.lampGlass, false, false],
+      ['hedge', null, true, true],
     ];
-    for (const [key, material, cast, receive] of spec) {
+    for (const [key, specMaterial, cast, receive] of spec) {
       const parts = this._parts[key];
       if (!parts.length) continue;
+      const material = specMaterial || hedgeMaterial();   // (only a hedge fence has hedge parts)
       const geo = mergeParts(parts);
       const mesh = new THREE.Mesh(geo, material);
       mesh.name = `court-${key}`;

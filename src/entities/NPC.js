@@ -549,7 +549,9 @@ export class NPC {
     this.mesh = new THREE.Group();
     this.mesh.name = `NPC:${this.id}`;
 
-    const style = { ...(NPC_STYLES[this.id] || this._deriveStyle()) };
+    // (an explicit data.style: a visiting Junior Tour player, dressed by TourMatch)
+    const own = this.data.style && typeof this.data.style === 'object' ? this.data.style : null;
+    const style = { ...(NPC_STYLES[this.id] || own || this._deriveStyle()) };
     style.shirt = this.shirtColor;
     this.style = style;
 

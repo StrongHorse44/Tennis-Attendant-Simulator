@@ -5,27 +5,49 @@ import { NPC, bowlGroundLeg } from '../entities/NPC.js';
 import { CameraTracker, hashString } from '../entities/CharacterModel.js';
 import { getClipEventRacketPoint } from '../entities/CharacterAnimations.js';
 import { findSeats, claimSeat } from '../entities/Seats.js';
-import { TennisBall, BALL_RADIUS, GRAVITY as G } from '../entities/TennisBall.js';
+import { TennisBall, BALL_RADIUS } from '../entities/TennisBall.js';
 import { RoutePlanner } from './RoutePlanner.js';
 import { parseHour } from './MissionValidation.js';
 import { Quality } from '../graphics/Quality.js';
+import { EnvState } from '../graphics/EnvState.js';
 import { groundAt, inCut, inFootprint, isWanderable, levelOf, sameLevel, planLevelRoute, getGroundModel } from '../world/Ground.js';
 import { roomAt } from '../world/NavRooms.js';
+import { makeShot } from '../tennis/ShotMaker.js';
+import { SURFACES, SPIN, HALF_L, SINGLES_W, SERVICE_L, LINE_TOL } from '../tennis/TennisPhysics.js';
 
 /**
  * MatchSystem — members play tennis on a court schedule (public/data/schedule.json).
  *
- * Flow per match: walk in (fence-aware route) → warm-up rally → points (serve with toss, rally,
- * errors into the net / out, winners) with no-ad game scoring → handshake at the net and
- * reactions → walk off to a preferred area. Rain sends players to the nearest benches and
- * resumes when it clears; a clay court being groomed ends its match; talking to a player
- * pauses the rally (the point is replayed).
+ * Flow per match: walk in (fence-aware route) → warm-up rally → points (serve with toss, rally)
+ * with no-ad game scoring → handshake at the net and reactions → walk off to a preferred area.
+ * Rain sends players to the nearest benches and resumes when it clears; a clay court being
+ * groomed ends its match; talking to a player pauses the rally (the point is replayed).
  *
- * The ball is analytic: each flight segment is a parabola on the match clock, and every racket
- * contact is planned ahead — the receiver runs to the spot where the racket head will meet the
- * ball (CharacterAnimations contact probe) and starts the swing exactly `contact` seconds early.
- * At swing start the remaining flight is re-aimed at the real racket position, so the ball
- * visibly meets the strings. Nothing here allocates per frame; one pooled ball per court.
+ * Real physics, the same as the after-hours tennis: every ball flies an integrated BallFlight
+ * (tennis/BallFlight.js: gravity, drag, Magnus lift, spin decay, the club's wind, the court's
+ * friction bounce, the net / net cord, the back fence or Centre Court's end boards, the stands,
+ * rolling to rest) and every shot comes out of the racket–ball impact pipeline
+ * (tennis/ShotMaker.makeShot). Nothing decides an outcome up front:
+ *  - The hitter picks an intention from their npcs.json `tennis` block (memberProfile: the skill
+ *    — the level follows it — and the style's leanings): a target (rally depth and width, a serve to the box — wide / T / body — an
+ *    attack into the open court off a short ball, a high defensive ball when stretched, a
+ *    moonball), a pace, a net margin and a spin (topspin / slice / flat / kick by style).
+ *  - Its execution is sampled from the same skill (memberExec): a timing error (σ by skill, wider
+ *    when stretched, rushed, taking it on the rise or low; a mishit tail) against the stroke's
+ *    green window, and where the ball meets the strings. Inside the window the stroke adapts and
+ *    the ball lands on its target; outside it the face turns and tilts and the swing slows, so
+ *    errors emerge physically — into the net, long, wide — and a faster, bolder intention is
+ *    riskier. Serve faults and double faults come from the same pipeline.
+ *  - In / out / net is read off the real flight (judgeFlight: the net-plane event, the first
+ *    bounce against the lines / the service box, a net cord on a serve = a let). The receiver
+ *    plans a contact on the real flight (planContact: at the peak after the bounce when it is in
+ *    the racket's reach — a small hop into it — else where it comes down or rises through the
+ *    strike zone), runs there and swings; a ball nobody can reach in time is a winner.
+ * The receiver's racket meets the ball because the player moves, not the ball: at swing start the
+ * remaining gap between the racket's contact point (CharacterAnimations probe) and the ball is
+ * glided (a lunge beyond GLIDE_REACH, a whiff beyond GLIDE_MAX). Shot planning (makeShot, ~1 ms)
+ * is queued with its contact time as a deadline and run at most PLAN_BUDGET a frame across all
+ * courts. No per-frame allocation; one pooled ball (with one preallocated BallFlight) per court.
  *
  * Heights are per court (frame.surf / frame.ballY from court.surfaceY): the flat courts sit at
  * y 0 and the sunken Centre Court (court6, StadiumLayout) at its baseY. Walks that start or end
@@ -36,7 +58,9 @@ import { roomAt } from '../world/NavRooms.js';
  * of sidestepping, and a hop into / out of the bowl lands on the goal's level (Ground.groundAt).
  * Centre Court players walk off to the concourse by the Players' Walk head and wander on from
  * there; a walk-off goal inside a round obstacle (the garden fountain's basin) moves to the
- * nearest clear waypoint.
+ * nearest clear waypoint. On Centre Court the 1 m end boards stop only a ball under their cap
+ * and between their ends; over them or past the open corners a ball is dead where it meets the
+ * stands or the lawn (the flight's 'stands' event); the walkway round the pad is at court level.
  *
  * Court hand-over: a walk-off whose players have left the pad no longer holds its court or a
  * maxConcurrent slot (_handedOver), so the next booking can walk on while they leave (on Centre
@@ -55,27 +79,19 @@ import { roomAt } from '../world/NavRooms.js';
  *                                   'finish' once per match: when it leaves the list, or just
  *                                   before the next match's 'start' on its court (hand-over)
  * Helpers: getMatch(courtId), isLive(courtId), isBookedSoon(npcId, hours), nextEntryFor(courtId, out).
+ * `stats` counts shots, calls, error kinds, plans per frame and their cost (debug / tuning).
  *
  * Debug (dev console): __game.matches.debugStart('court1', ['chad_blake', 'tommy_chen'],
- *   { teleport: true, warmup: 0, gamesToWin: 1 }), .debugStop('court1'), .list(), .enabled
+ *   { teleport: true, warmup: 0, gamesToWin: 1 }), .debugStop('court1'), .list(), .stats, .enabled
  */
 
 const SURF_REL = SIZES.courtSurfaceY ?? 0.15;   // pad top above the court's base (frame.surf = y0 + this)
-const HALF_L = 12.3;                    // baseline (court-local v)
-const SINGLES_W = 4.65;                 // singles sideline (court-local u)
-const SERVICE_L = 6.62;                 // service line
-const NET_H0 = 0.9, NET_H1 = 1.02, NET_POST = 7.8;
-const FENCE_V = 14.2;                   // ball stops at the back fence
+const FENCE_V = 14.2;                   // flat courts: the back fence (the ball's centre at the chain-link)
 const BOARD_CAP = 0.06;                 // show court: end-board cap above the board height
-const STAND_STEP = 0.02;                // s: show court, sampling a flight against the stands
 const BASE_V = 12.9;                    // baseline stand
-const MAX_STAND_V = 13.8;               // deepest stand (fence at 14.5)
-const RUN_SPEED = 5.4;
-// Bounce per court surface (Court.surface): vertical restitution e, horizontal speed kept kh.
-// Clay grips and sits the ball up a little slower; grass keeps it low and skidding.
-const BOUNCE = { hard: { e: 0.74, kh: 0.74 }, clay: { e: 0.7, kh: 0.64 }, grass: { e: 0.66, kh: 0.8 } };
-const SWING_T = 0.52;                   // forehand / backhand contact time
+const SWING_T = 0.52;                   // forehand / backhand contact (clip event)
 const SERVE_RELEASE = 0.62, SERVE_CONTACT = 1.22;
+const FEED_T = 0.8;                     // warm-up feed: toss → own forehand
 const WALK_SPEED = 1.75;
 const INF = Infinity;
 const SCORE_WORDS = ['Love', '15', '30', '40'];
@@ -90,6 +106,12 @@ const WAIT_FIRST_MARGIN = 0.25;         // h: a booking waits for Centre Court (
 const EXIT_NEAR = 12;                   // m: a Centre Court walk-off ends within this of the Players' Walk head
 const EXIT_CLEAR = 2;                   // m: …but not on the head itself (the next players come down that way)
 const WALKER_R = SIZES.npcRadius ?? 0.35;
+const PLAN_BUDGET = 2;                  // shot plans (makeShot) per frame across every court (more only when due)
+const PLAN_MS = 1.5;                    // …and no more once this many ms went into planning this frame (a plan costs 0.3–6 ms)
+const HOP_T = 0.28;                     // s: a hop into a high ball (a dip to a low one) over this either side of contact
+const DIP_MAX = 0.2;                    // m: the deepest dip (bent knees) to a low ball
+const MOVE_EPS = 0.08;                  // NPC.moveTo stops this short of its goal (the glide aims past it)
+const TOSS_OPTS = Object.freeze({ gravityOnly: true, maxBounces: 0 });   // a toss only matters until contact
 
 const DEFAULT_SCHEDULE = {
   maxConcurrent: 3,
@@ -101,11 +123,365 @@ const DEFAULT_SCHEDULE = {
 };
 
 const _v1 = new THREE.Vector3();
-const _C = new THREE.Vector3();
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
-const rand = (a, b) => a + Math.random() * (b - a);
 
+// ─────────── member tennis: pure helpers (no three.js / DOM use; Node imports this module with a navigator / localStorage shim) ───────────
+
+/** Contact / reach constants of the member rallies (see planContact). */
+export const MEMBER = Object.freeze({
+  SWING_T,
+  GLIDE_REACH: 0.7,     // m: a gap the correction glide during the swing covers cleanly
+  GLIDE_MAX: 1.3,       // m: …up to this it is a stretch (a lunge); beyond it the ball is out of reach
+  LOW_BALL: 0.3,        // m: a ball this far below the racket's contact height is still dug out
+  PICKUP: 0.2,          // m: …and one this far below it is picked up early on the rise (a deep ball)
+  HALF_VOLLEY: 0.45,    // m: a deep, low ball is half-volleyed off the bounce this far below it (last resort)
+  MIN_STAND_V: 1.8,     // m from the net: the closest a player stands to hit a ball after its bounce
+  MAX_STAND_V: 13.95,   // deepest stand (the back fence's face is at 14.35, a body's radius 0.35)
+  PAD_MARGIN: 0.6,      // m inside the pad's side edge
+});
+
+/**
+ * Skill → play, `a + b·skill` (members' npcs.json tennis.skill, 0.15..0.95). Execution: the timing
+ * error σ (s) against the stroke's green half-width (s), the string-contact σ and a mishit tail.
+ * Intention: rally pace (average horizontal m/s), net margin, target depth / width / how far
+ * inside the lines, the serve paces and margins. Body: run speed, reaction, the highest hop.
+ */
+export const MEMBER_TUNE = {
+  timeSd: [0.06, -0.028],
+  gw: [0.034, 0.012],
+  contactSd: [0.45, -0.2],
+  tail: [0.07, -0.05],
+  srvSd: [0.095, -0.05],
+  pace: [20.5, 2.5],
+  margin: [0.5, -0.25],
+  depth: [9.5, 1.3],
+  width: [1.3, 0.5],
+  insideU: [1.7, -0.6],
+  insideV: [1.0, -0.4],
+  attack: [0.2, 0.35],
+  fhTop: [0.45, 0.45],
+  bhSlice: [0.55, -0.35],
+  srv1: [19, 8],
+  srv2: [15, 5],
+  srvIn: [0.55, -0.3],
+  srvM1: [0.2, -0.1],
+  srvM2: [0.6, -0.3],
+  speed: [4.7, 0.9],
+  react: [0.36, -0.06],
+  lift: [0.2, 0.25],
+  windAllow: [0.45, 0.5],
+};
+
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const lin = (k, s) => MEMBER_TUNE[k][0] + MEMBER_TUNE[k][1] * s;
+const wxOf = (f, u, v) => f.cx + u * f.c + v * f.s;
+const wzOf = (f, u, v) => f.cz - u * f.s + v * f.c;
+const luOf = (f, x, z) => (x - f.cx) * f.c - (z - f.cz) * f.s;
+const lvOf = (f, x, z) => (x - f.cx) * f.s + (z - f.cz) * f.c;
+
+/** A standard normal sample (Box–Muller; no allocation). */
+function randn() {
+  let u = Math.random();
+  if (u < 1e-12) u = 1e-12;
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(6.283185307179586 * Math.random());
+}
+
+/**
+ * A member's tennis from their npcs.json `tennis` block ({ level, style, skill, hand }): the
+ * MEMBER_TUNE lines at their skill, then the style's leanings (topspin / slice / flat hitters,
+ * moonballers, big servers, runners, steady defenders, the erratic).
+ */
+export function memberProfile(tennis, id = '') {
+  const t = tennis && typeof tennis === 'object' ? tennis : {};
+  let sk = Number(t.skill);
+  if (!Number.isFinite(sk)) sk = 0.35 + hashString(String(id) + ':tennis') * 0.5;
+  sk = clamp(sk, 0.15, 0.95);
+  const st = String(t.style || '').toLowerCase();
+  const P = {
+    skill: sk,
+    timeSd: lin('timeSd', sk), gw: lin('gw', sk), contactSd: lin('contactSd', sk), tail: lin('tail', sk), srvSd: lin('srvSd', sk),
+    pace: lin('pace', sk), margin: lin('margin', sk), depth: lin('depth', sk), width: lin('width', sk),
+    insideU: lin('insideU', sk), insideV: lin('insideV', sk), attack: lin('attack', sk),
+    fhTop: lin('fhTop', sk), bhSlice: lin('bhSlice', sk), flat: 0.12, moon: 0,
+    srv1: lin('srv1', sk), srv2: lin('srv2', sk), srvIn: lin('srvIn', sk), srvM1: lin('srvM1', sk), srvM2: lin('srvM2', sk),
+    srvSlice: 0.15 + 0.3 * sk, kick: sk > 0.55 ? 0.65 : 0.25,
+    speed: lin('speed', sk), react: lin('react', sk), lift: lin('lift', sk), windAllow: lin('windAllow', sk),
+  };
+  if (/topspin|heavy/.test(st)) { P.fhTop = Math.min(1.25, P.fhTop + 0.3); P.bhSlice *= 0.5; }
+  if (/slice|chip/.test(st)) { P.bhSlice = Math.max(P.bhSlice, 0.75); P.srvSlice = Math.max(P.srvSlice, 0.5); }
+  if (/flat/.test(st)) { P.flat = 0.5; P.bhSlice *= 0.35; }
+  if (/moonball/.test(st)) P.moon = 0.35; else if (/\blob\b/.test(st)) P.moon = 0.12;
+  if (/big (first )?serve|first-strike|serve he copied/.test(st)) { P.srv1 += 3; P.srvIn *= 0.8; }
+  if (/footwork|legs|hustle|runs down|gets to everything|anticipation/.test(st)) { P.speed += 0.6; P.react -= 0.04; }
+  if (/defensive|patience|patient|never misses|returns everything|steady/.test(st)) { P.timeSd *= 0.9; P.margin += 0.15; P.insideU += 0.2; P.insideV += 0.2; }
+  if (/falls apart|no idea where/.test(st)) P.tail += 0.03;
+  if (/volley|net player|serve-volley|chip-and-charge/.test(st)) P.attack = Math.min(0.9, P.attack + 0.15);
+  return P;
+}
+
+function setSpin(out, prof, k) {
+  out.top = prof.top * k; out.side = prof.side * k; out.gyro = prof.gyro * k;
+}
+
+/**
+ * A serve's intention into `it` (the makeShot intent + u / v / label / load): the receiver's box
+ * (r = the receiver's side, sgn = the box's u sign), wide / T / body; a first serve is flat or
+ * sliced and aimed P.srvIn inside the lines, a second is slower, safer and kicked or spun in.
+ */
+export function serveIntent(it, P, fr, r, sgn, first, rcvU) {
+  const sk = P.skill;
+  const inside = first ? P.srvIn : P.srvIn + 0.5;
+  const x = Math.random();
+  let au;
+  if (x < 0.42) au = SINGLES_W - inside - Math.abs(randn()) * 0.35;             // wide
+  else if (x < 0.84) au = 0.25 + inside * 0.8 + Math.abs(randn()) * 0.35;      // down the T
+  else au = clamp(Math.abs(rcvU) + randn() * 0.4, 0.8, SINGLES_W - 1);        // at the body
+  if (!first) au = 0.6 * au + 0.4 * (SINGLES_W / 2);
+  au = clamp(au, 0.3, SINGLES_W - 0.3);
+  const av = clamp(SERVICE_L - inside * 0.9 - Math.abs(randn()) * 0.45, 3.6, SERVICE_L - 0.25);
+  it.u = sgn * au; it.v = r * av;
+  it.tx = wxOf(fr, it.u, it.v); it.tz = wzOf(fr, it.u, it.v);
+  it.kind = 'serve'; it.wing = 'fh'; it.minT = 0; it.speed = 0;
+  if (first) {
+    const slice = Math.random() < P.srvSlice;
+    setSpin(it.profile, slice ? SPIN.slicesrv : SPIN.serve, slice ? 0.5 + 0.5 * sk : 1);
+    it.pace = P.srv1 * (0.93 + 0.1 * Math.random());
+    it.margin = P.srvM1;
+    it.label = slice ? 'slice serve' : 'flat serve';
+  } else {
+    const kick = Math.random() < P.kick;
+    setSpin(it.profile, kick ? SPIN.kick : SPIN.serve, kick ? 0.45 + 0.5 * sk : 1.6);
+    it.pace = P.srv2 * (0.93 + 0.1 * Math.random());
+    it.margin = P.srvM2;
+    it.label = kick ? 'kick serve' : 'second serve';
+  }
+  it.load = first ? 0.8 : 0.3;
+  return it;
+}
+
+/**
+ * A groundstroke's intention into `it`. h = the hitter at contact { u, v (court-local, the
+ * ball), side, wing 'fh'|'bh', stretch (m beyond a clean reach), height (m above the court),
+ * inSpin (the incoming ball's spin, m/s: less topspin can be brushed over a heavy ball) },
+ * o = the opponent { u, v, side }. Warm-up (warm): a comfortable ball to the partner. Else: an
+ * attack into the open court off a short, sitting ball (P.attack), a high safe ball through the
+ * middle when stretched or pushed deep, a moonball (moonballers), or a neutral rally ball
+ * (cross-court tendency, depth and spread by skill), P.inside inside the lines.
+ */
+export function rallyIntent(it, P, fr, h, o, warm) {
+  const sk = P.skill;
+  const r = -h.side;
+  let u, depth, pace = P.pace, margin = P.margin, minT = 0, prof = SPIN.topspin, load = P.fhTop, label = 'drive';
+  if (warm) {
+    u = clamp(o.u + randn() * 0.5, -2.8, 2.8);
+    depth = clamp(Math.abs(o.v) - 3.8 + randn() * 0.4, 6.5, 10.5);
+    pace = 13 + 3 * sk; margin = 0.9; load = 0.5; label = 'warmup';
+  } else {
+    const shortBall = Math.abs(h.v) < HALF_L - 2.2 && h.height > 0.55 && h.stretch < 0.15;
+    const pushed = h.stretch > 0.25 || Math.abs(h.v) > HALF_L + 0.9;
+    if (shortBall && Math.random() < P.attack) {
+      const away = o.u > 0.3 ? -1 : o.u < -0.3 ? 1 : (Math.random() < 0.5 ? -1 : 1);
+      u = away * (SINGLES_W - P.insideU * 0.8 - Math.abs(randn()) * 0.5);
+      depth = HALF_L - P.insideV - Math.abs(randn()) * 0.8;
+      pace *= 1.2; margin *= 0.75; label = 'attack';
+    } else if (pushed) {
+      u = randn() * 1.0; depth = P.depth + 0.6 + randn() * 0.5;
+      pace *= 0.8; margin += 0.6; label = 'defend';
+    } else if ((h.inSpin || 0) < 8 && Math.random() < P.moon) {
+      u = randn() * 1.6; depth = P.depth + 0.8 + randn() * 0.6;
+      prof = SPIN.lob; load = 1; pace = 10 + 1.5 * sk; margin = 2.2; minT = 1.35; label = 'moonball';
+    } else {
+      const cross = -Math.sign(h.u || 1e-3) * Math.min(1, Math.abs(h.u) / 3) * 1.2;
+      u = cross + randn() * P.width;
+      depth = P.depth + randn() * 0.9;
+    }
+    if (label !== 'moonball') {
+      if (h.wing === 'bh' && Math.random() < (label === 'attack' ? P.bhSlice * 0.3 : P.bhSlice)) {
+        prof = SPIN.slice; load = 0.35 + 0.35 * sk; pace *= 0.9; if (label === 'drive') label = 'slice';
+      } else if (Math.random() < P.flat) { prof = SPIN.flat; load = 1; if (label === 'drive') label = 'flat'; }
+      else { prof = SPIN.topspin; load = h.wing === 'fh' ? P.fhTop : P.fhTop * 0.85; }
+    }
+    // Over a heavy incoming topspin ball (after its bounce) a racket can only brush so much: ask
+    // for what a swing can make (makeShot would otherwise re-plan with less spin, at a cost)
+    if (prof !== SPIN.slice) load *= clamp(1.2 - 0.045 * (h.inSpin || 0), 0.5, 1) * (label === 'defend' ? 0.7 : 1);
+  }
+  const lim = SINGLES_W - P.insideU;
+  u = clamp(u, -lim, lim);
+  depth = clamp(depth, 5.5, HALF_L - Math.max(0.3, P.insideV));
+  it.u = u; it.v = r * depth;
+  it.tx = wxOf(fr, u, it.v); it.tz = wzOf(fr, u, it.v);
+  setSpin(it.profile, prof, load);
+  it.pace = pace * (0.94 + 0.12 * Math.random());
+  it.speed = 0; it.margin = margin; it.minT = minT;
+  it.kind = 'ground'; it.wing = h.wing; it.label = label;
+  it.load = clamp((it.pace - 12) / 12, 0, 1);
+  return it;
+}
+
+/**
+ * A member's execution into `ex` (makeShot's exec: e, gw, a, b): the timing error is normal with
+ * σ = P.timeSd × the difficulty (a stretch, a ball taken on the rise or dug out low, a hop, pace
+ * coming in; second serves are steadier), a mishit tail (P.tail, more when stretched) widens it,
+ * and the string contact scatters by P.contactSd (off-centre toward the tip when stretched, low on
+ * a dug-out ball). A bolder load narrows the green window. The warm-up is clean.
+ * ctx { serve, first, how 'peak'|'rise'|'fall', stretch, inSpeed, low, lift, load, warm }
+ */
+export function memberExec(ex, P, ctx) {
+  ex.tail = false;
+  if (ctx.warm) { ex.e = 0; ex.a = 0; ex.b = 0; ex.gw = 0.05; return ex; }
+  const stretch = ctx.stretch || 0, low = ctx.low || 0;
+  let k = 1;
+  if (ctx.serve) k = (ctx.first ? 1 : 0.7) * P.srvSd / P.timeSd;
+  else {
+    k += 1.4 * stretch + (ctx.how === 'rise' ? 0.25 : ctx.how === 'fall' ? 0.08 : 0)
+      + 0.03 * Math.max(0, (ctx.inSpeed || 0) - 15) + 2.2 * low + 0.35 * (ctx.lift || 0);
+  }
+  const tail = Math.random() < P.tail * (1 + 1.5 * stretch);
+  ex.tail = tail;
+  ex.e = randn() * P.timeSd * k * (tail ? 2.7 : 1);
+  ex.gw = P.gw * (1.12 - 0.25 * (ctx.load || 0));
+  const cs = P.contactSd * (tail ? 2 : 1) * (1 + 0.8 * stretch);
+  ex.a = randn() * cs + 0.6 * stretch;
+  ex.b = randn() * cs * 0.8 + 1.5 * low;
+  return ex;
+}
+
+/**
+ * The call on a flight, as the players see it: the net-plane event, then the first bounce
+ * against the lines (a serve: its box). r = the receiver's side (their half has v·r > 0); sgn = a
+ * serve's box u sign (0 in a rally). Writes out { call 'in'|'let'|'out'|'net', tCall, long, wide,
+ * short (bounced on its own side), cord, b0 (the first bounce event or null), tDead (an unreturned
+ * in-ball's next contact: the second bounce, the fence, the stands) } and returns it.
+ */
+export function judgeFlight(out, f, fr, r, sgn) {
+  const nc = f.netCross();
+  const b0 = f.bounce(0);
+  out.cord = !!nc && nc.type === 'netcord';
+  out.b0 = b0; out.long = false; out.wide = false; out.short = false;
+  out.tDead = f.tEnd;
+  if (nc && nc.type === 'net' && (!b0 || nc.t <= b0.t)) { out.call = 'net'; out.tCall = nc.t; return out; }
+  if (b0 && (!nc || b0.t < nc.t)) { out.call = 'net'; out.short = true; out.tCall = b0.t; return out; }
+  if (!b0) {
+    out.call = 'out'; out.long = true; out.tCall = f.tEnd;
+    for (let i = 0; i < f.nEvents; i++) {
+      const e = f.events[i];
+      if (e.type === 'fence' || e.type === 'stands' || e.type === 'rest') { out.tCall = e.t; break; }
+    }
+    return out;
+  }
+  const u = b0.u, v = b0.v * r;
+  const inU = sgn ? (u * sgn >= -LINE_TOL && Math.abs(u) <= SINGLES_W + LINE_TOL) : Math.abs(u) <= SINGLES_W + LINE_TOL;
+  const inV = v > 0 && v <= (sgn ? SERVICE_L : HALF_L) + LINE_TOL;
+  out.tCall = b0.t;
+  if (inU && inV) {
+    out.call = sgn && out.cord ? 'let' : 'in';
+    for (let i = 0; i < f.nEvents; i++) {
+      const e = f.events[i];
+      if (e.t > b0.t + 1e-6 && (e.type === 'bounce' || e.type === 'fence' || e.type === 'stands' || e.type === 'rest')) { out.tDead = e.t; break; }
+    }
+    return out;
+  }
+  out.call = 'out'; out.long = !inV; out.wide = !inU;
+  return out;
+}
+
+const _st = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, bounces: 0, rolling: false };
+
+/**
+ * Where the receiver meets a flight after its first bounce (the real flight — what they read).
+ * For each stroke (forehand / backhand: the racket's contact point `fh` / `bh`, model space, at
+ * the player's scale and facing) the contact height is hc = feet + point.y; a hop of up to
+ * rc.lift reaches a higher ball. Candidates: the peak after the bounce when it is within the
+ * reach (hc − LOW_BALL … hc + lift: "at the peak"), else where the ball comes down through (or
+ * rises into) the top of that reach before its next contact (second bounce, fence, stands). The
+ * stand spot is the ball minus the racket offset; it must be on the court (MIN / MAX_STAND_V, the
+ * pad's sides). Reach: running at rc.speed after rc.react from t0 until the swing starts
+ * (contact − SWING_T), the rest glided during the swing (≤ GLIDE_REACH clean, ≤ GLIDE_MAX a
+ * stretch). The best by (reachable, the peak, then the falling ball, little running) wins.
+ * rc { x, z (body), gy (feet), yaw, scale, side, speed, lift, fh, bh, halfPadL, halfPadR }.
+ * Writes out { ok, reach, t, how, clip, x, y, z (ball), sx, sz (stand), cost, avail, short,
+ * stretch, lift, low, inSpeed } and returns it (ok false: nothing on the court).
+ */
+export function planContact(out, f, fr, rc, t0, react) {
+  out.ok = false; out.reach = false;
+  const b0 = f.bounce(0);
+  if (!b0) return out;
+  const tB = b0.t;
+  let tEnd = f.tEnd;
+  for (let i = 0; i < f.nEvents; i++) {
+    const e = f.events[i];
+    if (e.t > tB + 1e-6 && (e.type === 'bounce' || e.type === 'fence' || e.type === 'stands' || e.type === 'rest')) { tEnd = e.t; break; }
+  }
+  const ap = f.apex(0);
+  const apT = ap ? ap.t : INF, apY = ap ? ap.y : -INF;
+  const cy = Math.cos(rc.yaw), sy = Math.sin(rc.yaw);
+  const tReady = t0 + react;
+  const M = MEMBER;
+  let best = INF;
+  const peakIn = apT < tEnd - 0.02;
+  for (let ci = 0; ci < 2; ci++) {
+    const cp = ci ? rc.bh : rc.fh;
+    if (!cp) continue;
+    const ox = (cp.x * cy + cp.z * sy) * rc.scale, oz = (-cp.x * sy + cp.z * cy) * rc.scale;
+    const hc = rc.gy + cp.y * rc.scale, hTop = hc + rc.lift;
+    // (the highest point of the reach the ball rises to: the peak itself when it is within it)
+    const h1 = peakIn ? Math.min(hTop, apY - 0.03) : hTop;
+    for (let k = 0; k < 7; k++) {
+      let t = INF, how = 'peak';
+      if (k === 0) { if (peakIn && apY <= hTop + 1e-3 && apY >= hc - M.LOW_BALL) t = apT; }
+      else if (k === 5) {                                         // a low pick-up early on the rise (deep balls)
+        if (h1 > hc - M.PICKUP + 0.05) { t = f.crossHeight(hc - M.PICKUP, tB, peakIn ? apT : tEnd, false); how = 'rise'; }
+      } else if (k === 6) {                                       // a half volley off the bounce (a deep, low ball)
+        const hv = Math.max(f.ballY + 0.12, hc - M.HALF_VOLLEY);
+        if (h1 > hv + 0.03 && best >= 50) { t = f.crossHeight(hv, tB, peakIn ? apT : tEnd, false); how = 'rise'; }
+      }
+      else if (k === 1) {                                         // on the rise, near the top of the reach
+        if (h1 > hc - M.LOW_BALL) { t = f.crossHeight(h1, tB, peakIn ? apT : tEnd, false); how = 'rise'; }
+      } else if (k === 2) {                                       // on the rise at the racket's own height
+        if (h1 > hc + 0.05) { t = f.crossHeight(hc, tB, peakIn ? apT : tEnd, false); how = 'rise'; }
+      } else if (peakIn) {                                        // coming down through the reach
+        const hh = k === 3 ? hTop : hc;
+        if (apY > hh + 0.05 && (k === 3 || apY > hTop + 0.05 || hTop > hc + 0.05)) { t = f.crossHeight(hh, apT, tEnd, true); how = 'fall'; }
+      }
+      if (!(t < tEnd - 0.01) || t < tB + 0.03) continue;
+      if (t - SWING_T < tReady - 0.18) continue;          // no time to swing
+      f.at(t, _st);
+      const lift = Math.max(0, _st.y - hc), low = Math.max(0, hc - _st.y);
+      const sx = _st.x - ox, sz = _st.z - oz;
+      const su = luOf(fr, sx, sz), sv = lvOf(fr, sx, sz) * rc.side;
+      if (sv < M.MIN_STAND_V || sv > M.MAX_STAND_V || su < -rc.halfPadL + M.PAD_MARGIN || su > rc.halfPadR - M.PAD_MARGIN) continue;
+      const cost = Math.hypot(sx - rc.x, sz - rc.z);
+      const avail = t - SWING_T - tReady - 0.05;
+      const short = cost - rc.speed * Math.max(0, avail);
+      const score = Math.max(0, short - M.GLIDE_REACH) * 5 + (short > M.GLIDE_MAX ? 50 : 0) + 0.25 * cost
+        + (how === 'rise' ? 0.6 : how === 'fall' ? 0.2 : 0) + (ci ? 0.1 : 0) + 4 * low + 0.5 * lift;
+      if (score >= best) continue;
+      best = score;
+      out.ok = true; out.reach = short <= M.GLIDE_MAX;
+      out.t = t; out.how = how; out.clip = ci ? 'backhand' : 'forehand';
+      out.x = _st.x; out.y = _st.y; out.z = _st.z; out.sx = sx; out.sz = sz;
+      out.cost = cost; out.avail = avail; out.short = short;
+      out.stretch = clamp(short - M.GLIDE_REACH, 0, M.GLIDE_MAX - M.GLIDE_REACH);
+      out.lift = lift; out.low = low;
+      out.inSpeed = Math.sqrt(_st.vx * _st.vx + _st.vy * _st.vy + _st.vz * _st.vz);
+    }
+  }
+  return out;
+}
+
+// Scratch for the shot planning (one plan runs at a time)
+const _it = { tx: 0, tz: 0, u: 0, v: 0, profile: { top: 0, side: 0, gyro: 0 }, pace: 0, speed: 0, margin: 0, minT: 0, kind: 'ground', wing: 'fh', label: '', load: 0 };
+const _ex = { e: 0, gw: 0.04, a: 0, b: 0, B: null, outSign: 1, tail: false };
+const _xc = { serve: false, first: true, how: 'peak', stretch: 0, inSpeed: 0, low: 0, lift: 0, load: 0, warm: false };
+const _h = { u: 0, v: 0, side: 1, wing: 'fh', stretch: 0, height: 0, inSpin: 0 };
+const _o = { u: 0, v: 0, side: -1 };
+const _Bup = { x: 0, y: 1, z: 0 };
+const _Bsv = { x: 1, y: 0, z: 0 };
+const _pw = { x: 0, z: 0 };
+const _planEnv = { surfY: 0, frame: null, fence: null, surface: null, wind: _pw, groundAt: null, net: true };
+
+// ───────────────────────────── the system ─────────────────────────────
 
 export class MatchSystem {
   /**
@@ -161,6 +537,18 @@ export class MatchSystem {
       courtId: '', winner: -1, winnerNpc: null, loserNpc: null, outcome: 'winner',
       rally: 0, gameWon: false, matchWon: false, games: [0, 0],
     };
+
+    /** The club's wind for the members' flights (EnvState; x / z m/s, 0 when calm). */
+    this._wind = { x: 0, z: 0 };
+    /** Counters for tuning / the dev console (allocation-free increments). */
+    this.stats = {
+      shots: 0, serves: 0, warm: 0, plans: 0, forced: 0, planMs: 0, planMsMax: 0, framePlansMax: 0,
+      launches: 0, launchMs: 0, launchMsMax: 0,
+      calls: { in: 0, out: 0, net: 0, let: 0 }, long: 0, wide: 0, short: 0, cords: 0,
+      green: 0, offGreen: 0, frameShots: 0, tails: 0, whiffs: 0, chases: 0, lifts: 0, stuck: 0, badPlans: 0,
+      how: { peak: 0, rise: 0, fall: 0 }, labels: {},
+    };
+    this._framePlans = 0;
 
     this.enabled = true;
     this.matches = [];
@@ -226,7 +614,7 @@ export class MatchSystem {
     const cfg = court.config || {};
     const r = Number(cfg.rotation) || 0;
     const clay = !!court.isClay;
-    const surface = BOUNCE[court.surface] ? court.surface : (clay ? 'clay' : 'hard');
+    const surface = SURFACES[court.surface] ? court.surface : (clay ? 'clay' : 'hard');
     const buf = clay ? (SIZES.clayCourtBuffer || 0) : 2;
     // Heights: y0 = the court's base (0 on the flat courts), surf = pad top, ballY = ball centre
     // touching the pad. The sunken Centre Court (stadium) sits at its map.json center.y.
@@ -235,18 +623,28 @@ export class MatchSystem {
     // Back wall: the flat courts' fence stops every ball at FENCE_V; a show court's end boards
     // (map.json stadium.endBoards) stop only a ball below their cap and between their ends.
     const eb = court.isStadium ? (cfg.stadium?.endBoards || {}) : null;
-    return {
+    const f = {
       court, id: court.id, isClay: clay, surface,
       y0, surf, ballY: surf + BALL_RADIUS, stadium: !!court.isStadium,
       fenceV: eb ? (Number(eb.v0) || 14.3) - BALL_RADIUS : FENCE_V,
       boardTop: eb ? surf + (Number(eb.height) || 1) + BOARD_CAP : INF,
       boardHalfU: eb ? (Number(eb.halfU) || 9) : INF,
-      bounceE: BOUNCE[surface].e, bounceKh: BOUNCE[surface].kh,
+      bounceE: SURFACES[surface].e,
       cx: cfg.center?.x ?? 0, cz: cfg.center?.z ?? 0, r, c: Math.cos(r), s: Math.sin(r),
       halfPadL: SIZES.courtWidth / 2 + (cfg.adjacentLeft ? 0 : buf),
       halfPadR: SIZES.courtWidth / 2 + (cfg.adjacentRight ? 0 : buf),
       wear: clay && typeof court.wearAt === 'function',   // footwork / bounce marks: clay only
+      env: null,
     };
+    // The court as BallFlight sees it (the frame itself carries cx / cz / c / s): the surface's
+    // bounce, the back wall (a show court's end boards: open corners), the stands and the lawn
+    // of the sunken court, the club's wind (held by each flight from its launch)
+    f.env = {
+      surfY: surf, frame: f,
+      fence: { v: f.fenceV, top: f.boardTop, halfU: f.boardHalfU, open: !!eb },
+      surface: SURFACES[surface], wind: this._wind, groundAt: f.stadium ? groundAt : null, net: true,
+    };
+    return f;
   }
   _wx(f, u, v) { return f.cx + u * f.c + v * f.s; }
   _wz(f, u, v) { return f.cz - u * f.s + v * f.c; }
@@ -507,7 +905,7 @@ export class MatchSystem {
 
   _acquireBall(frame) {
     let b = this._pool.find(x => !x.inUse);
-    if (!b) { b = new TennisBall(this.scene); this._pool.push(b); }
+    if (!b) { b = new TennisBall(this.scene, { flight: true }); this._pool.push(b); }
     b.inUse = true;
     b.groundY = frame.surf;
     b.hide();
@@ -526,10 +924,13 @@ export class MatchSystem {
       warmup: opts.warmup ?? this.format.warmupSeconds,
       warmEnd: 0, feedAt: INF, feeder: 0,
       score: { pts: [0, 0], games: [0, 0], server: Math.random() < 0.5 ? 0 : 1 },
-      faults: 0, rallyLen: 0,
-      segType: 'none', segEnd: INF, bounces: 0,
-      shot: { hitter: 0, receiver: 1, outcome: 'in', returnable: false, missed: false, tContact: INF, kind: 'rally' },
-      aimPt: new THREE.Vector3(), H: new THREE.Vector3(),
+      faults: 0, rallyLen: 0, deuce: true,
+      // The ball: its flight (m.ball.flight), what kind it is, the next of its events to play out,
+      // the next racket contact (time, striker) and the call on the current shot
+      flightKind: 'none', evi: 0, tHit: INF, striker: -1, bounces: 0,
+      judge: { call: 'in', tCall: 0, long: false, wide: false, short: false, cord: false, b0: null, tDead: 0 },
+      shot: { hitter: 0, receiver: 1, outcome: 'in', returnable: false, missed: false, tContact: INF, kind: 'rally', label: '' },
+      aimPt: new THREE.Vector3(),
       srv: { active: false, released: false, tStart: 0, C: new THREE.Vector3() },
       resolved: false, pointWinner: -1, tPointOver: INF, tServe: INF, tNext: INF,
       resumePhase: null, winner: -1, reactAt: INF, leaveAt: INF,
@@ -571,25 +972,26 @@ export class MatchSystem {
 
   _makePlayer(npc, side, frame, idx) {
     const scale = npc.modelScale || 0.87;
+    const prof = memberProfile(npc.data && npc.data.tennis, npc.id);
     return {
       npc, side, idx, scale,
       yaw: frame.r + (side > 0 ? Math.PI : 0),
-      skill: this._skillOf(npc),
+      skill: prof.skill,
+      prof,
       fh: getClipEventRacketPoint('forehand'),
       bh: getClipEventRacketPoint('backhand'),
       route: [], ri: 0, arrived: false, endYaw: null, walkT: 0, stuckT: 0, bestD: INF, hopAt: HOP_MIN,
       tSplit: INF, tMove: INF, tSwing: INF, tRecover: INF, swingAt: 0,
       mx: 0, mz: 0, mSpeed: 3, clip: 'forehand', aim: false,
       rx: 0, rz: 0, done: false, detached: false,
+      // The next shot: its contact on the incoming flight (planContact), its plan (queued → ready)
+      // and the makeShot result; a hop into a high ball
+      ct: { ok: false, reach: false, t: 0, how: 'peak', clip: 'forehand', x: 0, y: 0, z: 0, sx: 0, sz: 0, cost: 0, avail: 0, short: 0, stretch: 0, lift: 0, low: 0, inSpeed: 0 },
+      rc: { x: 0, z: 0, gy: 0, yaw: 0, scale, side, speed: prof.speed, lift: prof.lift, fh: null, bh: null, halfPadL: frame.halfPadL, halfPadR: frame.halfPadR },
+      plan: { state: 0, kind: 'rally', tc: 0, how: 'peak', stretch: 0, low: 0, lift: 0, inSpeed: 0, label: '' },
+      res: {},
+      lift: 0, liftT0: INF, liftT1: INF,
     };
-  }
-
-  /** Rally skill 0..1: npcs.json tennis.skill (clamped to 0.15..0.95), else a stable per-id value. */
-  _skillOf(npc) {
-    const t = npc.data && npc.data.tennis;
-    const v = t && Number(t.skill);
-    if (Number.isFinite(v)) return Math.max(0.15, Math.min(0.95, v));
-    return 0.35 + hashString(npc.id + ':tennis') * 0.5;
   }
 
   /** A member's own post-match line (npcs.json matchLines.win / lose), else the fallback. */
@@ -892,12 +1294,16 @@ export class MatchSystem {
     this._emitEvent(m, 'finish');
   }
 
+  /** Stop the rally: no ball in play, no contact or shot plan pending, nobody mid-hop. */
   _clearRally(m) {
-    m.segType = 'none'; m.segEnd = INF; m.srv.active = false;
+    m.flightKind = 'none'; m.evi = 0; m.tHit = INF; m.striker = -1;
+    m.srv.active = false;
     m.tServe = INF; m.tNext = INF; m.tPointOver = INF; m.feedAt = INF;
     m.ball.hide();
     for (const p of m.players) {
       p.tSplit = p.tMove = p.tSwing = p.tRecover = INF;
+      p.plan.state = 0; p.aim = false;
+      p.lift = 0; p.liftT0 = p.liftT1 = INF;
       if (!p.detached) p.npc.character.setBallVisible(false);   // (a detached player is in their next match)
     }
   }
@@ -909,6 +1315,7 @@ export class MatchSystem {
     this._schedTimer -= dt;
     if (this._schedTimer <= 0) { this._schedTimer = 1; this._checkSchedule(); }
     this._rainClear = this._raining() ? 0 : this._rainClear + dt;
+    this._updateWind();
 
     let lowFrustum = false;
     if (Quality.tier === 'low' && this.camera && this.matches.length) {
@@ -916,6 +1323,10 @@ export class MatchSystem {
       _frustum.setFromProjectionMatrix(_pm);
       lowFrustum = true;
     }
+
+    // Shot planning (makeShot) queued by the courts: the most urgent first, PLAN_BUDGET a frame
+    this._framePlans = 0;
+    if (this.matches.length) this._servicePlans(dt);
 
     for (let i = this.matches.length - 1; i >= 0; i--) {
       const m = this.matches[i];
@@ -925,20 +1336,10 @@ export class MatchSystem {
         continue;
       }
       if (this.matches[i] !== m) continue;
-      // Ball: advance / draw (LOD: far courts keep logic only)
+      // Ball: its flight at the match clock (LOD: far courts keep logic only)
       const b = m.ball;
       if (b.active) {
-        if (b.rolling) {
-          b.stepRoll(dt);
-          const f = m.frame;
-          const v = this._lv(f, b.pos.x, b.pos.z);
-          if (!f.stadium) {
-            if (Math.abs(v) > FENCE_V) { b.v0.x = 0; b.v0.z = 0; }
-          } else if ((Math.abs(v) > f.fenceV && Math.abs(this._lu(f, b.pos.x, b.pos.z)) < f.boardHalfU)
-            || groundAt(b.pos.x, b.pos.z) > f.surf + 0.05) {
-            b.v0.x = 0; b.v0.z = 0;                    // the end boards' face, or the first riser
-          }
-        } else b.at(m.t);
+        b.at(m.t);
         let vis = true;
         if (CameraTracker.valid) {
           const c = CameraTracker.position;
@@ -948,6 +1349,16 @@ export class MatchSystem {
         if (vis && lowFrustum) vis = _frustum.containsPoint(b.pos);
         b.sync(vis);
       } else if (b.shown) b.sync(false);
+      // A hop into a high ball / a dip to a low one (the racket meets it at the flight's height):
+      // visual only, on top of the ground-follow the NPC update just set
+      if (RALLY_PHASES.has(m.phase)) {
+        for (let k = 0; k < m.players.length; k++) {
+          const p = m.players[k];
+          if (p.lift !== 0 && m.t > p.liftT0 && m.t < p.liftT1) {
+            p.npc.mesh.position.y += p.lift * Math.sin(Math.PI * (m.t - p.liftT0) / (p.liftT1 - p.liftT0));
+          }
+        }
+      }
       // Clay wear (footwork + bounces), batched: one texture upload per court every 0.4 s
       if (m.frame.wear && COURT_PHASES.has(m.phase)) {
         m.wearT += dt;
@@ -960,6 +1371,44 @@ export class MatchSystem {
           }
           this._flushWear(m);
         }
+      }
+    }
+    if (this._framePlans > this.stats.framePlansMax) this.stats.framePlansMax = this._framePlans;
+  }
+
+  /** The club's wind (EnvState: calm ~0.15 → none, windy ~1 → ~3 m/s) for the members' flights. */
+  _updateWind() {
+    const s = Math.max(0, Math.min(5, ((EnvState.windStrength || 0) - 0.25) * 4));
+    const d = EnvState.windDirection;
+    this._wind.x = d ? d.x * s : 0;
+    this._wind.z = d ? d.z * s : 0;
+  }
+
+  /**
+   * Run queued shot plans: the most urgent (nearest contact) first, at most PLAN_BUDGET a frame
+   * across all courts and none once PLAN_MS went into it — a plan whose contact is due within ~two
+   * frames runs regardless (and the
+   * contact itself runs a missing plan at once), so a contact is never late.
+   */
+  _servicePlans(dt) {
+    const t0 = performance.now();
+    for (let pass = 0; pass < 8; pass++) {
+      let bm = null, bp = null, slack = INF;
+      for (let i = 0; i < this.matches.length; i++) {
+        const m = this.matches[i];
+        if (!RALLY_PHASES.has(m.phase)) continue;
+        for (let k = 0; k < m.players.length; k++) {
+          const p = m.players[k];
+          if (p.plan.state !== 1) continue;
+          const s = p.plan.tc - m.t;
+          if (s < slack) { slack = s; bm = m; bp = p; }
+        }
+      }
+      if (!bm) return;
+      if ((this._framePlans >= PLAN_BUDGET || performance.now() - t0 > PLAN_MS) && slack > 2.2 * dt + 0.01) return;
+      try { this._runPlan(bm, bp); } catch (err) {
+        console.error('MatchSystem: shot planning error, ending the match', err);
+        this._finish(bm);
       }
     }
   }
@@ -1113,7 +1562,7 @@ export class MatchSystem {
     if (d > 0.1) p.npc.moveTo(x, z, { speed, face: d < 3 ? p.yaw : null, gait: d < 3 ? null : 'walk' });
   }
 
-  /** Feed a warm-up ball: self toss from the left hand into a forehand. */
+  /** Feed a warm-up ball: a self toss from the left hand into the feeder's own forehand. */
   _feed(m) {
     const p = m.players[m.feeder];
     const npc = p.npc;
@@ -1122,14 +1571,17 @@ export class MatchSystem {
     npc.character.setBallVisible(false);
     npc.character.getBallHandWorldPosition(_v1);
     npc.character.getContactPointWorld('forehand', m.aimPt);
-    const tau = 0.8;
-    this._launchTo(m, _v1, m.aimPt, tau);
-    m.segType = 'contact'; m.segEnd = m.t + tau;
+    const tc = m.t + FEED_T;
+    this._toss(m, _v1, m.aimPt, tc, m.t);
+    m.flightKind = 'feed';
     const sh = m.shot;
     sh.hitter = p.idx; sh.receiver = p.idx; sh.outcome = 'in'; sh.returnable = true; sh.missed = false;
-    sh.tContact = m.segEnd; sh.kind = 'warmup';
+    sh.tContact = tc; sh.kind = 'feed';
     m.bounces = 0; m.resolved = false;
-    p.clip = 'forehand'; p.aim = true; p.swingAt = m.segEnd - SWING_T; p.tSwing = p.swingAt;
+    m.tHit = tc; m.striker = p.idx;
+    const pl = p.plan;
+    pl.how = 'peak'; pl.stretch = 0; pl.low = 0; pl.lift = 0; pl.inSpeed = 0;
+    p.clip = 'forehand'; p.aim = true; p.swingAt = tc - SWING_T; p.tSwing = p.swingAt;
   }
 
   _setupPoint(m, first) {
@@ -1176,7 +1628,7 @@ export class MatchSystem {
 
     if (m.phase === 'warmup' && t >= m.feedAt) { m.feedAt = INF; this._feed(m); }
 
-    // Serve toss release
+    // Serve toss release: the toss flies up to the racket's contact point, the serve is planned
     const s = m.srv;
     if (s.active && !s.released && t >= s.tStart + SERVE_RELEASE) {
       s.released = true;
@@ -1184,12 +1636,14 @@ export class MatchSystem {
       srv.npc.character.getBallHandWorldPosition(_v1);
       srv.npc.character.setBallVisible(false);
       const tc = s.tStart + SERVE_CONTACT;
-      m.ball.launch(t, _v1.x, _v1.y, _v1.z, 0, 0, 0);
-      this._launchTo(m, _v1, s.C, tc - t);
-      m.segType = 'contact'; m.segEnd = tc;
+      this._toss(m, _v1, s.C, tc, t);
+      m.flightKind = 'toss';
       const sh = m.shot;
       sh.hitter = srv.idx; sh.receiver = srv.idx; sh.returnable = true; sh.missed = false; sh.kind = 'toss';
       sh.tContact = tc;
+      m.tHit = tc; m.striker = srv.idx;
+      const pl = srv.plan;
+      pl.state = 1; pl.kind = 'serve'; pl.tc = tc; pl.how = 'peak'; pl.stretch = 0; pl.low = 0; pl.lift = 0; pl.inSpeed = 0;
     }
 
     // Player timelines
@@ -1204,9 +1658,30 @@ export class MatchSystem {
       }
     }
 
-    // Ball events (in time order; several can fall into one frame)
-    let guard = 0;
-    while (m.segType !== 'none' && t >= m.segEnd && guard++ < 6) this._ballEvent(m);
+    // The ball: its flight's events and the next racket contact, in time order (several can
+    // fall into one frame; a contact replaces the flight, so what it would have done later is gone)
+    const fl = m.ball.flight;
+    for (let guard = 0; guard < 16 && m.flightKind !== 'none'; guard++) {
+      const tE = m.evi < fl.nEvents ? fl.events[m.evi].t : INF;
+      const tH = m.tHit;
+      if (tH <= tE) {
+        if (tH > t) break;
+        this._contact(m);
+      } else {
+        if (tE > t) break;
+        this._flightEvent(m, fl.events[m.evi++]);
+      }
+    }
+
+    // A point with nothing left to happen (a missed contact, a flight that came to rest) is settled
+    if ((m.phase === 'point' || m.phase === 'warmup') && !m.resolved && m.flightKind === 'shot' && m.tHit === INF && t > fl.tEnd + 0.4) {
+      this.stats.stuck++;
+      this._settle(m);
+    } else if (m.phase === 'point' && !m.resolved && m.phaseT > 90) {
+      this.stats.stuck++;
+      this._setupPoint(m, false);
+      return;
+    }
 
     // Point over → score → next
     if (m.resolved && t >= m.tPointOver) {
@@ -1214,7 +1689,7 @@ export class MatchSystem {
       m.ball.hide();
       if (m.phase === 'warmup') {
         if (t >= m.warmEnd) this._setupPoint(m, true);
-        else { m.feeder = 1 - m.feeder; m.players[m.feeder].npc.character.setBallVisible(true); m.feedAt = t + 1.2; m.resolved = false; }
+        else { m.feeder = 1 - m.feeder; m.players[m.feeder].npc.character.setBallVisible(true); m.feedAt = t + 1.2; m.resolved = false; m.flightKind = 'none'; }
         return;
       }
       this._awardPoint(m, m.pointWinner, over);
@@ -1239,6 +1714,32 @@ export class MatchSystem {
     rcv.tSplit = m.t + SERVE_CONTACT - 0.12;
   }
 
+  /**
+   * A toss (the serve's, a warm-up feed): a gravity-only flight (drag still acts) from `from`
+   * through the racket's contact point C at time tc. The drag-free launch, then one correction
+   * for the drag, so the ball arrives at the strings.
+   */
+  _toss(m, from, C, tc, t0) {
+    const f = m.frame, b = m.ball;
+    const tau = Math.max(0.1, tc - t0);
+    let vx = (C.x - from.x) / tau, vz = (C.z - from.z) / tau;
+    let vy = (C.y - from.y + 0.5 * 9.81 * tau * tau) / tau;
+    for (let i = 0; i < 2; i++) {
+      b.launchFlight(t0, from.x, from.y, from.z, vx, vy, vz, 0, 0, 0, f.env, TOSS_OPTS);
+      if (i === 1) break;
+      b.flight.at(tc, _st);
+      vx += (C.x - _st.x) / tau; vy += (C.y - _st.y) / tau; vz += (C.z - _st.z) / tau;
+    }
+    m.evi = 0; m.bounces = 0;
+    m.ball.bounced = 0;
+  }
+
+  /**
+   * Swing start (contact − SWING_T): the stroke clip plays; the gap between where the racket will
+   * meet the ball from here (the clip's contact probe) and the ball is glided during the swing —
+   * a lunge beyond GLIDE_REACH, a whiff beyond GLIDE_MAX — and the shot is queued for planning
+   * with the contact as its deadline. A hop takes the racket up to a high ball.
+   */
   _startSwing(m, p, t) {
     const npc = p.npc;
     npc.stopMove();
@@ -1246,398 +1747,264 @@ export class MatchSystem {
     npc.setFacing(p.yaw);
     const late = Math.min(0.2, Math.max(0, t - p.swingAt));
     npc.swing(p.clip, { fade: 0.1, startAt: late > 0.001 ? late : undefined });
-    if (!p.aim || m.shot.receiver !== p.idx) return;
+    if (!p.aim || m.striker !== p.idx || m.tHit === INF) return;
     npc.character.getContactPointWorld(p.clip, _v1);
-    if (_v1.distanceTo(m.aimPt) > 1.3) { m.shot.missed = true; return; }
-    m.aimPt.copy(_v1);
-    if (m.segType === 'contact') {
-      // Already past the bounce (or a toss / feed): bend the rest of the flight onto the strings
-      const b = m.ball;
-      b.at(t);
-      _v1.copy(b.pos);
-      this._launchTo(m, _v1, m.aimPt, Math.max(0.02, m.segEnd - t), t);
+    const dx = m.aimPt.x - _v1.x, dz = m.aimPt.z - _v1.z;
+    const d = Math.hypot(dx, dz);
+    if (d > MEMBER.GLIDE_MAX + 0.15) {
+      // Too far: the swing misses (the ball flies on — the hitter's point)
+      m.shot.missed = true; m.tHit = INF; m.striker = -1; p.aim = false;
+      this.stats.whiffs++;
+      return;
     }
+    if (d > 0.02) {
+      // (aimed MOVE_EPS past the spot: moveTo settles that short of its goal)
+      const b = npc.body.position, left = Math.max(0.12, m.tHit - t - 0.05), k = (d + MOVE_EPS - 0.005) / d;
+      npc.moveTo(b.x + dx * k, b.z + dz * k, { speed: Math.min(4.5, 1.25 * d / left + 0.25), face: p.yaw });
+    }
+    const pl = p.plan;
+    pl.stretch = Math.max(pl.stretch, clamp(d - MEMBER.GLIDE_REACH, 0, MEMBER.GLIDE_MAX - MEMBER.GLIDE_REACH));
+    pl.state = 1; pl.tc = m.tHit;
+    pl.kind = m.flightKind === 'feed' || m.phase === 'warmup' ? 'warmup' : 'rally';
+    // Up to a high ball (a hop), down to a low one (a dip): the racket's height at contact
+    const dy = pl.lift > 0.02 ? pl.lift : pl.low > 0.02 ? -Math.min(pl.low, DIP_MAX) : 0;
+    p.lift = dy;
+    if (dy) { p.liftT0 = m.tHit - HOP_T; p.liftT1 = m.tHit + HOP_T; this.stats.lifts++; } else p.liftT0 = p.liftT1 = INF;
   }
 
-  /** Ball segment from `from` reaching `to` after `tau` seconds (starting at time t0). */
-  _launchTo(m, from, to, tau, t0 = m.t) {
-    const vx = (to.x - from.x) / tau, vz = (to.z - from.z) / tau;
-    const vy = (to.y - from.y + 0.5 * G * tau * tau) / tau;
-    m.ball.launch(t0, from.x, from.y, from.z, vx, vy, vz);
-  }
-
-  _ballEvent(m) {
-    const b = m.ball;
-    const t = m.segEnd;
-    b.at(t);
-    const pos = b.pos;
-    const sh = m.shot;
+  /**
+   * Plan p's shot now (makeShot): the intention (serveIntent / rallyIntent from the player's
+   * profile and the situation), its execution (memberExec) and the racket–ball impact at the
+   * ball's real state at contact. The result waits in p.res for the contact.
+   */
+  _runPlan(m, p) {
+    const pl = p.plan;
+    if (pl.state !== 1) return;
+    const t0 = performance.now();
     const f = m.frame;
-    switch (m.segType) {
-      case 'contact': {
-        if (sh.missed) {
-          // Swing and a miss: the ball flies on
-          m.segType = 'bounce';
-          m.segEnd = b.timeToHeight(f.ballY);
-          if (f.stadium) this._showCourtSeg(m, t);
-          if (!m.resolved) this._resolve(m, sh.hitter === sh.receiver ? -1 : sh.hitter, 1.4);
-          return;
-        }
-        const hitter = m.players[sh.receiver];
-        this._pock(pos, 'hit');
-        if (sh.kind === 'toss') m.srv.active = false;
-        if (f.wear) this._queueWear(m, hitter.npc.body.position.x, hitter.npc.body.position.z, 0.5, 0.03);
-        this._planShot(m, hitter, t, sh.kind === 'toss' ? 'serve' : (m.phase === 'warmup' ? 'warmup' : 'rally'));
+    const st = m.ball.flight.at(pl.tc, _st);
+    const P = p.prof;
+    const o = m.players[1 - p.idx];
+    const ob = o.npc.body.position;
+    const it = _it, ex = _ex, xc = _xc;
+    if (pl.kind === 'serve') {
+      const r = o.side;
+      const sgn = m.deuce ? r : -r;
+      const first = m.faults === 0;
+      serveIntent(it, P, f, r, sgn, first, this._lu(f, ob.x, ob.z));
+      xc.serve = true; xc.first = first; xc.warm = false; xc.how = 'peak'; xc.stretch = 0; xc.low = 0; xc.lift = 0; xc.inSpeed = 0; xc.load = it.load;
+      memberExec(ex, P, xc);
+      // The racket is upright at contact: its across axis is horizontal, square to the serve;
+      // outSign +1 when the box's wide side is the server's left
+      const dx = it.tx - st.x, dz = it.tz - st.z, dl = Math.hypot(dx, dz) || 1;
+      _Bsv.x = dz / dl; _Bsv.y = 0; _Bsv.z = -dx / dl;
+      ex.B = _Bsv;
+      ex.outSign = sgn * (f.c * dz + f.s * dx) >= 0 ? 1 : -1;
+    } else {
+      const warm = pl.kind === 'warmup';
+      const h = _h;
+      h.u = this._lu(f, st.x, st.z); h.v = this._lv(f, st.x, st.z); h.side = p.side;
+      h.wing = p.clip === 'backhand' ? 'bh' : 'fh'; h.stretch = pl.stretch; h.height = st.y - f.surf;
+      h.inSpin = Math.sqrt(st.wx * st.wx + st.wy * st.wy + st.wz * st.wz);
+      _o.u = this._lu(f, ob.x, ob.z); _o.v = this._lv(f, ob.x, ob.z); _o.side = o.side;
+      rallyIntent(it, P, f, h, _o, warm);
+      xc.serve = false; xc.first = false; xc.warm = warm; xc.how = pl.how; xc.stretch = pl.stretch; xc.low = pl.low;
+      xc.lift = pl.lift; xc.inSpeed = Math.sqrt(st.vx * st.vx + st.vy * st.vy + st.vz * st.vz); xc.load = it.load;
+      memberExec(ex, P, xc);
+      ex.B = _Bup; ex.outSign = 1;
+    }
+    // The hitter allows for part of the wind (P.windAllow); the flight will get all of it
+    const env = _planEnv, fe = f.env;
+    env.surfY = fe.surfY; env.frame = fe.frame; env.fence = fe.fence; env.surface = fe.surface; env.groundAt = fe.groundAt;
+    _pw.x = this._wind.x * P.windAllow; _pw.z = this._wind.z * P.windAllow;
+    const res = makeShot(p.res, st, it, ex, env);
+    if (!Number.isFinite(res.vx + res.vy + res.vz + res.wx + res.wy + res.wz)) {
+      // (a degenerate plan: the ball just drops off the strings — the receiver's point)
+      res.vx = 0; res.vy = 0.5; res.vz = 0; res.wx = res.wy = res.wz = 0;
+      this.stats.badPlans++;
+    }
+    pl.state = 2;
+    pl.label = it.label;
+    // stats
+    const S = this.stats;
+    S.plans++;
+    this._framePlans++;
+    if (res.green) S.green++; else S.offGreen++;
+    if (res.frame) S.frameShots++;
+    if (ex.tail) S.tails++;
+    S.labels[it.label] = (S.labels[it.label] || 0) + 1;
+    const ms = performance.now() - t0;
+    S.planMs += ms;
+    if (ms > S.planMsMax) S.planMsMax = ms;
+  }
+
+  /** The striker's racket meets the ball (m.tHit): the planned shot leaves the strings as a new flight. */
+  _contact(m) {
+    const t = m.tHit;
+    const p = m.players[m.striker];
+    m.tHit = INF; m.striker = -1;
+    if (!p) return;
+    const pl = p.plan;
+    if (pl.state === 1) { this._runPlan(m, p); this.stats.forced++; }
+    if (pl.state !== 2) return;                   // (no plan: the swing missed it)
+    pl.state = 0; p.aim = false;
+    const f = m.frame, b = m.ball, res = p.res;
+    const st = b.flight.at(t, _st);
+    const px = st.x, py = st.y, pz = st.z;
+    const kind = pl.kind;
+    const t0 = performance.now();
+    b.launchFlight(t, px, py, pz, res.vx, res.vy, res.vz, res.wx, res.wy, res.wz, f.env);
+    const S = this.stats, ms = performance.now() - t0;
+    S.launches++; S.launchMs += ms; if (ms > S.launchMsMax) S.launchMsMax = ms;
+    b.bounced = 0;
+    m.evi = 0; m.bounces = 0; m.flightKind = 'shot';
+    _v1.set(px, py, pz);
+    this._pock(_v1, 'hit');
+    if (f.wear) this._queueWear(m, p.npc.body.position.x, p.npc.body.position.z, 0.5, 0.03);
+    const sh = m.shot, rcv = m.players[1 - p.idx];
+    sh.hitter = p.idx; sh.receiver = rcv.idx; sh.missed = false; sh.kind = kind; sh.label = pl.label || '';
+    sh.outcome = 'in'; sh.returnable = false; sh.tContact = INF;
+    if (kind === 'serve') { m.srv.active = false; this.stats.serves++; }
+    else if (kind === 'warmup') this.stats.warm++;
+    if (kind !== 'warmup') { m.rallyLen++; this.stats.shots++; }
+    rcv.tRecover = INF;
+    this._recover(m, p, t);
+    this._readFlight(m, p, rcv, t);
+  }
+
+  /**
+   * A new shot is in the air: the call on its flight (judgeFlight), and the receiver's answer —
+   * a contact on the real flight (planContact) they run to and swing at, a chase when it is out
+   * of reach (a winner), or a step toward a ball that is going out and a look.
+   */
+  _readFlight(m, hitter, rcv, t0) {
+    const f = m.frame, fl = m.ball.flight, sh = m.shot, S = this.stats;
+    const serve = sh.kind === 'serve';
+    const J = judgeFlight(m.judge, fl, f, rcv.side, serve ? (m.deuce ? rcv.side : -rcv.side) : 0);
+    S.calls[J.call] = (S.calls[J.call] || 0) + 1;
+    if (J.long) S.long++;
+    if (J.wide) S.wide++;
+    if (J.short) S.short++;
+    if (J.cord) S.cords++;
+    const warmEnd = sh.kind === 'warmup' && t0 >= m.warmEnd;
+    if (J.call === 'in' && !warmEnd) {
+      const rc = rcv.rc, npc = rcv.npc;
+      rc.x = npc.body.position.x; rc.z = npc.body.position.z; rc.gy = npc.mesh.position.y;
+      rc.yaw = rcv.yaw; rc.side = rcv.side; rc.fh = rcv.fh; rc.bh = rcv.bh;
+      const react = serve ? rcv.prof.react * 0.5 : rcv.prof.react;
+      const ct = planContact(rcv.ct, fl, f, rc, t0, react);
+      if (ct.ok && ct.reach) {
+        sh.returnable = true; sh.tContact = ct.t;
+        m.tHit = ct.t; m.striker = rcv.idx;
+        m.aimPt.set(ct.x, ct.y, ct.z);
+        rcv.clip = ct.clip; rcv.aim = true;
+        rcv.lift = 0; rcv.liftT0 = rcv.liftT1 = INF;
+        const pl = rcv.plan;
+        pl.state = 0; pl.how = ct.how; pl.stretch = ct.stretch; pl.low = ct.low; pl.lift = ct.lift; pl.inSpeed = ct.inSpeed;
+        S.how[ct.how]++;
+        const split = ct.t - t0 > 1.15 && !serve;
+        if (split) rcv.tSplit = t0 + 0.04;
+        rcv.tMove = t0 + (split ? Math.max(react, 0.38) : react);
+        rcv.mx = ct.sx; rcv.mz = ct.sz;
+        const moveTime = Math.max(0.15, ct.t - SWING_T - rcv.tMove - 0.06);
+        rcv.mSpeed = clamp(ct.cost / moveTime, 1.2, rcv.prof.speed);
+        rcv.swingAt = ct.t - SWING_T;
+        rcv.tSwing = rcv.swingAt;
         return;
       }
+      if (ct.ok) {
+        // Out of reach: a chase at full speed (a lunge at the end when it is close), then it is gone
+        S.chases++;
+        rcv.tSplit = t0 + 0.04;
+        rcv.mx = ct.sx; rcv.mz = ct.sz; rcv.mSpeed = rcv.prof.speed; rcv.tMove = t0 + react;
+        rcv.clip = ct.clip; rcv.aim = false;
+        rcv.swingAt = ct.t - SWING_T;
+        rcv.tSwing = ct.short < MEMBER.GLIDE_MAX + 1 ? rcv.swingAt : INF;
+        return;
+      }
+    }
+    // Going out / into the net / a let / the warm-up's last ball: a step toward it, then leave it
+    rcv.tSplit = t0 + 0.05;
+    const bx = rcv.npc.body.position.x, bz = rcv.npc.body.position.z;
+    const b0 = J.b0;
+    const tx = b0 ? b0.x : this._wx(f, 0, rcv.side * BASE_V), tz = b0 ? b0.z : this._wz(f, 0, rcv.side * BASE_V);
+    rcv.mx = bx + (tx - bx) * 0.25; rcv.mz = bz + (tz - bz) * 0.25; rcv.mSpeed = 2.4;
+    rcv.tMove = t0 + 0.45;
+  }
+
+  /** One event of the current flight (bounce, net, net cord, fence / end boards, stands, rest): sound, wear, the call. */
+  _flightEvent(m, e) {
+    const f = m.frame;
+    switch (e.type) {
       case 'bounce': {
         m.bounces++;
-        this._pock(pos, 'bounce', f.surface);
-        if (f.wear) this._queueWear(m, pos.x, pos.z, 0.3, 0.035);
-        const vx = b.v0.x, vy = b.vyAt(t), vz = b.v0.z;
-        if (m.bounces === 1 && sh.returnable && !sh.missed && t < sh.tContact) {
-          _v1.set(pos.x, f.ballY, pos.z);
-          this._launchTo(m, _v1, m.aimPt, sh.tContact - t, t);
-          m.segType = 'contact'; m.segEnd = sh.tContact;
-        } else {
-          this._physicalBounce(m, t, vx, vy, vz);
-        }
-        if (!m.resolved) {
-          if (m.bounces === 1 && sh.outcome === 'out') {
+        m.ball.bounced = m.bounces;
+        this._pock(e, 'bounce', f.surface);
+        if (f.wear) this._queueWear(m, e.x, e.z, 0.3, 0.035);
+        if (m.resolved || m.flightKind !== 'shot') return;
+        const sh = m.shot, J = m.judge;
+        if (e.k === 0) {
+          if (J.call === 'out') {
+            sh.outcome = 'out';
             this._resolve(m, sh.receiver, 1.4);
             if (Math.random() < 0.8) this._say(m.players[sh.receiver], sh.kind === 'serve' ? 'Fault!' : 'Out!', 1.2);
-          } else if (m.bounces >= 2) {
-            this._resolve(m, sh.hitter, 1.2);
+          } else if (J.call === 'net') {
+            sh.outcome = 'net';
+            this._resolve(m, sh.receiver, 1.3);
+          } else if (J.call === 'let') {
+            sh.outcome = 'let';
+            this._resolve(m, -1, 1.3);
+            if (Math.random() < 0.7) this._say(m.players[sh.receiver], 'Let!', 1.1);
           }
+        } else if (J.call === 'in') {
+          sh.outcome = 'winner';
+          this._resolve(m, sh.hitter, 1.2);
         }
         return;
       }
       case 'net': {
-        this._pock(pos, 'bounce', f.surface);
-        const vx = b.v0.x, vz = b.v0.z;
-        b.launch(t, pos.x - vx * 0.004, Math.max(pos.y, f.ballY), pos.z - vz * 0.004, -vx * 0.08, 0.4, -vz * 0.08);
-        m.segType = 'bounce'; m.segEnd = b.timeToHeight(f.ballY);
-        m.bounces = 5;
-        if (!m.resolved) this._resolve(m, sh.receiver, 1.5);
+        this._pock(e, 'bounce', f.surface);
+        if (m.resolved || m.flightKind !== 'shot') return;
+        m.shot.outcome = 'net';
+        this._resolve(m, m.shot.receiver, 1.5);
         return;
       }
-      case 'fence': {
-        const vx = b.v0.x, vy = b.vyAt(t), vz = b.v0.z;
-        // reflect the court-length component, damp the rest
-        const lu = vx * f.c - vz * f.s, lv = vx * f.s + vz * f.c;
-        const nu = lu * 0.4, nv = -lv * 0.25;
-        b.launch(t, pos.x, pos.y, pos.z, nu * f.c + nv * f.s, Math.min(vy, 0.5), -nu * f.s + nv * f.c);
-        m.segType = 'bounce'; m.segEnd = b.timeToHeight(f.ballY);
-        m.bounces = Math.max(m.bounces, 2);
-        if (!m.resolved) this._resolve(m, sh.hitter, 1.2);
+      case 'netcord': {
+        this._pock(e, 'bounce', f.surface);
         return;
       }
-      case 'stands': {
-        // Show court: over the end boards (or past their open corners) into the stands — a dead
-        // ball, resting where it came down.
-        b.roll(t, 0, 0);
-        b.p0.y = groundAt(pos.x, pos.z) + BALL_RADIUS;
-        b.pos.copy(b.p0);
-        m.segType = 'none'; m.segEnd = INF;
-        m.bounces = Math.max(m.bounces, 2);
-        if (!m.resolved) this._resolve(m, sh.hitter, 1.2);
+      case 'fence': case 'stands': case 'rest': {
+        if (m.resolved || m.flightKind !== 'shot') return;
+        this._settle(m);
         return;
       }
       default:
-        m.segType = 'none'; m.segEnd = INF;
     }
   }
 
-  _physicalBounce(m, t, vx, vy, vz) {
-    const b = m.ball, f = m.frame;
-    const e = f.bounceE, kh = f.bounceKh;
-    const nvx = vx * kh, nvz = vz * kh, nvy = -vy * e;
-    const pos = b.pos;
-    if (nvy < 0.9) {
-      b.roll(t, nvx, nvz);
-      m.segType = 'none'; m.segEnd = INF;
-      return;
-    }
-    b.launch(t, pos.x, f.ballY, pos.z, nvx, nvy, nvz);
-    let tEnd = t + 2 * nvy / G, type = 'bounce';
-    if (f.stadium) {
-      m.segType = type; m.segEnd = tEnd;
-      this._showCourtSeg(m, t);
-      return;
-    }
-    const v0 = this._lv(f, pos.x, pos.z), vv = nvx * f.s + nvz * f.c;
-    if (Math.abs(vv) > 1e-3) {
-      const tf = (Math.sign(vv) * FENCE_V - v0) / vv;
-      if (tf > 0.01 && t + tf < tEnd) { tEnd = t + tf; type = 'fence'; }
-    }
-    m.segType = type; m.segEnd = tEnd;
-  }
-
-  /**
-   * Show court: cut the current flight segment (from time t to m.segEnd) at the end boards — only
-   * where the ball is below their cap and between their ends, from any distance — or where it
-   * comes down on the stand treads or the lawn beyond them ('stands'). The walkway round the pad
-   * is at court level, so a landing there stays an ordinary bounce.
-   */
-  _showCourtSeg(m, t) {
-    const b = m.ball, f = m.frame;
-    const tEnd = m.segEnd;
-    const vv = b.v0.x * f.s + b.v0.z * f.c;
-    if (Math.abs(vv) > 1e-3) {
-      const lv = this._lv(f, b.p0.x, b.p0.z);
-      let d = (Math.sign(vv) * f.fenceV - lv) / vv;
-      // Already at the boards' face at t (a bounce right in front of them): meets them at once
-      if (b.t0 + d <= t && Math.abs(lv + vv * (t - b.t0)) < f.fenceV + 0.2) d = t - b.t0 + 1e-3;
-      const tc = b.t0 + d;
-      if (tc > t && tc < tEnd) {
-        const y = b.p0.y + b.v0.y * d - 0.5 * G * d * d;
-        const u = this._lu(f, b.p0.x + b.v0.x * d, b.p0.z + b.v0.z * d);
-        if (y - BALL_RADIUS < f.boardTop && Math.abs(u) < f.boardHalfU) {
-          m.segType = 'fence'; m.segEnd = tc;
-          return;
-        }
-      }
-    }
-    // Over the boards or wide: find where it meets the stands (sampled, then bisected).
-    const lim = Math.min(tEnd, t + 4);
-    for (let s1 = t + STAND_STEP; s1 < lim; s1 += STAND_STEP) {
-      if (!this._belowStands(b, s1)) continue;
-      let lo = s1 - STAND_STEP, hi = s1;
-      for (let k = 0; k < 6; k++) {
-        const mid = 0.5 * (lo + hi);
-        if (this._belowStands(b, mid)) hi = mid; else lo = mid;
-      }
-      m.segType = 'stands'; m.segEnd = hi;
-      return;
-    }
-  }
-
-  /** Is the ball (current segment, time s) touching or under the ground there? */
-  _belowStands(b, s) {
-    const d = s - b.t0;
-    const y = b.p0.y + b.v0.y * d - 0.5 * G * d * d;
-    return y - BALL_RADIUS < groundAt(b.p0.x + b.v0.x * d, b.p0.z + b.v0.z * d);
+  /** The point ends with the ball dead: an in-ball nobody returned is the hitter's, anything else the receiver's. */
+  _settle(m) {
+    const sh = m.shot;
+    if (m.judge.call === 'in' && m.bounces >= 1) { sh.outcome = 'winner'; this._resolve(m, sh.hitter, 1.2); }
+    else if (m.judge.call === 'let') { sh.outcome = 'let'; this._resolve(m, -1, 1.2); }
+    else { sh.outcome = m.judge.call === 'net' ? 'net' : 'out'; this._resolve(m, sh.receiver, 1.2); }
   }
 
   _resolve(m, winner, delay) {
     m.resolved = true;
     m.pointWinner = winner;
     m.tPointOver = m.t + delay;
+    m.tHit = INF; m.striker = -1;
     for (const p of m.players) {
       p.tSplit = p.tMove = p.tSwing = INF;
+      p.plan.state = 0; p.aim = false;
       if (!p.npc.isBusyClip()) p.npc.stopMove();
     }
   }
 
-  /**
-   * Plan the next flight from the ball's current position (the hitter's racket contact) at time
-   * t0: pick the outcome, a target, a flight time that clears the net, and the receiver's
-   * return (clip, stand spot, timing).
-   */
-  _planShot(m, hitter, t0, kind) {
-    const f = m.frame;
-    const b = m.ball;
-    const C = _C.copy(b.pos);
-    const rcv = m.players[1 - hitter.idx];
-    const r = rcv.side;
-    const sh = m.shot;
-    sh.hitter = hitter.idx; sh.receiver = rcv.idx; sh.missed = false; sh.kind = kind;
-    m.bounces = 0;
-    rcv.tRecover = INF;
-    if (kind !== 'warmup') m.rallyLen++;
-    if (kind === 'serve') m.srv.active = false;
-
-    // Outcome
-    let outcome = 'in';
-    const sk = hitter.skill;
-    if (kind === 'serve') {
-      const pf = m.faults === 0 ? 0.24 - sk * 0.12 : 0.1 - sk * 0.06;
-      const x = Math.random();
-      if (x < pf) outcome = Math.random() < 0.5 ? 'net' : 'out';
-      else if (x < pf + 0.03 + sk * 0.05) outcome = 'winner';
-    } else if (kind === 'rally') {
-      const n = m.rallyLen;
-      const pe = 0.06 + (1 - sk) * 0.12 + 0.02 * n;
-      const pw = 0.04 + sk * 0.06 + 0.012 * n;
-      const x = Math.random();
-      if (x < pe) outcome = Math.random() < 0.42 ? 'net' : 'out';
-      else if (x < pe + pw) outcome = 'winner';
-    }
-    const cu = this._lu(f, C.x, C.z), cv = this._lv(f, C.x, C.z);
-    const ru = this._lu(f, rcv.npc.body.position.x, rcv.npc.body.position.z);
-
-    if (outcome === 'net') {
-      const nu = THREE.MathUtils.clamp(cu * 0.5 + rand(-2.5, 2.5), -4, 4);
-      const top = f.surf + NET_H0 + (NET_H1 - NET_H0) * (nu / NET_POST) ** 2;
-      _v1.set(this._wx(f, nu, -r * 0.02), top - rand(0.12, 0.35), this._wz(f, nu, -r * 0.02));
-      const d = Math.hypot(_v1.x - C.x, _v1.z - C.z);
-      const tn = d / rand(13, 17);
-      this._launchTo(m, b.pos, _v1, tn, t0);
-      m.segType = 'net'; m.segEnd = t0 + tn;
-      sh.outcome = 'net'; sh.returnable = false; sh.tContact = INF;
-      this._recover(m, hitter, t0);
-      // receiver reads it and steps in a little
-      rcv.tSplit = t0 + 0.05;
-      return;
-    }
-
-    const speedBase = kind === 'serve' ? rand(15.5, 19.5) + sk * 1.5 : kind === 'warmup' ? rand(10.5, 12.5) : rand(12.5, 15.5) + sk * 2;
-    let best = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      // Target (court-local)
-      let bu, bv;
-      const shrink = 1 - attempt * 0.07;
-      if (kind === 'serve') {
-        const sgn = m.deuce ? r : -r;
-        if (outcome === 'out') { bu = sgn * rand(0.5, 3.8); bv = r * rand(SERVICE_L + 0.4, SERVICE_L + 1.8); }
-        else if (outcome === 'winner') { bu = sgn * (Math.random() < 0.5 ? rand(3.6, 4.3) : rand(0.3, 0.8)); bv = r * rand(5.2, 6.3); }
-        else { bu = sgn * rand(0.9, 3.6) * shrink; bv = r * rand(3.8, 6.2) * (0.8 + 0.2 * shrink); }
-      } else if (outcome === 'out') {
-        if (Math.random() < 0.55) { bu = rand(-3.5, 3.5); bv = r * rand(HALF_L + 0.3, HALF_L + 1.5); }
-        else { bu = (Math.random() < 0.5 ? -1 : 1) * rand(SINGLES_W + 0.25, SINGLES_W + 1.2); bv = r * rand(6.5, 11); }
-      } else if (outcome === 'winner') {
-        const away = ru > 0 ? -1 : 1;
-        bu = away * rand(3.2, 4.4); bv = r * rand(8.5, 11.8);
-      } else if (kind === 'warmup') {
-        bu = THREE.MathUtils.clamp(ru + rand(-1.2, 1.2), -2.5, 2.5) * shrink; bv = r * rand(8.8, 10.8) * (0.85 + 0.15 * shrink);
-      } else {
-        bu = THREE.MathUtils.clamp(rand(-3.8, 3.8) * shrink + ru * 0.15 * attempt, -4.2, 4.2);
-        bv = r * rand(7.2, 11.2) * (0.8 + 0.2 * shrink);
-      }
-      // Aim along the line toward a comfortable return spot (serves always, rallies as a fallback)
-      if (outcome === 'in' && (kind === 'serve' || attempt >= 4)) {
-        const rb = rcv.npc.body.position;
-        const hu = ru + rand(-1.4, 1.4), hv = this._lv(f, rb.x, rb.z) - r * rand(0.3, 1.8);
-        const fr = kind === 'serve' ? rand(0.55, 0.78) : rand(0.6, 0.82);
-        bu = cu + (hu - cu) * fr; bv = cv + (hv - cv) * fr;
-        if (kind === 'serve') {
-          const sgn = m.deuce ? r : -r;
-          bu = sgn * THREE.MathUtils.clamp(bu * sgn, 0.25, SINGLES_W - 0.3);
-          bv = r * THREE.MathUtils.clamp(bv * r, 1.5, SERVICE_L - 0.25);
-        } else {
-          bu = THREE.MathUtils.clamp(bu, -SINGLES_W + 0.4, SINGLES_W - 0.4);
-          bv = r * THREE.MathUtils.clamp(bv * r, 3, HALF_L - 0.6);
-        }
-      }
-      const Bx = this._wx(f, bu, bv), Bz = this._wz(f, bu, bv);
-      const D = Math.hypot(Bx - C.x, Bz - C.z);
-      // Flight time: from the pace, stretched until it clears the net
-      let T1 = D / speedBase;
-      const fr = (0 - cv) / (bv - cv);
-      const nu = cu + (bu - cu) * fr;
-      const need = f.surf + NET_H0 + (NET_H1 - NET_H0) * (nu / NET_POST) ** 2 + BALL_RADIUS + (kind === 'serve' ? 0.12 : 0.3);
-      let vy0 = 0;
-      for (let k = 0; k < 30; k++) {
-        vy0 = (f.ballY - C.y + 0.5 * G * T1 * T1) / T1;
-        const tn = fr * T1;
-        if (fr <= 0 || fr >= 1 || C.y + vy0 * tn - 0.5 * G * tn * tn >= need) break;
-        T1 += 0.05;
-      }
-      const vx = (Bx - C.x) / T1, vz = (Bz - C.z) / T1;
-      const vyB = vy0 - G * T1;
-      const e = f.bounceE, kh = f.bounceKh;
-      const plan = { Bx, Bz, T1, vx, vy0, vz, rt: null };
-      if (outcome === 'in' || outcome === 'winner') {
-        plan.rt = this._evalReturn(m, rcv, Bx, Bz, vx * kh, vz * kh, -vyB * e, t0 + T1);
-        if (plan.rt) {
-          const react = t0 + (kind === 'serve' ? 0.15 : 0.4);
-          const avail = plan.rt.tContact - SWING_T - react - 0.05;
-          plan.rt.reach = plan.rt.cost <= RUN_SPEED * Math.max(0, avail) + 0.1;
-          plan.rt.avail = avail;
-        }
-      }
-        if (!best) best = plan;
-      if (outcome === 'out') { best = plan; break; }
-      const ok = plan.rt && plan.rt.reach;
-      if (outcome === 'in' && ok) { best = plan; break; }
-      if (outcome === 'winner') { best = plan; if (!ok || attempt >= 2) break; }
-      if (ok && !(best.rt && best.rt.reach)) best = plan;
-    }
-
-    // Launch
-    const p = best;
-    if (this.debug) {
-      const log = this.debugLog || (this.debugLog = []);
-      log.push(`${kind}/${outcome} T1=${p.T1.toFixed(2)} ` + (p.rt ? `cost=${p.rt.cost.toFixed(1)} avail=${p.rt.avail.toFixed(2)} reach=${p.rt.reach} clip=${p.rt.clip}` : 'no-rt'));
-      if (log.length > 200) log.shift();
-    }
-    b.launch(t0, C.x, C.y, C.z, p.vx, p.vy0, p.vz);
-    m.segType = 'bounce'; m.segEnd = t0 + p.T1;
-    sh.outcome = outcome;
-    this._recover(m, hitter, t0);
-    const rt = p.rt;
-    if (!rt) {
-      // out: the receiver drifts toward the ball a little, then leaves it
-      sh.returnable = false; sh.tContact = INF;
-      rcv.tSplit = t0 + 0.05;
-      const bx = rcv.npc.body.position.x, bz = rcv.npc.body.position.z;
-      rcv.mx = bx + (p.Bx - bx) * 0.25; rcv.mz = bz + (p.Bz - bz) * 0.25; rcv.mSpeed = 2.4;
-      rcv.tMove = t0 + 0.45;
-      return;
-    }
-    sh.returnable = rt.reach && outcome !== 'winner';
-    if (!rt.reach && outcome === 'in') sh.outcome = 'winner';
-    if (rt.reach && outcome === 'winner') { sh.returnable = true; sh.outcome = 'in'; }
-    sh.tContact = rt.tContact;
-    m.aimPt.set(rt.hx, rt.hy, rt.hz);
-    rcv.mx = rt.sx; rcv.mz = rt.sz; rcv.clip = rt.clip;
-    const split = rt.tContact - t0 > 1.15 && kind !== 'serve';
-    if (split) rcv.tSplit = t0 + 0.04;
-    rcv.tMove = t0 + (split ? 0.38 : 0.12);
-    const dist = rt.cost;
-    const moveTime = Math.max(0.15, rt.tContact - SWING_T - rcv.tMove - 0.06);
-    rcv.mSpeed = sh.returnable ? THREE.MathUtils.clamp(dist / moveTime, 1.2, RUN_SPEED + 1) : RUN_SPEED;
-    rcv.swingAt = rt.tContact - SWING_T;
-    rcv.aim = sh.returnable;
-    // Out of reach: a lunge if it is close, otherwise let it go
-    const short = dist - RUN_SPEED * Math.max(0, rt.avail);
-    rcv.tSwing = sh.returnable || short < 1.2 ? rcv.swingAt : INF;
-    // End of the warm-up: the receiver catches... well, lets this one go
-    if (kind === 'warmup' && t0 >= m.warmEnd) {
-      sh.returnable = false; sh.outcome = 'winner';
-      rcv.aim = false; rcv.tSwing = INF; rcv.tMove = INF; rcv.tSplit = INF;
-    }
-  }
-
-  /** Best receiver contact for a post-bounce flight (both strokes, rising / falling ball). */
-  _evalReturn(m, rcv, Bx, Bz, vhx, vhz, vyb, tB) {
-    const f = m.frame;
-    const npc = rcv.npc;
-    const gy = npc.mesh.position.y;
-    const cy = Math.cos(rcv.yaw), sy = Math.sin(rcv.yaw);
-    const px = npc.body.position.x, pz = npc.body.position.z;
-    let best = null, bestCost = INF;
-    for (let ci = 0; ci < 2; ci++) {
-      const cp = ci === 0 ? rcv.fh : rcv.bh;
-      if (!cp) continue;
-      const hc = gy + cp.y * rcv.scale;
-      const disc = vyb * vyb - 2 * G * (hc - f.ballY);
-      const r0 = disc >= 0 ? Math.sqrt(disc) : 0;
-      for (let k = 0; k < (disc >= 0 ? 2 : 1); k++) {
-        const tau = disc >= 0 ? (k === 0 ? (vyb + r0) / G : (vyb - r0) / G) : vyb / G;
-        if (tau < 0.15) continue;
-        const hx = Bx + vhx * tau, hz = Bz + vhz * tau;
-        const ox = (cp.x * cy + cp.z * sy) * rcv.scale, oz = (-cp.x * sy + cp.z * cy) * rcv.scale;
-        const sx = hx - ox, sz = hz - oz;
-        const su = this._lu(f, sx, sz), sv = this._lv(f, sx, sz) * rcv.side;
-        if (sv < 1.8 || sv > MAX_STAND_V || su < -f.halfPadL + 0.6 || su > f.halfPadR - 0.6) continue;
-        const cost = Math.hypot(sx - px, sz - pz);
-        const score = cost + (k === 1 ? 0.6 : 0) + (ci === 1 ? 0.15 : 0);
-        if (score < bestCost) {
-          bestCost = score;
-          best = best || {};
-          best.clip = ci === 0 ? 'forehand' : 'backhand';
-          best.hx = hx; best.hy = hc; best.hz = hz; best.sx = sx; best.sz = sz;
-          best.cost = cost; best.tContact = tB + tau;
-        }
-      }
-    }
-    return best;
-  }
-
   _recover(m, p, t0) {
     const f = m.frame;
-    const u = THREE.MathUtils.clamp(this._lu(f, p.npc.body.position.x, p.npc.body.position.z) * 0.3, -1.5, 1.5);
+    const u = clamp(this._lu(f, p.npc.body.position.x, p.npc.body.position.z) * 0.3, -1.5, 1.5);
     p.rx = this._wx(f, u, p.side * BASE_V); p.rz = this._wz(f, u, p.side * BASE_V);
     p.tRecover = t0 + 0.6;
     p.tSplit = p.tMove = p.tSwing = INF;
@@ -1647,7 +2014,14 @@ export class MatchSystem {
 
   _awardPoint(m, w, over) {
     const sc = m.score;
-    if (w < 0) { this._setupPoint(m, false); return; } // let (e.g. interrupted toss)
+    if (w < 0) {
+      // A let (a serve off the net cord into the box) or a replay: the same serve again
+      const faults = m.shot.outcome === 'let' ? m.faults : 0;
+      this._setupPoint(m, false);
+      m.faults = faults;
+      if (faults) m.callScore = 'second';
+      return;
+    }
     const srvIdx = sc.server;
     // A serve fault is not a point unless it is the second one
     if (m.shot.kind === 'serve' && (m.shot.outcome === 'out' || m.shot.outcome === 'net') && m.faults === 0 && w !== srvIdx) {

@@ -16,6 +16,7 @@
  */
 
 import { sanitizeProfile } from './PlayerProfile.js';
+import { sanitizeTour } from './TourSystem.js';
 import { groundAt, inFootprint, pushOutOfFootprint } from '../world/Ground.js';
 
 export const SAVE_KEY = 'courtcall.save.v1';
@@ -182,6 +183,7 @@ function sanitizeShift(v) {
     wallet: money(v.wallet),
     lifetimeEarnings: money(v.lifetimeEarnings),
     lifetimeTips: money(v.lifetimeTips),
+    lifetimePrize: money(v.lifetimePrize),       // Junior Tour prize money (additive, absent = 0)
     rep: num(v.rep, 0, 0, 1e9),
     rankIndex: int(v.rankIndex, 0, 0, 50),
     shiftsWorked: count(v.shiftsWorked),
@@ -207,6 +209,11 @@ function sanitizeShift(v) {
       hours: num(c.hours, 0, 0, 24),
     },
   };
+}
+
+/** The tour section never makes a save unreadable: anything odd there just drops the section. */
+function sanitizeTourSafe(v) {
+  try { return sanitizeTour(v); } catch (e) { console.warn('[SaveSystem] ignoring an unreadable tour section:', e); return null; }
 }
 
 /**
@@ -293,6 +300,8 @@ export function sanitizeSave(raw) {
     shift: sanitizeShift(raw.shift),
     profile: sanitizeProfile(raw.profile),
     events: sanitizeEvents(raw.events),
+    // Junior Tour (TourSystem.getState; additive in v1, absent = null): seed, career, rings, the draw…
+    tour: sanitizeTourSafe(raw.tour),
     flags: {
       tutorialSeen: bool(flags.tutorialSeen),
       groomTutorialSeen: bool(flags.groomTutorialSeen),
@@ -412,7 +421,10 @@ export function captureSaveData(game) {
   const { weather, player, cart, missionSystem, inventory, courtMaintenance } = game;
   const w = weather.getState ? weather.getState() : { timeOfDay: weather.timeOfDay, day: 1, weather: weather.weather };
   const cm = courtMaintenance ? courtMaintenance.getState() : { courts: {}, tutorialCompleted: false };
-  const pb = player.body.position;
+  // (during a Junior Tour match the player may be at another club, x ≈ 1800: save their club spot)
+  const tm = game.tennis && game.tennis.active && game.tennis.tour ? game.tennis.tour : null;
+  const spot = tm && typeof tm.clubSpot === 'function' ? tm.clubSpot() : null;
+  const pb = spot ? { x: spot.x, y: spot.y + 0.5, z: spot.z } : player.body.position;
   const cb = cart.body.position;
   const flags = { ...createDefaultFlags(), ...(game.flags || {}) };
   flags.groomTutorialSeen = !!(cm.tutorialCompleted || flags.groomTutorialSeen);
@@ -445,8 +457,17 @@ export function captureSaveData(game) {
     shift: game.shift ? game.shift.getState() : null,
     profile: game.profile ? game.profile.getState() : null,
     events: game.events ? game.events.getState() : null,
+    tour: captureTour(game),
     flags,
   };
+}
+
+/** The Junior Tour's dynamic state (the field itself is rebuilt from its seed). */
+function captureTour(game) {
+  const t = game.tour;
+  // (an unavailable tour — tour.json failed to load — hands back the section it was loaded with)
+  if (!t || typeof t.getState !== 'function') return null;
+  try { return t.getState(); } catch (e) { console.warn('[SaveSystem] tour state skipped:', e); return null; }
 }
 
 function placeBody(body, x, y, z, yaw) {
@@ -508,6 +529,9 @@ export function applySaveData(game, data) {
   // After time/weather (the phase is checked against the clock) and missions (routines)
   step('shift', () => { if (game.shift) game.shift.setState(data.shift); });
   step('profile', () => { if (game.profile && data.profile) game.profile.setState(data.profile); });
+  // After the clock (the tour catches up to today), the shift (career multipliers) and the profile
+  // (Rafa wins unlock the tour)
+  step('tour', () => { if (game.tour && data.tour) game.tour.setState(data.tour); });
 
   step('cart', () => {
     if (!data.cart) return;

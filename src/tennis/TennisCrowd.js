@@ -36,6 +36,10 @@ import { groundAt, getGroundModel } from '../world/Ground.js';
  * end(session)            staff back at their posts, members back at the club (away from the
  *                         court the session ended on)
  *
+ * Junior Tour matches: session.oppNpc (the opponent; Rafa otherwise) is the one left on court,
+ * session.crowdKeep lists NPCs that must not be sent home (Rafa courtside, a club-member
+ * opponent), and session.crowdStaff === false (another club's venue) keeps the staff at home.
+ *
  * Wiring (TennisSession): `this.crowd = new TennisCrowd(game)` once; `crowd.begin(this)` at the
  * end of begin(); `crowd.relocate(this)` in setSurface() once the new frame, the players and the
  * camera are set; `crowd.update(this, dt)` in _tick after the NPC updates; `crowd.react(...)`
@@ -91,6 +95,10 @@ const DEFAULT_LINES = {
   ace: ['What a serve!', 'Ace!'],
   rally: ['What a rally!', 'Ooh!'],
   rafa: ['Nice one, Rafa.', 'Wow.'],
+  // Junior Tour matches (someone else across the net, Rafa in the stand)
+  opp: ['Good shot.', 'Tough one.', 'Hm.'],
+  tourWin: ['You did it!', 'What a win!'],
+  tourLose: ['Good fight!', 'Next time!'],
   error: ['Shake it off!', 'Next one!'],
   game: ['Game! Nice!', 'Keep going!'],
   matchWin: ['You did it!', 'Bravo!'],
@@ -181,21 +189,26 @@ export class TennisCrowd {
     this._lastSpeaker = null;
     this._arrived = false;
     this._sndT.fill(Infinity);
-    const coach = session.coachNpc || null;
+    // A Junior Tour match: the opponent's shots are not Rafa's (opp / tourWin / tourLose lines)
+    this.tourMode = !!session.tour;
+    // The NPC across the net (Rafa, or a Junior Tour opponent: session.oppNpc) and anyone else the
+    // session keeps (session.crowdKeep: the tour's courtside Rafa and a club-member opponent)
+    const coach = session.oppNpc || session.coachNpc || null;
+    const keep = Array.isArray(session.crowdKeep) ? session.crowdKeep : null;
 
     // Every member match ends (not only Court 1's): the club is closing
     const ms = g.matches;
     if (ms && Array.isArray(ms.matches)) {
       const ours = coach && coach.playing && coach.playing.courtId === f.id ? coach.playing : null;
       for (const m of ms.matches.slice()) {
-        // Rafa already belongs to the session: keep _finish from standing him down
+        // The opponent already belongs to the session: keep _finish from standing them down
         if (ours) coach.playing = null;
         try { ms._finish(m); } catch (e) { /* ignore */ }
         if (ours) coach.playing = ours;
       }
     }
 
-    // A chat in progress with anyone but Rafa ends
+    // A chat in progress with anyone but the opponent ends
     const ds = g.dialogueSystem;
     if (ds && ds.isActive && ds.isActive() && ds.currentNPC && ds.currentNPC !== coach) {
       try { ds.forceEnd(); } catch (e) { /* ignore */ }
@@ -204,16 +217,16 @@ export class TennisCrowd {
     // Members go home
     this.awayNpcs.length = 0;
     for (const npc of g.npcs) {
-      if (!npc || npc === coach || npc.archetype === 'staff' || npc.away || typeof npc.setAway !== 'function') continue;
+      if (!npc || npc === coach || (keep && keep.includes(npc)) || npc.archetype === 'staff' || npc.away || typeof npc.setAway !== 'function') continue;
       try { npc.setAway(true); this.awayNpcs.push(npc); } catch (e) { console.error('TennisCrowd: setAway', npc.id, e); }
     }
 
-    // Staff come to watch
+    // Staff come to watch (not at another club: session.crowdStaff false — a Junior Tour venue)
     this.spectators.length = 0;
     const who = [];
-    for (const L of LINEUP) {
+    for (const L of session.crowdStaff === false ? [] : LINEUP) {
       const npc = g.npcs.find(n => n && n.id === L.id);
-      if (npc && npc !== coach && !npc.away) who.push(npc);
+      if (npc && npc !== coach && !(keep && keep.includes(npc)) && !npc.away) who.push(npc);
     }
     const spots = this._spotsFor(session, who);
     for (let i = 0; i < who.length; i++) {
@@ -293,7 +306,7 @@ export class TennisCrowd {
     const f = session.frame;
     const g = this.game;
     const cfg = (f.court && f.court.config) || {};
-    const coach = session.coachNpc || null;
+    const coach = session.oppNpc || session.coachNpc || null;
     const halfW = (SIZES.courtWidth || 16) / 2;
     const seats = findSeats(g.scene);
     const prefix = `court:${f.id}@`;
@@ -348,7 +361,7 @@ export class TennisCrowd {
       for (const s of seatList) {
         if (s.used || s.side !== side) continue;
         const t = s.seat.taken;
-        // Free, ours, a member's who went home, or Rafa's (he just stood up to play)
+        // Free, ours, a member's who went home, or the opponent's (they just stood up to play)
         if (t && t !== npc && !t.away && t !== coach) continue;
         // (stand seats: the front row first)
         const d = Math.abs(s.v - v) + ROW_COST * (s.seat.stadium?.row ?? 0);
@@ -624,7 +637,7 @@ export class TennisCrowd {
     switch (kind) {
       case 'ace':
         if (you) { P.act = P.act2 = 'cheer'; P.emoji = E.fire; P.emojis = 2; P.line = 'ace'; P.lineChance = 0.7; P.applause = 0.8; P.voice = 'whoop'; P.voiceK = 0.8; P.prio = 4; }
-        else { P.n = 1; P.emoji = E.wow; P.line = 'rafa'; P.lineChance = 0.35; P.applause = 0.2; P.voice = 'gasp'; P.voiceK = 0.35; P.prio = 2; P.minor = true; P.chance = 0.85; }
+        else { P.n = 1; P.emoji = E.wow; P.line = this.tourMode ? 'opp' : 'rafa'; P.lineChance = 0.35; P.applause = 0.2; P.voice = 'gasp'; P.voiceK = 0.35; P.prio = 2; P.minor = true; P.chance = 0.85; }
         return true;
       case 'smash':
       case 'winner':
@@ -640,7 +653,7 @@ export class TennisCrowd {
           P.prio = smash ? 4 : 3;
         } else {
           P.n = 1; P.act = rnd() < 0.5 ? 'clap' : null; P.emoji = E.wow;
-          P.line = 'rafa'; P.lineChance = 0.3;
+          P.line = this.tourMode ? 'opp' : 'rafa'; P.lineChance = 0.3;
           P.applause = P.act ? 0.18 : 0; P.voice = kind === 'smash' ? 'ooh' : 'gasp'; P.voiceK = 0.35; P.voiceChance = 0.6;
           P.prio = 2; P.minor = true; P.chance = 0.8;
         }
@@ -692,8 +705,8 @@ export class TennisCrowd {
         else { P.n = 2; P.act = P.act2 = 'clap'; P.line = 'error'; P.lineChance = 0.5; P.applause = 0.3; P.prio = 3; }
         return true;
       case 'match':
-        if (you) { P.act = P.act2 = 'cheer'; P.emoji = E.party; P.emojis = 4; P.line = 'matchWin'; P.speakers = 2; P.applause = 1; P.voice = 'whoop'; P.voiceK = 1; P.prio = 6; }
-        else { P.act = P.act2 = 'clap'; P.line = 'matchLose'; P.speakers = 2; P.applause = 0.45; P.voice = 'aww'; P.voiceK = 0.25; P.voiceChance = 0.5; P.prio = 6; }
+        if (you) { P.act = P.act2 = 'cheer'; P.emoji = E.party; P.emojis = 4; P.line = this.tourMode ? 'tourWin' : 'matchWin'; P.speakers = 2; P.applause = 1; P.voice = 'whoop'; P.voiceK = 1; P.prio = 6; }
+        else { P.act = P.act2 = 'clap'; P.line = this.tourMode ? 'tourLose' : 'matchLose'; P.speakers = 2; P.applause = 0.45; P.voice = 'aww'; P.voiceK = 0.25; P.voiceChance = 0.5; P.prio = 6; }
         return true;
       case 'drillTarget':
         if (!you) return false;

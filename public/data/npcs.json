@@ -569,7 +569,10 @@
         "matchLose": ["Close. Real close.", "Rafa's had practice.", "Good season anyway."],
         "drill": ["Right on the spot.", "Good. Again.", "Straight furrow."],
         "closeIn": ["Kissed the chalk!", "Paint's still wet!"],
-        "closeOut": ["Missed by a whisker.", "Just off the chalk."]
+        "closeOut": ["Missed by a whisker.", "Just off the chalk."],
+        "opp": ["Hm. Good shot.", "Kid's got hands."],
+        "tourWin": ["That's our kid!", "Greenbriar wins!", "Proud of ya."],
+        "tourLose": ["Next week, kid.", "Held your own.", "Chin up."]
       }
     },
     {
@@ -690,7 +693,10 @@
         "matchLose": ["Good hands. Noted.", "Respectable.", "Rafa cheats. Maybe."],
         "drill": ["Target hit. Noted.", "Consistent. Good.", "Precise. I like it."],
         "closeIn": ["On the line. Noted.", "Millimetres. In."],
-        "closeOut": ["Out. By a hair.", "Close. Still out."]
+        "closeOut": ["Out. By a hair.", "Close. Still out."],
+        "opp": ["Okay, not bad.", "Rude."],
+        "tourWin": ["Tour player. Wow.", "Free restring!", "Called it."],
+        "tourLose": ["Close one.", "Next draw.", "Respectable."]
       }
     },
     {
@@ -1324,7 +1330,10 @@
         "matchLose": ["Next time, boss!", "Good fight, boss!", "Still tasty, boss!"],
         "drill": ["Bullseye, boss!", "Nice aim, boss!", "Right in the pot!"],
         "closeIn": ["Opa! On the line!", "Just a pinch in!"],
-        "closeOut": ["Oof, by a whisker!", "Ay! Just out!"]
+        "closeOut": ["Oof, by a whisker!", "Ay! Just out!"],
+        "opp": ["Eh, lucky!", "Ay, that one!"],
+        "tourWin": ["Drinks on Gus!", "Champion, boss!", "Golden! Golden!"],
+        "tourLose": ["Next time, boss!", "Good fight, boss!"]
       }
     },
     {
@@ -1409,7 +1418,10 @@
         "matchLose": ["Not yet! Soon!", "Great legs, champ!", "Good work, champ!"],
         "drill": ["Nice rep!", "Form looks great!", "Again! Again!"],
         "closeIn": ["That clipped the line!", "Right on the paint!"],
-        "closeOut": ["Inches out!", "Ooh! By an inch!"]
+        "closeOut": ["Inches out!", "Ooh! By an inch!"],
+        "opp": ["Strong rep.", "Respect."],
+        "tourWin": ["CHAMP! Let's go!", "Big win!", "That was work!"],
+        "tourLose": ["Not yet! Soon!", "Great legs, champ!"]
       }
     },
     {
