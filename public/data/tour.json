@@ -323,7 +323,7 @@
       "weight": 2,
       "blurb": "Fast feet, gets everything back and waits for your mistake.",
       "sim": { "serve": -0.015, "return": 0.025, "surface": { "clay": 25, "hard": 5, "grass": -20 } },
-      "ai": { "speed": { "mul": 1.07 }, "react": { "mul": 0.92 }, "pace": { "mul": 0.94 }, "err": { "mul": 0.82 }, "aggression": -0.18, "patience": 0.3, "lobDefend": 0.15, "approach": -0.15, "backDepth": 0.35 },
+      "ai": { "speed": { "mul": 1.07 }, "react": { "mul": 0.92 }, "shotSpeed": { "mul": 0.94 }, "err": { "mul": 0.82 }, "aggression": -0.18, "patience": 0.3, "lobDefend": 0.15, "approach": -0.15, "backDepth": 0.35 },
       "scout": {
         "strengths": ["Gets everything back", "Excellent defence and lobs"],
         "weaknesses": ["Little pace of {his} own", "Can be pushed around by an aggressive first strike"],
@@ -335,7 +335,7 @@
       "weight": 2,
       "blurb": "Wins free points on serve and goes for everything.",
       "sim": { "serve": 0.035, "return": -0.015, "surface": { "grass": 30, "hard": 15, "clay": -25 } },
-      "ai": { "serve": { "pace": { "mul": 1.12 }, "fault1": 0.05, "wide": 0.12, "slice1": 0.1 }, "pace": { "mul": 1.04 }, "err": { "mul": 1.12 }, "aggression": 0.12, "patience": -0.1, "speed": { "mul": 0.96 } },
+      "ai": { "serve": { "speed": { "mul": 1.12 }, "sigmaT1": 0.01, "wide": 0.12, "slice1": 0.1 }, "shotSpeed": { "mul": 1.04 }, "err": { "mul": 1.12 }, "aggression": 0.12, "patience": -0.1, "speed": { "mul": 0.96 } },
       "scout": {
         "strengths": ["A huge first serve", "Big forehand on the first ball after the serve"],
         "weaknesses": ["Loose in long rallies", "Slow around the court"],
@@ -347,7 +347,7 @@
       "weight": 1,
       "blurb": "Serves and charges the net. Old school.",
       "sim": { "serve": 0.025, "return": -0.01, "surface": { "grass": 40, "hard": 0, "clay": -35 } },
-      "ai": { "serve": { "serveVolley": 0.5, "slice1": 0.15, "pace": { "mul": 1.04 } }, "approach": 0.3, "netDepth": -0.35, "dropVolley": 0.15, "slice": 0.12, "backDepth": -0.2, "patience": -0.2 },
+      "ai": { "serve": { "serveVolley": 0.5, "slice1": 0.15, "speed": { "mul": 1.04 } }, "approach": 0.3, "netDepth": -0.35, "dropVolley": 0.15, "slice": 0.12, "backDepth": -0.2, "patience": -0.2 },
       "scout": {
         "strengths": ["Serve-and-volley and sharp volleys", "Takes time away from you"],
         "weaknesses": ["Low returns at {his} feet", "Lobs over {his} backhand side"],
@@ -359,7 +359,7 @@
       "weight": 1,
       "blurb": "Loops every ball high and deep and never gets bored.",
       "sim": { "serve": -0.02, "return": 0.015, "surface": { "clay": 30, "hard": -5, "grass": -35 } },
-      "ai": { "pace": { "mul": 0.84 }, "spin": { "mul": 1.2 }, "flat": -0.12, "err": { "mul": 0.78 }, "aggression": -0.35, "patience": 0.4, "lobDefend": 0.25, "depth": 0.4, "safeV": 0.2, "approach": -0.2 },
+      "ai": { "shotSpeed": { "mul": 0.84 }, "spin": { "mul": 1.2 }, "flat": -0.12, "err": { "mul": 0.78 }, "aggression": -0.35, "patience": 0.4, "lobDefend": 0.25, "depth": 0.4, "safeV": 0.2, "approach": -0.2 },
       "scout": {
         "strengths": ["High, heavy, deep loops", "Almost never misses"],
         "weaknesses": ["No pace to hurt you", "Uncomfortable when you take the ball in the air"],

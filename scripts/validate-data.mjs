@@ -611,6 +611,23 @@ async function simulateTour(data, npcData) {
   let aiNote = '';
   try {
     const { tourOpponentDifficulty } = await import('../src/systems/TourDifficulty.js');
+    // Every AI modifier must name a key of TennisAI's DIFFICULTY table: TourField.applyMods skips
+    // unknown keys silently, so a renamed table key would quietly switch a play style off
+    const { DIFFICULTY } = await import('../src/tennis/TennisAI.js');
+    const isObjV = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+    const checkMods = (mods, base, at) => {
+      if (!isObjV(mods)) return;
+      for (const [k, m] of Object.entries(mods)) {
+        if (k[0] === '_') continue;
+        if (!(k in base)) { bad(`tour.json ${at}.${k}: not a TennisAI DIFFICULTY key (it would be ignored)`); continue; }
+        if (isObjV(m) && !('mul' in m || 'add' in m || 'set' in m)) {
+          if (isObjV(base[k])) checkMods(m, base[k], `${at}.${k}`);
+          else bad(`tour.json ${at}.${k}: a nested modifier on a plain value`);
+        }
+      }
+    };
+    for (const [key, st] of Object.entries(data.styles || {})) checkMods(st && st.ai, DIFFICULTY.medium, `styles.${key}.ai`);
+    for (const p of [...(data.clubJuniors || []), ...((data.adults && data.adults.named) || [])]) checkMods(p && p.ai, DIFFICULTY.medium, `${p && p.npc}.ai`);
     let prevReact = Infinity;
     for (const rating of [950, 1100, 1300, 1450, 1600, 1750, 1900, 2050]) {
       for (const [style, s] of Object.entries(t.data.styles)) {
