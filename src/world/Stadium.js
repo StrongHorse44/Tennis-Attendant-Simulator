@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { COLORS, SIZES } from '../utils/Constants.js';
 import { mat, getMaterial, registerWet, registerNightGlow, sharedDepthMaterial } from '../graphics/Materials.js';
 import { Textures } from '../graphics/Textures.js';
@@ -12,6 +11,9 @@ import { GROUND_GROUPS } from './Ground.js';
 import { registerNav } from './NavRooms.js';
 import { RoutePlanner } from '../systems/RoutePlanner.js';
 import { registerSeat } from '../entities/Seats.js';
+import {
+  CROWD_SHIRTS as SHIRTS, CROWD_SKINS as SKINS, hashU, stadiumSeatGeometry, crowdBodyGeometry, crowdHeadGeometry,
+} from './CrowdImpostors.js';
 
 /**
  * Stadium — the sunken Centre Court bowl in the world: stand / rim visuals, the stand and rim
@@ -66,9 +68,6 @@ const C = {
   brass: 0xc9a54c,
 };
 
-const SHIRTS = [0xf4efe6, 0xe9dfc6, 0x2f3e5c, 0x8fae8b, 0x9cc3e0, 0xe8b4b8, 0xd9a441, 0x2d5a3d];
-const SKINS = [0xf1c9a5, 0xd9a47e, 0xa8744f, 0x7a4f33];
-
 const HANDRAIL_H = 0.9;      // Players' Walk handrails above the nosing line
 const SIGN_Y = 3.7;          // arch sign centre (the 3.2 × 0.8 boards span y 3.3..4.1)
 const CHEER_TIME = 0.35;     // crowd lift duration (s)
@@ -85,35 +84,12 @@ const _v3 = new THREE.Vector3();
 const _exit = { x: 0, z: 0, y: 0 };
 const _push = { x: 0, z: 0 };
 
-/** A smooth-shaded low-poly ball: a dodecahedron (36 triangles) with radial normals. */
-function smoothBall(r) {
-  const src = new THREE.DodecahedronGeometry(r, 0);
-  src.deleteAttribute('normal');
-  src.deleteAttribute('uv');
-  const g = mergeVertices(src);
-  src.dispose();
-  const p = g.attributes.position, n = new Float32Array(p.count * 3);
-  for (let i = 0; i < p.count; i++) {
-    _v3.fromBufferAttribute(p, i).normalize();
-    n[i * 3] = _v3.x; n[i * 3 + 1] = _v3.y; n[i * 3 + 2] = _v3.z;
-  }
-  g.setAttribute('normal', new THREE.BufferAttribute(n, 3));
-  return g;
-}
-
 /** True when every component is finite (one NaN / ±Infinity makes the sum non-finite). */
 function finite3(v) {
   return Number.isFinite(v.x + v.y + v.z);
 }
 function finiteQ(q) {
   return Number.isFinite(q.x + q.y + q.z + q.w);
-}
-
-function hashU(i, j) {
-  let h = (Math.imul(i | 0, 374761393) + Math.imul(j | 0, 668265263)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
 }
 
 /**
@@ -577,14 +553,7 @@ export class Stadium {
 
   _buildSeats() {
     const L = this.layout;
-    const geo = getGeometry('stadium-seat', () => {
-      const g = mergeParts([
-        { geometry: boxGeo(0.46, 0.475, 0.4), matrix: makeMatrix(0, 0.2375, 0) },
-        { geometry: boxGeo(0.46, 0.38, 0.05), matrix: makeMatrix(0, 0.475 + 0.19 * Math.cos(0.2094), -0.175 - 0.19 * Math.sin(0.2094), 0, 1, -0.2094) },
-      ]);
-      g.deleteAttribute('uv');
-      return g;
-    });
+    const geo = stadiumSeatGeometry();
     const material = Stadium.seatMaterial();
     this.seatMeshes = [];
     for (const side of ['w', 'e', 'n', 's']) {
@@ -628,28 +597,9 @@ export class Stadium {
     // A seated figure in two parts on the one instance matrix (origin = the seat top, +z toward
     // the court): the shirt (torso, sleeves, shorts over the thighs) and the skin (head on a neck
     // that meets the torso, forearms resting on the thighs, shins down to the tread)
-    const bodyGeo = getGeometry('stadium-crowd-body', () => {
-      const g = mergeParts([
-        { geometry: boxGeo(0.38, 0.44, 0.24), matrix: makeMatrix(0, 0.31, -0.06) },       // torso, top at 0.53
-        { geometry: boxGeo(0.34, 0.14, 0.4), matrix: makeMatrix(0, 0.07, 0.12) },         // thighs (shorts)
-        { geometry: boxGeo(0.09, 0.26, 0.11), matrix: makeMatrix(-0.235, 0.4, -0.05) },   // sleeves
-        { geometry: boxGeo(0.09, 0.26, 0.11), matrix: makeMatrix(0.235, 0.4, -0.05) },
-      ]);
-      g.deleteAttribute('uv');
-      return g;
-    });
-    const headGeo = getGeometry('stadium-crowd-head', () => {
-      const g = mergeParts([
-        { geometry: smoothBall(0.105), matrix: makeMatrix(0, 0.655, -0.05) },                       // head
-        { geometry: boxGeo(0.09, 0.1, 0.09), matrix: makeMatrix(0, 0.55, -0.05) },                  // neck 0.50..0.60
-        { geometry: boxGeo(0.07, 0.07, 0.25), matrix: makeMatrix(-0.2, 0.21, 0.08, 0, 1, 0.35) },   // forearms
-        { geometry: boxGeo(0.07, 0.07, 0.25), matrix: makeMatrix(0.2, 0.21, 0.08, 0, 1, 0.35) },
-        { geometry: boxGeo(0.1, 0.42, 0.1), matrix: makeMatrix(-0.09, -0.2, 0.27) },               // shins
-        { geometry: boxGeo(0.1, 0.42, 0.1), matrix: makeMatrix(0.09, -0.2, 0.27) },
-      ]);
-      g.deleteAttribute('uv');
-      return g;
-    });
+    // (CrowdImpostors.js: the shared, cached figure geometry)
+    const bodyGeo = crowdBodyGeometry();
+    const headGeo = crowdHeadGeometry();
     const material = Stadium.seatMaterial();
     const bodies = new THREE.InstancedMesh(bodyGeo, material, n);
     const heads = new THREE.InstancedMesh(headGeo, material, n);
