@@ -1,5 +1,6 @@
 import { injectTheme, THEME } from './theme.js';
 import { GAME, SIZES } from '../utils/Constants.js';
+import { getGroundModel } from '../world/Ground.js';
 
 /**
  * HUD - mini-map, task list, time/weather, inventory, action button, radio dispatch,
@@ -1747,6 +1748,85 @@ export class HUD {
     ctx.closePath();
   }
 
+  /**
+   * The Centre Court bowl on the static minimap (the StadiumLayout World handed to
+   * Ground.setGroundModel; nothing without one): the rim band out to the footprint, the stands
+   * inside the cut with an outline at every row's front, the aisles cutting through them, the
+   * green pit walkway round the court, the rim rail (gaps at the aisle openings), the four
+   * floodlight masts and the two end scoreboards. The court itself is drawn after this by the
+   * courts loop (its grass branch).
+   */
+  _drawBowl(ctx, mx, my, s) {
+    const L = getGroundModel();
+    if (!L || !L.cut || !L.footprint || !L.U || !L.V) return;
+    const cx = L.cx, cz = L.cz, N = L.N;
+    const rectXZ = (x0, x1, z0, z1) => { ctx.beginPath(); ctx.rect(mx(x0), my(z0), (x1 - x0) * s, (z1 - z0) * s); };
+    const fp = L.footprint, cut = L.cut;
+    rectXZ(fp.x0, fp.x1, fp.z0, fp.z1);
+    ctx.fillStyle = '#d9ceb2';
+    ctx.fill();
+    rectXZ(cut.x0, cut.x1, cut.z0, cut.z1);
+    ctx.fillStyle = '#cfc5b2';
+    ctx.fill();
+    // Row fronts 1..N-1 (row 0's front is the walkway edge below)
+    ctx.strokeStyle = 'rgba(90, 70, 40, 0.35)';
+    ctx.lineWidth = Math.max(0.5, Math.min(1, 0.35 * s));
+    for (let k = 1; k < N; k++) {
+      rectXZ(cx - L.U[k], cx + L.U[k], cz - L.V[k], cz + L.V[k]);
+      ctx.stroke();
+    }
+    // Aisles: from the pit floor out to the cut edge on their stand
+    ctx.fillStyle = '#f2ead6';
+    for (const a of L.aisles || []) {
+      const d0 = a.sideIndex < 2 ? L.U[0] : L.V[0], d1 = a.sideIndex < 2 ? L.U[N] : L.V[N];
+      const a0 = a.at - a.half, a1 = a.at + a.half;
+      if (a.sideIndex === 0) rectXZ(cx - d1, cx - d0, cz + a0, cz + a1);
+      else if (a.sideIndex === 1) rectXZ(cx + d0, cx + d1, cz + a0, cz + a1);
+      else if (a.sideIndex === 2) rectXZ(cx + a0, cx + a1, cz + d0, cz + d1);
+      else rectXZ(cx + a0, cx + a1, cz - d1, cz - d0);
+      ctx.fill();
+    }
+    // Pit floor: the green walkway the court sits in
+    rectXZ(cx - L.U[0], cx + L.U[0], cz - L.V[0], cz + L.V[0]);
+    ctx.fillStyle = '#3f7350';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90, 70, 40, 0.45)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // Rim rail just outside the cut (its runs leave the aisle openings clear)
+    const rd = L.rail ? (L.rail.d0 + L.rail.d1) / 2 : 0.25;
+    ctx.strokeStyle = '#1f3b2a';
+    ctx.lineWidth = Math.max(1, 0.45 * s);
+    ctx.lineCap = 'butt';
+    if (Array.isArray(L.railRuns) && L.railRuns.length) {
+      ctx.beginPath();
+      for (const r of L.railRuns) {
+        const d = (r.si < 2 ? L.U[N] : L.V[N]) + rd;
+        if (r.si === 0) { ctx.moveTo(mx(cx - d), my(cz + r.a0)); ctx.lineTo(mx(cx - d), my(cz + r.a1)); }
+        else if (r.si === 1) { ctx.moveTo(mx(cx + d), my(cz + r.a0)); ctx.lineTo(mx(cx + d), my(cz + r.a1)); }
+        else if (r.si === 2) { ctx.moveTo(mx(cx + r.a0), my(cz + d)); ctx.lineTo(mx(cx + r.a1), my(cz + d)); }
+        else { ctx.moveTo(mx(cx + r.a0), my(cz - d)); ctx.lineTo(mx(cx + r.a1), my(cz - d)); }
+      }
+      ctx.stroke();
+    } else {
+      rectXZ(cut.x0 - rd, cut.x1 + rd, cut.z0 - rd, cut.z1 + rd);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'round';
+    // Floodlight masts and the end scoreboards
+    ctx.fillStyle = '#1f3b2a';
+    for (const m of L.masts || []) {
+      ctx.beginPath();
+      ctx.arc(mx(m.x), my(m.z), Math.max(1.2, 0.8 * s), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#173a28';
+    for (const b of L.scoreboards || []) {
+      const w = (b.w || 7) * s, h = Math.max(1.4, 0.5 * s);
+      ctx.fillRect(mx(b.x) - w / 2, my(b.z) - h / 2, w, h);
+    }
+  }
+
   /** Pre-render the static club layout once (grass, paths, courts, buildings). */
   _buildMapStatic(mapData) {
     this._mapStaticFor = mapData;
@@ -1849,6 +1929,9 @@ export class HUD {
       rect(patio.center.x, patio.center.z, b.width, b.depth, '#d3c4a0', null, 1, 1.5);
     }
 
+    // The sunken Centre Court bowl (Ground model: StadiumLayout), under its court
+    try { this._drawBowl(ctx, mx, my, s); } catch (e) { /* the map still draws without it */ }
+
     // Courts
     for (const c of areas.courts || []) {
       const W = SIZES.courtWidth, D = SIZES.courtDepth;
@@ -1861,6 +1944,14 @@ export class HUD {
         ctx.strokeStyle = 'rgba(255, 244, 225, 0.75)';
         ctx.lineWidth = 0.8;
         ctx.strokeRect(-W * 0.34 * s, -D * 0.4 * s, W * 0.68 * s, D * 0.8 * s);
+      } else if (c.type === 'grass') {
+        // lawn with mow stripes across the court, chalk lines
+        box(W, D, '#5d9a42');
+        ctx.fillStyle = 'rgba(20, 60, 20, 0.22)';
+        for (let k = 0; k < 8; k += 2) ctx.fillRect(-W * s / 2, (-D / 2 + (k * D) / 8) * s, W * s, (D / 8) * s);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(-W * 0.35 * s, -D * 0.4 * s, W * 0.7 * s, D * 0.8 * s);
       } else {
         box(W, D, '#3f7d55');
         box(W * 0.7, D * 0.8, '#2f6db3');

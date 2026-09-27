@@ -6,7 +6,8 @@ import { HALF_L } from './TennisBallSim.js';
  * to see the far baseline and Rafa, following the player sideways a little and leaning
  * toward the ball, and moving in part of the way when the player comes to the net. Portrait
  * phones get a higher, further view so the whole court width fits the narrow frame. After a
- * change of ends it swings round to the other end.
+ * change of ends it swings round to the other end. Heights are above the court frame (s.frame.y0:
+ * the sunken Centre Court's camera sits in its stands the way the others sit over their fences).
  */
 
 const _pos = new THREE.Vector3();
@@ -35,9 +36,10 @@ export class TennisCamera {
     // Follow the player in toward the net (at most ~4 m, never past the back fence)
     const fwd = Math.min(4, Math.max(0, HALF_L - Math.abs(s.pl.v)) * 0.36);
     const cv = side * (HALF_L + back - fwd);
-    outPos.set(f.wx(cu, cv), up - fwd * 0.2, f.wz(cu, cv));
+    const y0 = f.y0 || 0;
+    outPos.set(f.wx(cu, cv), y0 + (up - fwd * 0.2), f.wz(cu, cv));
     const lv = side * ((portrait ? -1.5 : 0.5) - fwd * 0.4);
-    outLook.set(f.wx(cu * 0.55, lv), portrait ? 0.2 : 0.7, f.wz(cu * 0.55, lv));
+    outLook.set(f.wx(cu * 0.55, lv), y0 + (portrait ? 0.2 : 0.7), f.wz(cu * 0.55, lv));
   }
 
   snap(s) {

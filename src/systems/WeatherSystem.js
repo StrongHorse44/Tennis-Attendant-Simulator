@@ -4,6 +4,7 @@ import { EnvState } from '../graphics/EnvState.js';
 import { Quality } from '../graphics/Quality.js';
 import { SkyDome, Stars, Clouds, Horizon } from '../graphics/Sky.js';
 import { applyWetness, applyNightGlow } from '../graphics/Materials.js';
+import { getGroundExtents } from '../world/Ground.js';
 
 /**
  * WeatherSystem — day/night cycle, weather states, lighting, sky, shadows,
@@ -170,7 +171,8 @@ export class WeatherSystem {
     this.scene.add(this.stars.points);
     this.clouds = new Clouds(15);
     this.scene.add(this.clouds.group);
-    this.horizon = new Horizon();
+    // Around World's ground plane (World is built first and sets the extents)
+    this.horizon = new Horizon(getGroundExtents());
     this.scene.add(this.horizon.group);
 
     this.scene.background = null; // sky dome covers everything
@@ -216,7 +218,7 @@ export class WeatherSystem {
           vec3 p;
           p.x = uFocus.x + (fract((position.x - uFocus.x) / uArea.x) - 0.5) * uArea.x;
           p.z = uFocus.z + (fract((position.z - uFocus.z) / uArea.z) - 0.5) * uArea.z;
-          p.y = fall;
+          p.y = fall + min(uFocus.y, 0.0);   // down into the sunken court when the focus is there
           p.xz += uWind * fall;
           vec3 dir = normalize(vec3(uWind.x, -1.0, uWind.y));
           p -= dir * uLength * aTop;
@@ -588,8 +590,7 @@ export class WeatherSystem {
   _updateShadowCamera() {
     const light = this.sunLight;
     const dir = this._keyDir;
-    const f = this._tmpA.copy(this._focus);
-    f.y = 0;
+    const f = this._tmpA.copy(this._focus);   // the focus sits on the ground (y 0, or the sunken court's floor)
     // Light-space basis matching Object3D.lookAt for the shadow camera (up = +Y)
     const xAxis = this._tmpB.crossVectors(this._up, dir);
     if (xAxis.lengthSq() < 1e-6) xAxis.set(1, 0, 0); else xAxis.normalize();
@@ -628,7 +629,7 @@ export class WeatherSystem {
     const on = this.weather === 'windy' || this._wind > 0.7;
     this.windGroup.visible = on;
     if (!on) return;
-    const fx = this._focus.x, fz = this._focus.z;
+    const fx = this._focus.x, fz = this._focus.z, fy = Math.min(this._focus.y, 0);
     const obj = this._wObj;
     for (let i = 0; i < this.windParticles.length; i++) {
       const p = this.windParticles[i];
@@ -636,7 +637,7 @@ export class WeatherSystem {
       p.wobble += dt * 3;
       p.spin += dt * 5;
       if (p.x > 30) { p.x = -30; p.z = (Math.random() - 0.5) * 60; }
-      obj.position.set(fx + p.x, p.height + Math.sin(p.wobble) * 0.5, fz + p.z);
+      obj.position.set(fx + p.x, p.height + Math.sin(p.wobble) * 0.5 + fy, fz + p.z);
       obj.rotation.set(p.wobble * 0.7, p.spin * 0.3, p.spin);
       obj.updateMatrix();
       this.windMesh.setMatrixAt(i, obj.matrix);

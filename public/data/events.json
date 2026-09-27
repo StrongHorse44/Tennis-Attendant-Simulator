@@ -1,5 +1,5 @@
 {
-  "_comment": "Daily events calendar (src/systems/EventSystem.js). Day 1 is a Monday. Each weekday lists weighted event ids; wildcard.chance swaps in a wildcard pick; the last two days never repeat. Effects: dispatchRate (x radio speed), tipMultiplier (x tips), groomBonusMultiplier (x groom bonus), boardSize (2-4 task board options), templateBoost { templateId: x weight } (templates with events: [...] only appear on their event day), missionBoost { missionId: x weight }, weather + weatherUntil (forced morning weather), schedule { maxConcurrent, format, matches } merged into schedule.json. announce = the manager clock-in radio text; label/icon = the clock pill; report = the report card line.",
+  "_comment": "Daily events calendar (src/systems/EventSystem.js). Day 1 is a Monday. Each weekday lists weighted event ids; wildcard.chance swaps in a wildcard pick; the last two days never repeat. Effects: dispatchRate (x radio speed), tipMultiplier (x tips), groomBonusMultiplier (x groom bonus), boardSize (2-4 task board options), templateBoost { templateId: x weight } (templates with events: [...] only appear on their event day), missionBoost { missionId: x weight }, weather + weatherUntil (forced morning weather), schedule { maxConcurrent, format, matches } merged into schedule.json, crowd (0.5-2.5, x the Centre Court spectators and stands crowd; 1 when absent). announce = the manager clock-in radio text; label/icon = the clock pill; report = the report card line.",
   "firstDay": "regular",
   "fallback": "regular",
   "wildcard": { "chance": 0.12, "events": [{ "id": "rain_day", "weight": 3 }, { "id": "vip_visit", "weight": 1 }] },
@@ -32,7 +32,7 @@
       "icon": "🔧",
       "announce": "Quiet Monday. Hank has a list, and the clay needs love. Fewer calls, more fixing.",
       "dispatchRate": 0.85,
-      "templateBoost": { "monday_repairs": 1, "inspection_groom": 1, "clay_prep_match": 1.5 },
+      "templateBoost": { "monday_repairs": 1, "inspection_groom": 1, "clay_prep_match": 1.5, "centre_roll_lawn": 1.5 },
       "missionBoost": { "maintenance_all_courts_groom": 2, "maintenance_morning_prep": 2, "maintenance_quick_sweep": 2 },
       "report": "Hank's list got shorter."
     },
@@ -130,16 +130,17 @@
       "title": "Twilight Mixer",
       "label": "Twilight Mixer",
       "icon": "🌇",
-      "announce": "Twilight Mixer this evening. Patio setup in the afternoon, then courts under the lights.",
+      "announce": "Twilight Mixer this evening. Patio setup in the afternoon, then a crowd on Centre Court and play under the lights.",
       "tipMultiplier": 1.15,
+      "crowd": 1.3,
       "templateBoost": { "social_setup": 1, "heat_water": 1.5 },
       "schedule": {
         "matches": [
           {
             "id": "ev-mixer-1",
-            "court": ["court1", "court2"],
-            "start": "16:00",
-            "end": "18:30",
+            "court": ["court6", "court1", "court2"],
+            "start": "16:30",
+            "end": "18:45",
             "players": ["bob_hendricks", "vik_rao"]
           },
           {
@@ -159,10 +160,24 @@
       "label": "VIP Visit",
       "icon": "⭐",
       "minDay": 3,
-      "announce": "VIP visit today. Guests at the gate, members on their best behaviour, and tips are generous.",
+      "announce": "VIP visit today. Guests at the gate, an exhibition on Centre Court at 4:30, members on their best behaviour, and tips are generous.",
       "dispatchRate": 1.15,
       "tipMultiplier": 1.5,
-      "templateBoost": { "vip_escort": 6, "vip_hospitality": 1 },
+      "crowd": 1.4,
+      "templateBoost": { "vip_escort": 6, "vip_hospitality": 1, "centre_usher": 3 },
+      "schedule": {
+        "maxConcurrent": 5,
+        "matches": [
+          {
+            "id": "ev-vip-exh",
+            "court": "court6",
+            "start": "16:30",
+            "end": "18:30",
+            "players": ["gloria_castellano", "frank_deluca"],
+            "note": "exhibition rematch for the guests"
+          }
+        ]
+      },
       "report": "A VIP toured the club. Tips x1.5."
     },
     {
@@ -184,16 +199,19 @@
       "label": "Tournament",
       "icon": "🏆",
       "minDay": 5,
-      "announce": "Member Tournament Saturday! Every court booked, ball kids needed, and the radio will not stop.",
+      "announce": "Member Tournament Saturday! Every court booked, ball kids needed, the final on Centre Court at 4:30, and the radio will not stop.",
       "dispatchRate": 1.3,
       "tipMultiplier": 1.2,
       "boardSize": 4,
+      "crowd": 1.6,
       "templateBoost": {
         "ball_kid": 1,
         "tournament_water": 1,
         "court_prep_match": 2,
         "tournament_director": 2,
-        "clay_prep_match": 1.5
+        "clay_prep_match": 1.5,
+        "centre_usher": 1.5,
+        "centre_stands_tidy": 1.2
       },
       "schedule": {
         "maxConcurrent": 5,
@@ -242,11 +260,11 @@
           },
           {
             "id": "ev-tour-final",
-            "court": ["court1", "court2"],
+            "court": ["court6", "court1"],
             "start": "16:30",
             "end": "18:45",
             "players": ["any", "any"],
-            "note": "the final"
+            "note": "the final, on Centre Court"
           }
         ]
       },
@@ -262,7 +280,7 @@
       "weather": "rainy",
       "weatherUntil": 12.5,
       "dispatchRate": 0.9,
-      "templateBoost": { "rainy_lounge": 3, "rain_towels": 2, "rain_squeegee": 2 },
+      "templateBoost": { "rainy_lounge": 3, "rain_towels": 2, "rain_squeegee": 2, "rain_grass_covers": 2, "grass_covers_off": 1.5 },
       "missionBoost": { "bldg_lounge_fireplace": 3, "bldg_gym_hydration": 2, "bldg_locker_towels": 2 },
       "report": "Rain kept everyone inside."
     }

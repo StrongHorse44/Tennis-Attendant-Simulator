@@ -88,7 +88,7 @@
       "name": "Mrs. Wellington",
       "archetype": "entitled",
       "shirtColor": "#8E44AD",
-      "preferredAreas": ["patio", "court1"],
+      "preferredAreas": ["patio", "court1", "stadium"],
       "preferredTime": "morning",
       "bio": "Third-generation member whose grandfather paid for the original clubhouse, and she brings it up about once a week.",
       "quirks": ["Calls every staff member 'the attendant'", "Times service with a gold wristwatch", "Keeps a monogrammed towel folded exactly in thirds"],
@@ -109,7 +109,8 @@
       "requests": [
         "My usual court isn't ready. This is unacceptable.",
         "Bring me fresh towels immediately.",
-        "Someone left balls all over Court 1. Clean it up."
+        "Someone left balls all over Court 1. Clean it up.",
+        "Bring a fresh towel down to my seat on Centre Court. Row three. You know the one."
       ],
       "dialoguePool": {
         "satisfied": ["Hmph. I suppose that'll do.", "About time.", "Adequate. I shall mention you favourably. Briefly."],
@@ -122,7 +123,8 @@
           "My grandson Theo is at etiquette lunch. At least, he had better be.",
           "Frank and I have drafted a proposal about proper tennis attire. You will be enforcing it.",
           "In my day, one applauded a good shot. Now they all just shout.",
-          "That Chad boy called me 'dude'. I have not recovered."
+          "That Chad boy called me 'dude'. I have not recovered.",
+          "I have sat in row three of Centre Court since it was dug. Before it was dug, I stood."
         ],
         "morning": ["The morning light is the only civilized time to play.", "I take my tea at nine sharp. You may note that."],
         "afternoon": ["The afternoon crowd is so... enthusiastic.", "Luncheon on the patio was lukewarm again."],
@@ -132,14 +134,15 @@
         "cloudy": ["Overcast. At least one doesn't squint.", "The clouds suit my mood."],
         "sunny": ["Splendid weather. Wasted on most of them.", "Do fetch me the shaded table if it opens up."]
       },
-      "matchLines": { "win": ["As expected.", "Well. Naturally."], "lose": ["Sun in my eyes.", "Hmph. Rematch."] }
+      "matchLines": { "win": ["As expected.", "Well. Naturally."], "lose": ["Sun in my eyes.", "Hmph. Rematch."] },
+      "courtside": { "winner": ["Well played.", "Bravo. Bravo."], "error": ["Tsk."], "matchWin": ["Splendid."] }
     },
     {
       "id": "chad_blake",
       "name": "Chad Blake",
       "archetype": "entitled",
       "shirtColor": "#E74C3C",
-      "preferredAreas": ["court2", "court1"],
+      "preferredAreas": ["court2", "court1", "stadium"],
       "preferredTime": "evening",
       "bio": "Former high-school #1 singles player who still introduces himself that way; his dad sits on the club board.",
       "quirks": ["Breaks a string every week and blames the string", "Films his own serve on his phone", "Wears his cap backwards, always"],
@@ -162,7 +165,8 @@
       "requests": [
         "Someone took my reserved court. Handle it.",
         "I need a ball hopper at Court 2, like NOW.",
-        "My racket got scuffed. The pro shop better have a replacement."
+        "My racket got scuffed. The pro shop better have a replacement.",
+        "I left my racket on Centre Court. Get it to the pro shop before somebody famous steals it."
       ],
       "dialoguePool": {
         "satisfied": ["Solid. Respect.", "That's what I'm talking about.", "You're like, my favorite employee. Top three."],
@@ -175,7 +179,8 @@
           "Jess says I'm 'statistically her worst customer'. Is that a compliment?",
           "Tommy grunts louder than me now. I gotta step it up.",
           "Broke another string. Third one this week. Strings are just weak now.",
-          "Hit 118 on the radar gun once. Okay, 97. Still."
+          "Hit 118 on the radar gun once. Okay, 97. Still.",
+          "Centre Court means an audience. Finally, the setting my game deserves."
         ],
         "morning": ["Too early, bro. My serve's still asleep.", "Protein shake. Then tennis. Then protein shake."],
         "afternoon": ["Peak serve hours right now. Science.", "Grinding. Always grinding."],
@@ -185,7 +190,8 @@
         "cloudy": ["Clouds are good. No glare for the serve cam.", "Kinda gloomy. Good thing I'm here."],
         "sunny": ["Perfect tanning weather. And tennis. Mostly tanning.", "Sun's out, serves out."]
       },
-      "matchLines": { "win": ["Too easy, BRO!", "Did you film that?!"], "lose": ["Strings broke. Again.", "Rematch. NOW."] }
+      "matchLines": { "win": ["Too easy, BRO!", "Did you film that?!"], "lose": ["Strings broke. Again.", "Rematch. NOW."] },
+      "courtside": { "winner": ["Get in!"], "error": ["Rookie error."], "ace": ["Lucky."] }
     },
     {
       "id": "maria_santos",
@@ -452,7 +458,7 @@
       "name": "Tommy Chen",
       "archetype": "friendly",
       "shirtColor": "#E67E22",
-      "preferredAreas": ["court2", "court3"],
+      "preferredAreas": ["court2", "court3", "stadium"],
       "preferredTime": "midday",
       "bio": "High-school PE teacher on summer break who plays five hours a day and grunts like a pro on every shot.",
       "quirks": ["Grunts on every shot, including warm-up", "High-fives strangers", "Teaches every kid at the club a trick shot"],
@@ -539,12 +545,13 @@
           "Frank handed me a memo about a divot on Court 4. Hand-written. Two pages.",
           "Gloria and I have coffee on the Court 5 bench at six. Every day. Ten years.",
           "You brush the lines last, kid. Always last.",
-          "Chad slid into the net post again. The post's fine. Chad's fine. Mostly the post."
+          "Chad slid into the net post again. The post's fine. Chad's fine. Mostly the post.",
+          "Centre Court is proper grass. Eight millimetres, stripes across the net, and nobody walks on it in the wet."
         ],
         "morning": ["Dew's still on the clay. Best time to read a court.", "Early start. Clay likes an early start."],
         "afternoon": ["Afternoon heat dries the clay fast. Keep an eye on it.", "Busy courts, tired clay."],
         "evening": ["Courts get a rest at night. So should you. After closing.", "Lights on. Last sweep before lock-up."],
-        "rainy": ["Rain's the clay's best friend and my worst enemy.", "No grooming in this. We wait it out."],
+        "rainy": ["Rain's the clay's best friend and my worst enemy.", "No grooming in this. We wait it out.", "Covers go on Centre Court the minute it spits. A lawn drowns faster than clay."],
         "windy": ["Wind's lifting the top dressing. Keep that brush low.", "Windy days, the clay ends up in the parking lot."],
         "cloudy": ["Cloudy's good. Clay holds its moisture.", "Nice gray day. Courts'll play true."],
         "sunny": ["Hot sun bakes the clay. We'll need water later.", "Beautiful day. Clay'll dry fast. Stay on it."]
@@ -560,7 +567,9 @@
         "game": ["That's a game.", "Keep digging.", "One more row."],
         "matchWin": ["Proud of ya, kid.", "Bumper crop!", "Knew it. Good work."],
         "matchLose": ["Close. Real close.", "Rafa's had practice.", "Good season anyway."],
-        "drill": ["Right on the spot.", "Good. Again.", "Straight furrow."]
+        "drill": ["Right on the spot.", "Good. Again.", "Straight furrow."],
+        "closeIn": ["Kissed the chalk!", "Paint's still wet!"],
+        "closeOut": ["Missed by a whisker.", "Just off the chalk."]
       }
     },
     {
@@ -603,7 +612,8 @@
           "Theo is fourteen and already hits like a man of thirty. He also sulks like a man of thirty.",
           "Hank says the clay is too wet. I say it is too dry. We are both correct, in different ways.",
           "In Valencia, we play on clay the color of paella. This is close. Very close.",
-          "Chad asks me for 'one secret' every week. The secret is practice. He does not like this secret."
+          "Chad asks me for 'one secret' every week. The secret is practice. He does not like this secret.",
+          "On Centre Court the grass remembers every lazy step. Walk soft."
         ],
         "morning": ["Morning lessons are the best. The mind is empty. Good for learning.", "The first ball of the day, it tells you everything."],
         "afternoon": ["Afternoon heat. Drink water. Drink more water.", "My afternoon clinic has three children and one Bob. Bob is the hardest."],
@@ -656,7 +666,8 @@
           "I alphabetised the grip tape. Nobody noticed. I noticed.",
           "Someone asked if we sell 'tennis-flavored' sports drinks. We don't. What would that even be.",
           "Twenty-three broken strings this season. All Chad. I made a chart.",
-          "Nate reads the specs on the racket before he reads the price. My kind of customer."
+          "Nate reads the specs on the racket before he reads the price. My kind of customer.",
+          "Centre Court's booked all afternoon. Bring sunscreen."
         ],
         "morning": ["The shop opens at eight. I open at nine. Emotionally.", "Morning restocking. My favorite quiet hour."],
         "afternoon": ["Afternoon rush. By rush I mean four people. It's a lot.", "The afternoon crowd buys sunscreen. Every. Single. Day."],
@@ -677,7 +688,9 @@
         "game": ["Game. As predicted.", "Called it.", "One game closer."],
         "matchWin": ["You beat Rafa. Wow.", "Called it. Mostly.", "Free restring. Once."],
         "matchLose": ["Good hands. Noted.", "Respectable.", "Rafa cheats. Maybe."],
-        "drill": ["Target hit. Noted.", "Consistent. Good.", "Precise. I like it."]
+        "drill": ["Target hit. Noted.", "Consistent. Good.", "Precise. I like it."],
+        "closeIn": ["On the line. Noted.", "Millimetres. In."],
+        "closeOut": ["Out. By a hair.", "Close. Still out."]
       }
     },
     {
@@ -685,7 +698,7 @@
       "name": "Theo Wellington",
       "archetype": "junior",
       "shirtColor": "#F4F1EA",
-      "preferredAreas": ["court1", "court2", "garden"],
+      "preferredAreas": ["court1", "court2", "garden", "stadium"],
       "preferredTime": "afternoon",
       "bio": "Fourteen-year-old junior phenom and Mrs. Wellington's grandson, sneaking practice sessions between the lunches she signs him up for.",
       "quirks": ["Quotes pro players' match stats", "Mumbles, then says something sharp", "Hides from his grandmother behind the fountain"],
@@ -708,7 +721,8 @@
       "requests": [
         "Can you get me a hopper to Court 1? Quietly?",
         "If my grandma asks, I'm at etiquette lunch.",
-        "Do you know when the junior championship sign-up closes?"
+        "Do you know when the junior championship sign-up closes?",
+        "Can you check on Centre Court? I want to see the stripes before anyone scuffs them."
       ],
       "dialoguePool": {
         "satisfied": ["That's... actually really cool. Thanks.", "Nice. You're alright.", "Okay yeah, that helped. A lot."],
@@ -731,7 +745,8 @@
         "cloudy": ["Cloudy's fine. Better for serving.", "Gray days are underrated."],
         "sunny": ["It's hot. I'm still playing.", "Good day to hit. If I can avoid Grandma."]
       },
-      "matchLines": { "win": ["Let's GO!", "Told you."], "lose": ["...Good match.", "Again. Please."] }
+      "matchLines": { "win": ["Let's GO!", "Told you."], "lose": ["...Good match.", "Again. Please."] },
+      "courtside": { "ace": ["No WAY."], "winner": ["Sick shot!"] }
     },
     {
       "id": "lily_santos",
@@ -791,7 +806,7 @@
       "name": "Nate Okafor",
       "archetype": "competitive",
       "shirtColor": "#34495E",
-      "preferredAreas": ["court1", "court2"],
+      "preferredAreas": ["court1", "court2", "stadium"],
       "preferredTime": "evening",
       "bio": "College team captain home for the summer, obsessive about his rating, quietly mentoring Theo between training blocks.",
       "quirks": ["Logs every session in a training app", "Eats a banana at every changeover", "Answers questions with statistics"],
@@ -814,7 +829,8 @@
       "requests": [
         "Can I get a hopper on Court 1? Serve practice.",
         "Could you let Theo know I'm free at five?",
-        "Do you know if anyone left a banana in the cooler? Mine's gone."
+        "Do you know if anyone left a banana in the cooler? Mine's gone.",
+        "Could you bring water down to Centre Court? I hydrate on a schedule. The schedule says now."
       ],
       "dialoguePool": {
         "satisfied": ["Appreciate it. Efficient.", "Thanks. That's a clean result.", "Solid. Logging that as a win."],
@@ -890,7 +906,8 @@
         "cloudy": ["Cloudy day, perfect for a long chat.", "A little gray never stopped a good story."],
         "sunny": ["Such a gorgeous day! Everyone's out! Everyone!", "Sun's out, and so is the gossip."]
       },
-      "matchLines": { "win": ["Oh my! I won!", "Tell Bob!"], "lose": ["Lovely game, honey!", "Who cares, it's fun!"] }
+      "matchLines": { "win": ["Oh my! I won!", "Tell Bob!"], "lose": ["Lovely game, honey!", "Who cares, it's fun!"] },
+      "courtside": { "winner": ["Go on, love!", "Ooh!"], "rally": ["Oh my!"] }
     },
     {
       "id": "gloria_castellano",
@@ -950,7 +967,7 @@
       "name": "Frank DeLuca",
       "archetype": "veteran",
       "shirtColor": "#95A5A6",
-      "preferredAreas": ["court5", "entrance", "proShop"],
+      "preferredAreas": ["court5", "entrance", "proShop", "stadium"],
       "preferredTime": "morning",
       "bio": "Retired Marine colonel, founding member and self-appointed keeper of the club bylaws, which he can recite by number.",
       "quirks": ["Quotes bylaws by section number", "Writes memos by hand", "Secretly feeds the fountain koi and denies it"],
@@ -1005,7 +1022,7 @@
       "name": "Leo Brandt",
       "archetype": "competitive",
       "shirtColor": "#A3CB38",
-      "preferredAreas": ["court2", "court1", "patio"],
+      "preferredAreas": ["court2", "court1", "patio", "stadium"],
       "preferredTime": "evening",
       "bio": "Newlywed commercial pilot who treats mixed doubles with his wife Harper like a championship final, and every line call like a court case.",
       "quirks": ["Replays disputed points with hand gestures", "Matching lime outfits with Harper (her idea)", "Challenges Nate to a match weekly"],
@@ -1272,7 +1289,8 @@
           "Hank and me, thirty years of morning coffee. He said 'good coffee' in 2011. I still think about it.",
           "Babs brings the news, I bring the fries. Best newspaper at the club.",
           "Chad tried to pay with a signed ball. I took it. It's holding up the menu board.",
-          "Dani blows that whistle at the ducks. The ducks don't listen. Nobody tells ducks nothing."
+          "Dani blows that whistle at the ducks. The ducks don't listen. Nobody tells ducks nothing.",
+          "Centre Court days I sell more lemonade than all of August."
         ],
         "morning": ["Morning, boss. Coffee's on. Grill's warming up. Me too.", "Breakfast wraps till eleven. After that, you gotta know a guy. I'm the guy."],
         "afternoon": ["Lunch rush! Six grilled cheese, four lemonades, one Frank asking for 'plain toast, dry'.", "Afternoon, boss. Busiest hour. Also my favorite."],
@@ -1304,7 +1322,9 @@
         "game": ["Game, boss! Opa!", "That's the special!", "Serve it up!"],
         "matchWin": ["Drinks on Gus!", "Champion, boss!", "Golden! Golden!"],
         "matchLose": ["Next time, boss!", "Good fight, boss!", "Still tasty, boss!"],
-        "drill": ["Bullseye, boss!", "Nice aim, boss!", "Right in the pot!"]
+        "drill": ["Bullseye, boss!", "Nice aim, boss!", "Right in the pot!"],
+        "closeIn": ["Opa! On the line!", "Just a pinch in!"],
+        "closeOut": ["Oof, by a whisker!", "Ay! Just out!"]
       }
     },
     {
@@ -1363,7 +1383,7 @@
         "rainy": ["Rain means everybody's in here. Full house. I love it.", "Rain day equals gym day. Nature's telling you to do lunges."],
         "windy": ["Windy! Great resistance training for the walk over.", "Wind sprints, but make it literal."],
         "cloudy": ["Cloudy. Perfect outdoor run weather. Nobody overheats.", "Gray sky, green light. Let's move."],
-        "sunny": ["Sunny! Hydrate, champ. Water first, then glory.", "Beautiful out. Take the stairs. There are no stairs. Find some."],
+        "sunny": ["Sunny! Hydrate, champ. Water first, then glory.", "Beautiful out. Take the Centre Court stairs. Fourteen steps. Twice."],
         "tips": [
           "Trainer tip: the fitness centre's by the north perimeter path, past the hard courts. The juice bar has the water cooler.",
           "Members come back from matches thirsty. If you carry water toward the courts after a match, tips go up. Science.",
@@ -1387,7 +1407,9 @@
         "game": ["Game, champ!", "One more rep!", "Let's GO!"],
         "matchWin": ["CHAMP! Let's go!", "Personal record!", "What a workout!"],
         "matchLose": ["Not yet! Soon!", "Great legs, champ!", "Good work, champ!"],
-        "drill": ["Nice rep!", "Form looks great!", "Again! Again!"]
+        "drill": ["Nice rep!", "Form looks great!", "Again! Again!"],
+        "closeIn": ["That clipped the line!", "Right on the paint!"],
+        "closeOut": ["Inches out!", "Ooh! By an inch!"]
       }
     },
     {
@@ -1408,7 +1430,9 @@
         "breaks": [{ "spot": "cafe1", "face": 0 }], "breakChance": 0.06, "breakStay": [25, 40]
       },
       "patrol": {
-        "route": ["patrol_lot", "patrol_n1", "patrol_n2", "patrol_ne", "patrol_e", "patrol_se", "patrol_s", "patrol_sw",
+        "route": ["patrol_lot", "patrol_n1", "patrol_n2", "patrol_ne",
+          "patrol_ne2", { "spot": "patrol_e2", "face": -90, "hold": [6, 10] }, "patrol_se2",
+          "patrol_se", "patrol_s", "patrol_sw",
           { "spot": "patrol_w", "face": -90, "hold": [5, 9] }, "patrol_nw", "patrol_lot"],
         "chance": 0.25, "pause": [1, 3], "speed": 2.1
       },
@@ -1456,7 +1480,8 @@
           "Security tip: the perimeter path goes all the way around the club. With the cart, it's the fastest way from the gate to the clay courts.",
           "Lost-and-found lives in the locker rooms. Rackets go to the pro shop after. Jess logs everything.",
           "The pool gate is on the east side of the deck, right off the west perimeter path. Don't climb the fence. I will know.",
-          "If a member's missing, check the café first. Then the patio. Then the café again."
+          "If a member's missing, check the café first. Then the patio. Then the café again.",
+          "Report: Centre Court stairs. Walk, don't run. I have seen things."
         ],
         "hints": [
           "Last patrol, I had {name} {place}. That's in the log.",

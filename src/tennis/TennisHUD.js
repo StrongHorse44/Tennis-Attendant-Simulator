@@ -155,6 +155,13 @@ body.cc-tennis .ccp-btn-pause { top: calc(var(--cc-safe-top) + 10px) !important;
 .cct-seg button { flex: 1; min-height: 44px; font-size: 13px; }
 .cct-seg button[aria-pressed="true"], .cct-opt[aria-pressed="true"] { background: var(--cc-green-700); border-color: var(--cc-gold); color: #fff; }
 .cct-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.cct-seg button small { display: block; font-size: 10.5px; font-weight: 400; opacity: 0.75; margin-top: 1px; }
+.cct-seg button:disabled { opacity: 0.4; }
+.cct-surf { font-size: 12px; color: var(--cc-cream-dim); line-height: 1.4; min-height: 2.8em; }
+.cct-surf b { color: var(--cc-cream); }
+.cct-wind { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--cc-cream-dim); margin-top: 4px; }
+.cct-wind.is-on { display: flex; }
+.cct-wind__arr { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 15px; color: #bfe9ff; transition: transform 0.4s ease; }
 .cct-opt { flex: 1 1 30%; min-height: 44px; font-size: 12.5px; }
 .cct-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 10px; }
 .cct-stat { font-size: 11px; color: var(--cc-cream-dim); text-transform: capitalize; }
@@ -208,6 +215,12 @@ function injectCSS() {
 }
 
 const SHOT_NAMES = [['Flat', '1'], ['Topspin', '2'], ['Slice', '3'], ['Lob', '4'], ['Drop', '5']];
+// Surface: [name, what it does to the game]
+const SURFACE_NOTES = {
+  hard: ['Hard court', 'True, medium-fast bounce: every shot works. Topspin kicks up, a slice stays low.'],
+  clay: ['Red clay', 'Slow and high: heavy topspin jumps over the shoulder, slices check up, drop shots die. Long rallies — slide into the wide ones. Every bounce leaves a mark.'],
+  grass: ['Grass', 'Fast and low: slices skid through, flat balls fly, the kick stays down. Big serves and coming in pay off.'],
+};
 const METER_MAX = 1.3, METER_ZONE = [0.9, 1.06]; // serve meter: 1 = the ideal release
 const RING_R = 55, RING_C = 2 * Math.PI * RING_R;
 
@@ -263,6 +276,10 @@ export class TennisHUD {
     this.momBar = el('span', 'cct-mom__bar', this.momRow);
     this.momFill = el('i', '', this.momBar);
     this.momRow.title = 'Momentum: gold = yours, clay = Rafa\'s';
+    this.windRow = el('div', 'cct-wind', board);
+    this.windArr = el('span', 'cct-wind__arr', this.windRow, '↑');
+    this.windTxt = el('span', '', this.windRow, '');
+    this.windRow.title = 'Wind: the arrow shows where it blows on your screen';
 
     const menuBtn = el('button', 'cct-menu-btn', play, 'Menu');
     menuBtn.type = 'button';
@@ -354,6 +371,18 @@ export class TennisHUD {
       if (match) this.setMomentum(0, 0);
     }
     if (!on) { this.timing(-1); this.setMeter(-1); this.setPower(-1); this.setServeHint(false); this.setRally(0); }
+  }
+
+  /** Wind pill: speed (m/s) and the direction on screen (radians, 0 = up the screen, clockwise). */
+  setWind(speed, ang) {
+    const on = speed >= 0.3;
+    const c = this._cache;
+    if (c.windOn !== on) { c.windOn = on; this.windRow.classList.toggle('is-on', on); }
+    if (!on) return;
+    const tenths = Math.round(speed * 10);
+    const deg = Math.round((ang * 180) / Math.PI / 10) * 10;
+    if (c.windTenths !== tenths) { c.windTenths = tenths; this.windTxt.textContent = `Wind ${(tenths / 10).toFixed(1)} m/s`; }
+    if (c.windDeg !== deg) { c.windDeg = deg; this.windArr.style.transform = `rotate(${deg}deg)`; }
   }
 
   setInfo(text) {
@@ -507,10 +536,23 @@ export class TennisHUD {
     m.setAttribute('aria-label', 'After-hours tennis');
     const card = el('div', 'cc-panel cct-card', m);
     card.innerHTML = `
-      <div><div class="cc-label" style="color:var(--cc-gold)">Court 1 · into the sunset, then under the lights</div>
+      <div><div class="cc-label" style="color:var(--cc-gold)" data-m="courtline">Court 1 · into the sunset, then under the lights</div>
       <h2 class="cc-title">Evening hit with Coach Rafa</h2>
       <div class="cct-sub">No clock, no members. Just you, Rafa and a basket of balls.</div></div>
       <div class="cct-sec"><div class="cc-label">Your game</div><div class="cct-stats" data-m="stats"></div><div class="cct-record" data-m="record"></div></div>
+      <div class="cct-sec"><div class="cc-label">Court &amp; conditions</div>
+        <div class="cct-seg" data-m="surface" role="group" aria-label="Court surface">
+          <button type="button" class="cc-btn" data-v="hard">Hard<small>Court 1</small></button>
+          <button type="button" class="cc-btn" data-v="clay">Clay<small>Court 5</small></button>
+          <button type="button" class="cc-btn" data-v="grass">Grass<small>Centre Court</small></button>
+        </div>
+        <div class="cct-surf" data-m="surfnote"></div>
+        <div class="cct-seg" data-m="wind" role="group" aria-label="Wind">
+          <button type="button" class="cc-btn" data-v="calm">Calm</button>
+          <button type="button" class="cc-btn" data-v="breeze">Breezy</button>
+          <button type="button" class="cc-btn" data-v="gusty">Gusty</button>
+        </div>
+      </div>
       <div class="cct-sec"><div class="cc-label">Drills (Rafa feeds)</div>
         <div class="cct-grid2">
           <button type="button" class="cc-btn cct-big" data-drill="fh">Forehands</button>
@@ -539,14 +581,15 @@ export class TennisHUD {
           <button type="button" class="cc-btn cct-opt" data-o="aim">Aim guide</button>
           <button type="button" class="cc-btn cct-opt" data-o="tips">Coach tips</button>
           <button type="button" class="cc-btn cct-opt" data-o="changeEnds">Change ends</button>
+          <button type="button" class="cc-btn cct-opt" data-o="trail">Ball trail</button>
         </div>
-        <div class="cct-keys">Move: joystick / WASD · Swing: hold SWING / Space / J as the ball comes to load power, let go when the ring turns green (the longer the hold, the harder the hit, the riskier) · Serve: hold to toss, let go in the green · Shots: buttons or 1–5 (Drop = touch shot, best from the net) · Aim: stick direction at contact (left / right, up = deep, down = short; short + wide = angle).</div>
+        <div class="cct-keys">Move: joystick / WASD · Swing: hold SWING / Space / J as the ball comes to load power, let go when the ring turns green (the longer the hold, the harder the hit, the riskier) · Serve: hold to toss, let go in the green · Shots: buttons or 1–5 (Drop = touch shot, best from the net) · Aim: stick direction at contact (left / right, up = deep, down = short; short + wide = angle) · Spin: topspin dips and kicks up, a slice floats, curves and stays low (backhand curves left, forehand right), the slice serve swings wide, the kick serve jumps · The trail shows the spin: gold topspin, blue slice.</div>
       </div>
       <button type="button" class="cc-btn" data-m="leave" style="min-height:48px">Call it a night ▸ next day</button>`;
     this.menu = m;
     this.mq = {};
     for (const n of card.querySelectorAll('[data-m]')) this.mq[n.dataset.m] = n;
-    this._fmt = 'short'; this._diff = 'easy';
+    this._fmt = 'short'; this._diff = 'easy'; this._surf = 'hard'; this._wind = 'calm';
     for (const b of card.querySelectorAll('[data-drill]')) b.addEventListener('click', () => this.cb.onStartDrill && this.cb.onStartDrill(b.dataset.drill));
     const seg = (name, set) => {
       for (const b of this.mq[name].querySelectorAll('button')) {
@@ -555,6 +598,8 @@ export class TennisHUD {
     };
     seg('format', (v) => { this._fmt = v; });
     seg('diff', (v) => { this._diff = v; });
+    seg('surface', (v) => { if (!this.cb.onSurface || this.cb.onSurface(v) !== false) this._surf = v; });
+    seg('wind', (v) => { this._wind = v; if (this.cb.onWind) this.cb.onWind(v); });
     this.mq.play.addEventListener('click', () => this.cb.onStartMatch && this.cb.onStartMatch(this._fmt, this._diff));
     this.mq.leave.addEventListener('click', () => this.cb.onLeave && this.cb.onLeave());
     this.optBtns = [...card.querySelectorAll('[data-o]')];
@@ -570,10 +615,34 @@ export class TennisHUD {
   _syncSeg() {
     for (const b of this.mq.format.querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === this._fmt ? 'true' : 'false');
     for (const b of this.mq.diff.querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === this._diff ? 'true' : 'false');
+    for (const b of this.mq.surface.querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === this._surf ? 'true' : 'false');
+    for (const b of this.mq.wind.querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.v === this._wind ? 'true' : 'false');
+    const n = SURFACE_NOTES[this._surf] || SURFACE_NOTES.hard;
+    this.mq.surfnote.innerHTML = `<b>${n[0]}</b> ${n[1]}`;
+    const ch = this._choices && this._choices.find(c => c.surface === this._surf);
+    this.mq.courtline.textContent = `${ch ? ch.label : 'Court 1'} · ${n[0].toLowerCase()} · sunset, then floodlights`;
   }
 
-  showMenu({ opts, last, profile } = {}) {
+  /** The session changed the court / wind itself (not through the menu buttons). */
+  setConditions(surface, wind) {
+    if (surface) this._surf = surface;
+    if (wind) this._wind = wind;
+    this._syncSeg();
+  }
+
+  showMenu({ opts, last, profile, court, wind } = {}) {
     if (last) { this._fmt = last.format; this._diff = last.diff; }
+    if (court) {
+      this._surf = court.surface;
+      this._choices = court.choices || [];
+      for (const b of this.mq.surface.querySelectorAll('button')) {
+        const c = this._choices.find(k => k.surface === b.dataset.v);
+        b.disabled = !c;
+        const sm = b.querySelector('small');
+        if (sm && c) sm.textContent = c.label;
+      }
+    }
+    if (wind) this._wind = wind;
     this._syncSeg();
     for (const b of this.optBtns) b.setAttribute('aria-pressed', opts && opts[b.dataset.o] ? 'true' : 'false');
     this._fillProfile(profile);

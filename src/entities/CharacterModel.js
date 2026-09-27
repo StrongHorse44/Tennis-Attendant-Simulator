@@ -9,6 +9,7 @@ import {
   RACKET_GRIP, RACKET_HEAD_OFFSET, BALL_POS,
 } from './CharacterRig.js';
 import { Animator, CLIP_DEFS, CLIP_NAMES, resolveClipName, getClipEventRacketPoint } from './CharacterAnimations.js';
+import { groundAt, inCut } from '../world/Ground.js';
 
 /**
  * CharacterModel — stylized low-poly people built from rounded primitives.
@@ -25,6 +26,8 @@ import { Animator, CLIP_DEFS, CLIP_NAMES, resolveClipName, getClipEventRacketPoi
  * Also exports:
  *  - BlobShadows: one InstancedMesh of soft contact shadows for all characters / carts.
  *  - CameraTracker: last rendered camera position (for name-tag fading) without main.js wiring.
+ *  - followGroundY / resetGroundY / blobGroundY: mesh and blob heights over the ground model
+ *    (Ground.js), eased inside the Centre Court bowl, exactly today's values everywhere else.
  */
 
 // ───────────────────────────── Skeleton layout ─────────────────────────────
@@ -815,7 +818,11 @@ const _blobs = new WeakMap(); // scene -> manager
 
 /**
  * One InstancedMesh of soft radial contact shadows shared by all characters and carts.
- * `BlobShadows.get(scene).alloc()` returns a slot index; `set(slot, x, z, sx, sz, yaw)`.
+ * `BlobShadows.get(scene).alloc()` returns a slot index; `set(slot, x, z, sx, sz, yaw, y)`.
+ * Capacity 48: the player, 24 members / staff, the cart and its brush already take 27 slots
+ * (alloc() returns -1 once full, and that owner simply has no blob).
+ * Owners pass y = max(feet + 0.02, groundAt(x, z) + 0.065) so a blob never floats or sinks
+ * (inside the Centre Court bowl the ground is below 0; see Ground.js).
  */
 export class BlobShadows {
   static get(scene) {
@@ -823,7 +830,7 @@ export class BlobShadows {
     if (!m) { m = new BlobShadows(scene); _blobs.set(scene, m); }
     return m;
   }
-  constructor(scene, capacity = 24) {
+  constructor(scene, capacity = 48) {
     const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
       color: 0x0d1a10, map: Textures.radialBlob(), transparent: true, opacity: 0.4,
@@ -869,6 +876,49 @@ export class BlobShadows {
     this.mesh.setMatrixAt(slot, _blobM);
     this.mesh.instanceMatrix.needsUpdate = true;
   }
+}
+
+// ───────────────────────────── Ground following (mesh y) ─────────────────────────────
+
+/**
+ * Feet height for a walker's mesh (spec B.5), shared by Player and NPC. `o` keeps the state in
+ * `_meshY` (the eased y), `_easingY` and `_groundPX` / `_groundPZ` (last body x / z).
+ *
+ * target = max(groundAt(x, z), feetY), where feetY = body centre − radius. Outside the Centre
+ * Court cut the result is exactly today's Math.max(0, feetY) (groundAt is 0 there). Inside the cut
+ * (and until an ease that started there has settled) the mesh eases toward the target with a
+ * 1/16 s time constant, so the sphere's pops over the 0.2 m aisle half-steps and row edges don't
+ * show; a change over 1.2 m or a horizontal jump over 1 m in one frame (a teleport from another
+ * system) snaps. Allocation-free. Returns the new mesh y.
+ */
+export function followGroundY(o, x, z, feetY, dt) {
+  const target = Math.max(groundAt(x, z), feetY);
+  const inside = inCut(x, z);
+  if (inside || o._easingY) {
+    const jx = x - o._groundPX, jz = z - o._groundPZ, d = target - o._meshY;
+    if (!(Math.abs(d) <= 1.2) || !(jx * jx + jz * jz <= 1)) o._meshY = target;
+    else o._meshY += d * (1 - Math.exp(-dt * 16));
+    if (Math.abs(target - o._meshY) < 0.002) o._meshY = target;
+    o._easingY = inside || o._meshY !== target;
+  } else {
+    o._meshY = target;
+  }
+  o._groundPX = x;
+  o._groundPZ = z;
+  return o._meshY;
+}
+
+/** Snap the ground-follow state (followGroundY) to feet height `y` at (x, z): every placement path. */
+export function resetGroundY(o, x, y, z) {
+  o._meshY = y;
+  o._easingY = false;
+  o._groundPX = x;
+  o._groundPZ = z;
+}
+
+/** Blob-shadow y for feet at `feetY` over (x, z): never below the ground (+0.065), never floating. */
+export function blobGroundY(x, z, feetY) {
+  return Math.max(feetY + 0.02, groundAt(x, z) + 0.065);
 }
 
 // ───────────────────────────── Camera tracking ─────────────────────────────

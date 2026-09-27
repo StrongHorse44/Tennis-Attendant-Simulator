@@ -691,6 +691,7 @@
               "court3",
               "court4",
               "court5",
+              "court6",
               "memberLounge",
               "cafe",
               "lockerRoom",
@@ -701,7 +702,7 @@
         },
         "client": "owner",
         "key": ["owner", "item"],
-        "title": ["Lost & found: {item}", "Whose {item.label}?", "Return {owner.first}'s things"],
+        "title": ["Lost & found: {item}", "Unclaimed: {item}", "Return {owner.first}'s things"],
         "description": ["{finder} spotted {item} left at {from}. The tag says {owner}."],
         "steps": [
           {
@@ -861,6 +862,201 @@
         ]
       },
       {
+        "id": "rain_grass_covers",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 3,
+        "cooldownDays": 0,
+        "weather": ["rainy"],
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "court": { "area": "court", "surface": "grass" }
+        },
+        "key": ["court"],
+        "title": ["Covers on the grass", "Save the lawn on {court.label}"],
+        "description": ["Rain is soaking the grass on {court}. Get the rolled covers out of the equipment shed and pull them over the lawn before the baselines turn to mud."],
+        "steps": [
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Load the rolled court covers at the equipment shed."
+          },
+          { "action": "goTo", "target": "court", "prompt": "Pull the covers over {court}." },
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Tell Hank the grass is covered.",
+            "lines": [{ "*": "Covered? Good. A wet lawn under tennis shoes is a lawn you re-seed in August. The grass thanks you. So do my knees." }]
+          }
+        ]
+      },
+      {
+        "id": "grass_covers_off",
+        "type": "weather",
+        "sources": ["taskBoard", "radio"],
+        "weight": 2.5,
+        "cooldownDays": 0,
+        "afterRain": true,
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "court": { "area": "court", "surface": "grass" },
+          "member": { "npc": "member" }
+        },
+        "client": "member",
+        "key": ["court"],
+        "title": ["Covers off {court.label}", "Dry grass for {member.first}"],
+        "description": ["The rain has passed and {member} is itching to play on the grass. Roll the covers off {court}, brush the water off the lawn and stow the covers."],
+        "steps": [
+          { "action": "goTo", "target": "court", "prompt": "Roll the covers off {court} and brush the water off the lawn." },
+          { "action": "goTo", "target": "equipmentShed", "prompt": "Hang the wet covers up in the equipment shed." },
+          {
+            "action": "dialogue",
+            "npc": "member",
+            "prompt": "Tell {member.first} the grass is playable.",
+            "lines": [
+              {
+                "entitled": "Dry grass, at last. I was not about to slide around like a seal.",
+                "competitive": "Grass after rain plays fast and low. Perfect. Thank you.",
+                "junior": "Grass court! Grass court! Thank you!",
+                "*": "The covers are off? Lovely. Nothing smells like a lawn after the rain."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "grass_prep_match",
+        "type": "prep",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.2,
+        "cooldownDays": 1,
+        "hours": [7, 17],
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "court": { "area": "upcomingMatch", "surface": "grass", "within": [0.5, 3] },
+          "player": { "matchPlayer": "court" }
+        },
+        "client": "player",
+        "key": ["court"],
+        "title": ["Fresh lines on the grass", "Mark {court.label} for {player.first}"],
+        "description": ["{player} plays on the grass on {court} at {court.time}. The lines have worn thin: wheel the marker out and re-chalk them before they arrive."],
+        "steps": [
+          {
+            "action": "goTo",
+            "target": "equipmentShed",
+            "prompt": "Fill the line marker with chalk at the equipment shed."
+          },
+          { "action": "goTo", "target": "court", "prompt": "Re-mark the lines on {court}." },
+          {
+            "action": "dialogue",
+            "npc": "player",
+            "prompt": "Let {player.first} know the grass is marked.",
+            "lines": [
+              {
+                "entitled": "Crisp white lines on green. Now it looks like a proper club.",
+                "competitive": "Fresh lines. No more arguments about the baseline. Probably.",
+                "*": "Oh, it looks like Wimbledon out there. Thank you!"
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
+        "id": "centre_roll_lawn",
+        "type": "prep",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.6,
+        "cooldownDays": 1,
+        "hours": [7, 10.5],
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "court": { "area": "court", "surface": "grass" }
+        },
+        "key": ["court"],
+        "title": ["Roll the lawn on {court.label}", "Morning stripes on {court.label}"],
+        "description": ["Hank wants {court} rolled and striped before the first match. The roller lives in the equipment shed; the cart stays up top and the roller goes down the Players' Walk."],
+        "steps": [
+          { "action": "goTo", "target": "equipmentShed", "prompt": "Collect the lawn roller at the equipment shed." },
+          { "action": "goTo", "target": "court", "prompt": "Take the roller down to {court} and stripe the lawn, baseline to baseline." },
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Tell Hank the lawn is striped.",
+            "lines": [{ "*": "Stripes across the net and not a footprint on it. That's a lawn a man could frame." }]
+          }
+        ]
+      },
+      {
+        "id": "centre_stands_tidy",
+        "type": "errand",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.3,
+        "cooldownDays": 1,
+        "hours": [12, 18.5],
+        "roles": {
+          "boss": { "npc": "staff", "ids": ["hank_morris"] },
+          "court": { "area": "court", "surface": "grass" }
+        },
+        "key": ["court"],
+        "title": ["Tidy the {court.label} stands", "Cups and wrappers on {court.label}"],
+        "description": ["The last crowd on {court} left the usual souvenirs. Pickers and bags are at the shed."],
+        "steps": [
+          { "action": "goTo", "target": "equipmentShed", "prompt": "Grab litter pickers and bags at the equipment shed." },
+          { "action": "goTo", "target": "court", "prompt": "Clear the {court.label} stands: cups, wrappers, one lost sun hat." },
+          {
+            "action": "dialogue",
+            "npc": "boss",
+            "prompt": "Tell Hank the stands are clear.",
+            "lines": [{ "*": "Clean stands, clean lawn. Somebody left a whole sandwich up there once. Ham. In July." }]
+          }
+        ]
+      },
+      {
+        "id": "centre_usher",
+        "type": "escort",
+        "sources": ["taskBoard", "radio"],
+        "weight": 1.2,
+        "cooldownDays": 2,
+        "minDay": 2,
+        "hours": [8, 17],
+        "weather": ["sunny", "cloudy", "windy"],
+        "roles": {
+          "gate": { "npc": "staff", "ids": ["otis_grant"] },
+          "guest": { "text": ["the county tennis board chair", "Mr. Okonjo and his daughters", "two sponsors from Harlan Motors", "Dame Evelyn Price"] },
+          "host": { "npc": "member", "archetypes": ["entitled", "veteran", "social"] },
+          "court": { "area": "upcomingMatch", "surface": "grass", "within": [0.25, 2.5] }
+        },
+        "client": "host",
+        "key": ["guest"],
+        "title": ["Seat {guest} in the Members' Box", "Box seats for {host.first}'s party"],
+        "description": ["Otis has {guest} at the gate for the {court.time} match on {court}. Walk them down the Players' Walk to the Members' Box."],
+        "steps": [
+          {
+            "action": "dialogue",
+            "npc": "gate",
+            "prompt": "Meet Otis at the gate.",
+            "lines": [{ "*": "Report: {guest} at the gate. On {host}'s list. Members' Box, they said. Twice." }]
+          },
+          { "action": "goTo", "target": "court", "prompt": "Show {guest} down the Players' Walk to the Members' Box on {court.label}." },
+          {
+            "action": "dialogue",
+            "npc": "host",
+            "prompt": "Tell {host.first} their party is seated.",
+            "lines": [
+              {
+                "entitled": "The Members' Box. Naturally. Anywhere else would have been an insult.",
+                "veteran": "Front of the box, by the stair. Best seat in the county. Well done.",
+                "*": "They're seated? Wonderful. They'll talk about this for a year."
+              }
+            ],
+            "thanks": true
+          }
+        ]
+      },
+      {
         "id": "rain_towels",
         "type": "weather",
         "sources": ["taskBoard", "radio"],
@@ -943,7 +1139,7 @@
           "item": { "item": ["water_bottles"] },
           "from": { "area": "itemSource", "of": "item" },
           "place": {
-            "area": ["court1", "court2", "court3", "court4", "court5", "pool", "patio", "fitnessCenter"],
+            "area": ["court1", "court2", "court3", "court4", "court5", "court6", "pool", "patio", "fitnessCenter"],
             "not": ["from"]
           },
           "member": { "npc": "member" }
@@ -992,18 +1188,18 @@
             ]
           },
           "host": { "npc": "member", "archetypes": ["entitled", "veteran", "social", "friendly", "competitive"] },
-          "sight": { "area": ["court1", "court2", "court3", "pool", "fitnessCenter", "garden"] }
+          "sight": { "area": ["court1", "court2", "court3", "court6", "pool", "fitnessCenter", "garden"] }
         },
         "client": "host",
         "key": ["guest"],
         "title": ["Escort {guest}", "VIP tour for {host.first}'s guest"],
-        "description": ["{Guest} is at the gate as a guest of {host}. Give them the tour."],
+        "description": ["{Host} has a guest at the gate: {guest}. Give them the tour."],
         "steps": [
           {
             "action": "dialogue",
             "npc": "gate",
             "prompt": "Meet Otis at the gate.",
-            "lines": [{ "*": "Report: {guest} is here. Guest of {host}. Looks important. I straightened my badge." }]
+            "lines": [{ "*": "Report: a guest for {host} at the gate. {Guest}. Looks important. I straightened my badge." }]
           },
           {
             "action": "goTo",
@@ -1550,7 +1746,7 @@
           "host": { "npc": "member", "archetypes": ["entitled", "veteran", "social"] },
           "item": { "item": ["towels", "water_bottles"] },
           "from": { "area": "itemSource", "of": "item" },
-          "place": { "area": ["memberLounge", "patio", "court1", "court2", "pool"], "not": ["from"] }
+          "place": { "area": ["memberLounge", "patio", "court1", "court2", "court6", "pool"], "not": ["from"] }
         },
         "client": "host",
         "key": ["host", "place"],
@@ -2138,7 +2334,7 @@
       "id": "story_theo_exhibition",
       "type": "story",
       "title": "Theo's Exhibition Set",
-      "description": "Coach Rafa has arranged an exhibition set for Theo on Court 1 and Mrs. Wellington is coming to watch. Set the court up properly.",
+      "description": "Coach Rafa has arranged an exhibition set for Theo on Centre Court and Mrs. Wellington is coming to watch. Set the court up properly.",
       "source": "random",
       "triggerNpc": "rafa_ibarra",
       "client": "mrs_wellington",
@@ -2159,9 +2355,9 @@
         },
         {
           "action": "deliver",
-          "location": "court1",
+          "location": "court6",
           "item": "towels",
-          "prompt": "Lay the towels out on Court 1."
+          "prompt": "Lay the towels out on Centre Court."
         },
         {
           "action": "dialogue",
@@ -2922,7 +3118,7 @@
       "id": "story_cup_final",
       "type": "story",
       "title": "Cup Final Day",
-      "description": "The Greenbriar Cup final is on Court 1. Balls, water, and Mrs. Wellington presents the trophy.",
+      "description": "The Greenbriar Cup final is on Centre Court. Balls, water, and Mrs. Wellington presents the trophy.",
       "source": "taskBoard",
       "client": "mrs_wellington",
       "requires": ["story_cup_seeding"],
@@ -2944,9 +3140,9 @@
         },
         {
           "action": "deliver",
-          "location": "court1",
+          "location": "court6",
           "item": "ball_hopper",
-          "prompt": "Set them out on Court 1."
+          "prompt": "Set them out on Centre Court."
         },
         {
           "action": "pickup",
@@ -2956,9 +3152,9 @@
         },
         {
           "action": "deliver",
-          "location": "court1",
+          "location": "court6",
           "item": "water_bottles",
-          "prompt": "Water for the finalists on Court 1."
+          "prompt": "Water for the finalists on Centre Court."
         },
         {
           "action": "dialogue",
@@ -3258,7 +3454,7 @@
       { "speaker": "Mrs. Wellington", "text": "...His grandfather used to sneak off to play, too. Well? Out with it." }
     ],
     "theo_exhibition_1": [
-      { "speaker": "Coach Rafa Ibarra", "text": "Ah, my friend. You have heard? Theo plays an exhibition set on Court 1. His grandmother will watch." },
+      { "speaker": "Coach Rafa Ibarra", "text": "Ah, my friend. You have heard? Theo plays an exhibition set on Centre Court. His grandmother will watch." },
       { "speaker": "Coach Rafa Ibarra", "text": "Whatever you told her, it worked. She asked me what 'topspin' is. I told her it is a way of life." },
       { "speaker": "Coach Rafa Ibarra", "text": "Bring fresh towels from the shop. If Mrs. Wellington sits on a damp bench, Theo's career is over before it begins." }
     ],
