@@ -23,9 +23,15 @@ import { GAME } from '../utils/Constants.js';
  *   onRushChange(window|null)       – a rush window started / ended
  *   onClosingTime()                 – closing duties are due
  *   onShiftEnd(report)              – show the report card
- *   onEarn({ amount, kind, npcId }) – money went into the wallet (kind: 'task' | 'tip' | 'bonus' | 'wage')
+ *   onEarn({ amount, kind, npcId }) – money went into the wallet (kind: 'task' | 'tip' | 'bonus' | 'wage'
+ *                                     | 'prize' (Junior Tour prize money) | 'refund' (fees / rebates back))
  *   onRankUp(rank, index)           – a new rank was reached (perks are re-applied through onPerks)
  *   onPerks(perks)                  – current cumulative perks ({ cartSpeed, brushWidth, capColor, tipBonus })
+ *
+ * Career (Junior Tour → Hank's crossroads, TourSystem → Game._applyCareer): careerWageMul,
+ * careerGroomMul and careerTitle are set from outside and never saved here (re-applied on every
+ * load); 1 / null leave everything as before. Tour prize money (earnPrize) is lifetime earnings but
+ * not staff-rank points (lifetimePrize is subtracted), so tennis never promotes you at work.
  */
 
 const DEFAULT_SHIFT = {
@@ -112,6 +118,11 @@ export class ShiftSystem {
     // Today's club event (EventSystem sets these each day; 1 = no change)
     this.eventTipMultiplier = 1;
     this.eventGroomBonusMultiplier = 1;
+    // Career multipliers / title (Game._applyCareer from the TourSystem; 1 / null = no change)
+    this.careerWageMul = 1;
+    this.careerGroomMul = 1;
+    this.careerTitle = null;
+    this.lifetimePrize = 0;       // tour prize money (inside lifetimeEarnings, outside rank points)
     /** () => { title, icon, ... } | null: today's event for the report card (set by Game). */
     this.getEvent = null;
 
@@ -135,9 +146,9 @@ export class ShiftSystem {
 
   getRank(i = this.rankIndex) { return this.data.ranks[Math.max(0, Math.min(this.data.ranks.length - 1, i))]; }
 
-  /** Career points: lifetime earnings + rep × repPoints. */
+  /** Career points: lifetime earnings (without tour prize money) + rep × repPoints. */
   getPoints() {
-    return Math.floor(this.lifetimeEarnings + this.rep * (this.data.repPoints || 0));
+    return Math.floor(this.lifetimeEarnings - (this.lifetimePrize || 0) + this.rep * (this.data.repPoints || 0));
   }
 
   _rankForPoints(points) {
@@ -247,7 +258,7 @@ export class ShiftSystem {
     if (!s.wagePaid) {
       const clockIn = s.clockInHour == null ? this.startHour : s.clockInHour;
       s.hours = Math.max(0, Math.min(this.endHour - this.startHour, this.endHour - clockIn));
-      s.wage = Math.round(s.hours * (this.data.hourlyWage || 0));
+      s.wage = Math.round(s.hours * (this.data.hourlyWage || 0) * (this.careerWageMul || 1));
       s.wagePaid = true;
       if (s.wage > 0) this._earn(s.wage, 'wage');
       this.shiftsWorked++;
@@ -293,6 +304,9 @@ export class ShiftSystem {
       pointsGained: prog.points - s.startPoints,
       frac: prog.frac,
       event: this.getEvent ? this.getEvent() : null,
+      // Junior Tour career (Hank's crossroads): e.g. "Head Groundskeeper" / "Touring Pro"
+      careerTitle: this.careerTitle || null,
+      wageMul: this.careerWageMul || 1,
     };
   }
 
@@ -323,6 +337,23 @@ export class ShiftSystem {
     if (kind === 'tip') this.lifetimeTips += amount;
     if (this.onEarn) this.onEarn({ amount, kind, npcId });
     this._checkRank();
+    return amount;
+  }
+
+  /** Junior Tour prize money: into the wallet (and lifetime earnings) but not rank points. */
+  earnPrize(amount) {
+    amount = Math.max(0, Math.round(Number(amount) || 0));
+    if (!amount) return 0;
+    this.lifetimePrize += amount;
+    return this._earn(amount, 'prize');
+  }
+
+  /** Money back (a refunded entry fee, a sponsor's rebate): the wallet only, never earnings. */
+  refund(amount, kind = 'refund') {
+    amount = Math.max(0, Math.round(Number(amount) || 0));
+    if (!amount) return 0;
+    this.wallet += amount;
+    if (this.onEarn) this.onEarn({ amount, kind, npcId: null });
     return amount;
   }
 
@@ -373,7 +404,7 @@ export class ShiftSystem {
     const pay = this.missions.getBaseReward(mission);
     let bonus = 0;
     if (mission.type === 'maintenance' && s.lastGroomRating) {
-      bonus = Math.round((this.data.groomBonus[s.lastGroomRating] || 0) * (this.eventGroomBonusMultiplier || 1));
+      bonus = Math.round((this.data.groomBonus[s.lastGroomRating] || 0) * (this.eventGroomBonusMultiplier || 1) * (this.careerGroomMul || 1));
       s.lastGroomRating = null;
     }
     if (pay + bonus > 0) {
@@ -438,6 +469,7 @@ export class ShiftSystem {
       wallet: this.wallet,
       lifetimeEarnings: this.lifetimeEarnings,
       lifetimeTips: this.lifetimeTips,
+      lifetimePrize: this.lifetimePrize,
       rep: this.rep,
       rankIndex: this.rankIndex,
       shiftsWorked: this.shiftsWorked,
@@ -463,6 +495,7 @@ export class ShiftSystem {
       this.wallet = state.wallet || 0;
       this.lifetimeEarnings = Math.max(state.lifetimeEarnings || 0, this.wallet);
       this.lifetimeTips = state.lifetimeTips || 0;
+      this.lifetimePrize = Math.max(0, Math.min(state.lifetimePrize || 0, this.lifetimeEarnings));
       this.rep = state.rep || 0;
       this.shiftsWorked = state.shiftsWorked || 0;
       this.rankIndex = Math.max(0, Math.min(this.data.ranks.length - 1, state.rankIndex || 0));
