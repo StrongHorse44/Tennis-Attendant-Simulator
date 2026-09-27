@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { COLORS, SIZES } from '../utils/Constants.js';
 import { mat, getMaterial, registerWet, registerNightGlow, sharedDepthMaterial } from '../graphics/Materials.js';
 import { Textures } from '../graphics/Textures.js';
@@ -83,6 +84,22 @@ const _m4b = new THREE.Matrix4();
 const _v3 = new THREE.Vector3();
 const _exit = { x: 0, z: 0, y: 0 };
 const _push = { x: 0, z: 0 };
+
+/** A smooth-shaded low-poly ball: a dodecahedron (36 triangles) with radial normals. */
+function smoothBall(r) {
+  const src = new THREE.DodecahedronGeometry(r, 0);
+  src.deleteAttribute('normal');
+  src.deleteAttribute('uv');
+  const g = mergeVertices(src);
+  src.dispose();
+  const p = g.attributes.position, n = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    _v3.fromBufferAttribute(p, i).normalize();
+    n[i * 3] = _v3.x; n[i * 3 + 1] = _v3.y; n[i * 3 + 2] = _v3.z;
+  }
+  g.setAttribute('normal', new THREE.BufferAttribute(n, 3));
+  return g;
+}
 
 /** True when every component is finite (one NaN / ±Infinity makes the sum non-finite). */
 function finite3(v) {
@@ -608,17 +625,28 @@ export class Stadium {
       .slice(0, cap)
       .map(e => e.s);
     const n = Math.max(1, pool.length);
+    // A seated figure in two parts on the one instance matrix (origin = the seat top, +z toward
+    // the court): the shirt (torso, sleeves, shorts over the thighs) and the skin (head on a neck
+    // that meets the torso, forearms resting on the thighs, shins down to the tread)
     const bodyGeo = getGeometry('stadium-crowd-body', () => {
       const g = mergeParts([
-        { geometry: boxGeo(0.4, 0.46, 0.26), matrix: makeMatrix(0, 0.3, -0.05) },
-        { geometry: boxGeo(0.36, 0.14, 0.4), matrix: makeMatrix(0, 0.07, 0.12) },
+        { geometry: boxGeo(0.38, 0.44, 0.24), matrix: makeMatrix(0, 0.31, -0.06) },       // torso, top at 0.53
+        { geometry: boxGeo(0.34, 0.14, 0.4), matrix: makeMatrix(0, 0.07, 0.12) },         // thighs (shorts)
+        { geometry: boxGeo(0.09, 0.26, 0.11), matrix: makeMatrix(-0.235, 0.4, -0.05) },   // sleeves
+        { geometry: boxGeo(0.09, 0.26, 0.11), matrix: makeMatrix(0.235, 0.4, -0.05) },
       ]);
       g.deleteAttribute('uv');
       return g;
     });
     const headGeo = getGeometry('stadium-crowd-head', () => {
-      const g = new THREE.IcosahedronGeometry(0.11, 0);
-      g.translate(0, 0.68, -0.04);
+      const g = mergeParts([
+        { geometry: smoothBall(0.105), matrix: makeMatrix(0, 0.655, -0.05) },                       // head
+        { geometry: boxGeo(0.09, 0.1, 0.09), matrix: makeMatrix(0, 0.55, -0.05) },                  // neck 0.50..0.60
+        { geometry: boxGeo(0.07, 0.07, 0.25), matrix: makeMatrix(-0.2, 0.21, 0.08, 0, 1, 0.35) },   // forearms
+        { geometry: boxGeo(0.07, 0.07, 0.25), matrix: makeMatrix(0.2, 0.21, 0.08, 0, 1, 0.35) },
+        { geometry: boxGeo(0.1, 0.42, 0.1), matrix: makeMatrix(-0.09, -0.2, 0.27) },               // shins
+        { geometry: boxGeo(0.1, 0.42, 0.1), matrix: makeMatrix(0.09, -0.2, 0.27) },
+      ]);
       g.deleteAttribute('uv');
       return g;
     });
