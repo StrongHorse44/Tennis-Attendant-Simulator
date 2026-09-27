@@ -501,7 +501,7 @@ const HOWTO = {
   wind: ['Wind tonight. Aim into it: lobs and slow balls drift the most.', 'Mind the wind!'],
   sliceCurve: ['See it bend? Your slice curves: backhand to the left, forehand to the right.', 'It curves!'],
   slide: ['Nice slide! Braking into the ball keeps you balanced on clay.', 'Nice slide!'],
-  sliceServe: ['Try the slice serve, 3, from the deuce side: it swings away from me and stays low.', 'Slice it, 3!'],
+  sliceServe: ['Try the slice serve, 3, from the deuce side: it swings away from {him} and stays low.', 'Slice it, 3!'],
 };
 const ESSENTIAL = { charge: true, serve: true, tossAbort: true, tossCatch: true };
 
