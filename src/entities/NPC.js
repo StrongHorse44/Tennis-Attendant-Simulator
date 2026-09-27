@@ -9,6 +9,7 @@ import {
   followGroundY, resetGroundY, blobGroundY,
 } from './CharacterModel.js';
 import { findSeats, claimSeat, releaseSeat, SIT_SEAT_HEIGHT } from './Seats.js';
+import { slideOffNosing, PERCH_EPS } from './Player.js';
 import { planRoute, roomAt } from '../world/NavRooms.js';
 import { RoutePlanner } from '../systems/RoutePlanner.js';
 import {
@@ -1005,11 +1006,15 @@ export class NPC {
     const bp = this.body.position;
     // In the Centre Court bowl nobody drifts: the frictionless contacts would slide a standing
     // body off the 0.45 m aisle half-steps and row edges, step after step (walking translates
-    // the body directly). A body hanging on a step's edge above its ground keeps its slide, so it
-    // drops onto the tread below instead of creeping off the corner.
-    if (inCut(bp.x, bp.z) && bp.y < groundAt(bp.x, bp.z) + SIZES.npcRadius + 0.03) {
-      this.body.velocity.x = 0;
-      this.body.velocity.z = 0;
+    // the body directly). A body standing still on a step's edge above its ground, or on
+    // someone's shoulder (a state above may just have zeroed its velocity), is pushed off it
+    // instead (Player.js slideOffNosing), so it drops onto the tread below rather than creeping
+    // off the corner; a walker keeps its own step.
+    if (inCut(bp.x, bp.z)) {
+      if (bp.y < groundAt(bp.x, bp.z) + SIZES.npcRadius + PERCH_EPS) {
+        this.body.velocity.x = 0;
+        this.body.velocity.z = 0;
+      } else if (!this._moving) slideOffNosing(this.body, SIZES.npcRadius);
     }
     // Just after spawning, pull a hovering body down briskly (linearDamping also damps gravity)
     if (this._settleTime > 0) {
