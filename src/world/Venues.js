@@ -14,7 +14,7 @@ import { TennisOcclusion } from '../tennis/TennisOcclusion.js';
  *
  *   game.venues = new Venues(game, tourData?.venues);
  *   const v = game.venues.enter('harbor_point');   // builds (or re-shows the cached) venue
- *   // v = { id, name, short, label, courtLabel, surface, wind, blurb, court (a real Court: build a
+ *   // v = { id, name, short, label, courtLabel, surface, wind, blurb, crowd, lights (floodlit), court (a real Court: build a
  *   //       TennisSession CourtFrame from it), origin {x,z}, coachSpot {x,y,z,yaw,seated},
  *   //       benches [{x,y,z,yaw}], umpire {x,y,z,yaw}, spectatorSpots [{x,y,z,yaw,seated}] (front
  *   //       row seats kept free of the crowd), crowdSeats (the same list), exitSpot {x,z,yaw},
@@ -432,7 +432,7 @@ export class Venues {
     const lay = b.lay;
     return {
       id: d.id, name: d.name, short: d.short, label: d.name, courtLabel: d.courtLabel,
-      surface: d.surface, wind: d.wind, blurb: d.blurb, crowd: d.look.crowd,
+      surface: d.surface, wind: d.wind, blurb: d.blurb, crowd: d.look.crowd, lights: !!d.look.lights,
       court: b.court,
       origin: { x: o.x, z: o.z },
       coachSpot: W(b.spots.coach),

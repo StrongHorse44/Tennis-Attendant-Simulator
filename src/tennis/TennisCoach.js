@@ -959,7 +959,7 @@ export class TennisCoach {
    */
   preMatchPlan(opponent, spec) {
     const out = this._st('preMatchPlan', opponent, spec);
-    return Array.isArray(out) && out.length >= 2 ? out : ['Play your game: deep, smart, first serves in.', 'Make him play every ball. Patience wins.'];
+    return Array.isArray(out) && out.length >= 2 ? out : ['Play your game: deep, smart, first serves in.', 'Make your opponent play every ball. Patience wins.'];
   }
 
   /**

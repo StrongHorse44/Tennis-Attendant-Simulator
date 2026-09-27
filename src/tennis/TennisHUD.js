@@ -1438,7 +1438,7 @@ export class TennisHUD {
         <h2 class="cc-title" data-r="title"></h2><div class="cct-sub" data-r="sub"></div></div>
       <div class="cct-score" data-r="score"></div>
       <div class="cct-rgrid" data-r="stats"></div>
-      <div class="cct-sec"><div class="cc-label">Practice XP</div><div class="cct-xp" data-r="xp"></div></div>
+      <div class="cct-sec"><div class="cc-label" data-r="xpLabel">Practice XP</div><div class="cct-xp" data-r="xp"></div></div>
       <div class="cct-sec"><div class="cc-label">Coach Rafa says</div><div class="cct-tips" data-r="tips"></div></div>
       <div class="cct-record" data-r="record"></div>
       <div class="cct-btns">
@@ -1455,13 +1455,27 @@ export class TennisHUD {
     this.rq.done.addEventListener('click', () => this.cb.onDone && this.cb.onDone());
   }
 
+  /**
+   * The results card. d: { kind: 'match' | 'drill', title, sub, score, won, stats: [[k, v]], xp, ups,
+   * tips, record } plus, for a Junior Tour match: kindLabel (the gold line, e.g. "Harbor Point Open ·
+   * Quarter-final"), xpLabel, recordText (instead of the record vs Rafa) and buttons: { again,
+   * mode, done } — false hides one, a string relabels it (the tour shows only "Continue").
+   */
   showResults(d) {
     const q = this.rq;
-    q.kind.textContent = d.kind === 'match' ? 'Practice match' : 'Drill complete';
+    q.kind.textContent = d.kindLabel || (d.kind === 'match' ? 'Practice match' : 'Drill complete');
     q.title.textContent = d.title;
     q.sub.textContent = d.sub || '';
     q.score.textContent = d.score || '';
-    q.again.textContent = d.kind === 'match' ? 'Rematch' : 'Again';
+    const bt = d.buttons || {};
+    const btn = (el, v, def) => {
+      el.style.display = v === false ? 'none' : '';
+      el.textContent = typeof v === 'string' ? v : def;
+    };
+    btn(q.again, bt.again, d.kind === 'match' ? 'Rematch' : 'Again');
+    btn(q.mode, bt.mode, 'Change mode');
+    btn(q.done, bt.done, 'Done');
+    q.xpLabel.textContent = d.xpLabel || 'Practice XP';
     this.resCard.classList.toggle('is-won', !!d.won);
     q.stats.innerHTML = (d.stats || []).map(([k, v]) => `<div class="cct-rstat"><span>${k}</span><b>${v}</b></div>`).join('');
     const ups = new Map((d.ups || []).map(u => [u.stat, u]));
@@ -1475,10 +1489,11 @@ export class TennisHUD {
     q.xp.innerHTML = xp || '<span class="cct-chip">No XP this time</span>';
     q.tips.innerHTML = (d.tips || []).map(t => `“${t}”`).join('<br>');
     const r = d.record;
-    q.record.textContent = r ? `Record vs Rafa: ${r.wins}–${r.losses} · drills done: ${r.drills}` : '';
+    q.record.textContent = d.recordText != null ? String(d.recordText) : r ? `Record vs Rafa: ${r.wins}–${r.losses} · drills done: ${r.drills}` : '';
     this.results.classList.add('is-on');
     this._modal();
-    try { q.again.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+    const first = bt.again === false ? (bt.done === false ? q.mode : q.done) : q.again;
+    try { first.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
   }
 
   hideResults() { this.results.classList.remove('is-on'); this._blur(this.results); this._modal(); }

@@ -23,6 +23,7 @@ import { injectTheme } from './theme.js';
  *   ui.showChoice({ title, speaker, role?, body, choices: [{ label, desc, primary }], cancel? }, onPick(i, choice))
  *   ui.showTournamentResult({ tournamentName, roundLabel, won, score, opponent, pointsGained, prizeGained,
  *                             next, champion, rank, rankDelta }, onClose | { onClose, hubButton })
+ *   ui.showMatchIntro({ ...matchSpec, plan, h2h, lights, scouting }, onStart)   // before a tour match
  *   ui.isModalOpen, ui.closeModal()
  *
  * The overlays sit above the report card (300), the pause menu (800) and the shop (850). While one is
@@ -433,6 +434,13 @@ button.ccj-rkme:focus-visible { outline: 2px solid var(--cc-gold); outline-offse
 .ccj-choices .cc-btn span { font-size: 12.5px; font-weight: 500; color: var(--cc-cream-dim); line-height: 1.35; }
 .ccj-choices .cc-btn.ccj-btn--gold span { color: rgba(42, 29, 8, 0.78); }
 .ccj-res { text-align: center; align-items: stretch; }
+.ccj-intro .ccj-mcard, .ccj-mcard.ccj-intro { width: min(560px, 100%); }
+.ccj-intro__cond { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.ccj-intro__sw { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ccj-intro__sw .ccj-card { padding: 10px 12px; }
+.ccj-intro__sw .ccj-list li { font-size: 12.5px; padding: 4px 0 4px 26px; }
+.ccj-intro__sw .ccj-list li::before { top: 4px; }
+@media (max-width: 460px) { .ccj-intro__sw { grid-template-columns: 1fr; } }
 .ccj-res__art { position: relative; height: 112px; display: grid; place-items: center; }
 .ccj-res__art svg { width: 104px; height: 104px; filter: drop-shadow(0 8px 20px rgba(217, 164, 65, 0.45)); position: relative; }
 .ccj-res__art .ccj-ball { width: 78px; height: 78px; filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.35)); }
@@ -1842,6 +1850,66 @@ export class TourUI {
         <div class="ccj-choices" role="group" aria-label="Choices">${btns}</div>`,
       actions,
       cancel,
+    });
+  }
+
+  /**
+   * Before a tour match (TennisSession's tour mode): who is across the net (the scouting card's
+   * look: avatar, age / club, style, stars, level, seed, head-to-head, the note), the conditions
+   * (surface, wind, format, court, lights) and Rafa's game plan (o.plan: 2–4 lines), with the
+   * scouting strengths / weaknesses when o.scouting names the same player. "Let's play" (or Esc)
+   * runs onStart. o: a TourSystem matchSpec + { plan, h2h: { w, l } | null, lights, scouting }.
+   */
+  showMatchIntro(o = {}, onStart) {
+    const opp = o.opponent || {};
+    const meta = [isNum(opp.age) ? `${opp.age} years old` : '', opp.club].filter(Boolean).join(' · ');
+    const rec = o.h2h && typeof o.h2h === 'object' ? o.h2h : null;
+    const met = rec && ((rec.w || 0) + (rec.l || 0)) > 0;
+    const chips = [
+      opp.styleLabel || opp.style ? `<span class="ccj-chip ccj-chip--gold">${esc(opp.styleLabel || prettyId(opp.style))}</span>` : '',
+      starsHtml(opp.rating),
+      opp.level ? `<span class="ccj-chip">${esc(opp.level)}</span>` : '',
+      opp.adult ? '<span class="ccj-chip">Adult</span>' : '',
+      met ? `<span class="ccj-chip ${rec.w >= rec.l ? 'ccj-chip--ok' : 'ccj-chip--bad'}">You ${rec.w || 0}–${rec.l || 0}</span>` : '<span class="ccj-chip">First meeting</span>',
+    ].join('');
+    const surf = SURFACE_LABEL[o.surface] ? `<span class="ccj-chip ccj-chip--${esc(o.surface)}"><i></i>${esc(SURFACE_LABEL[o.surface])}</span>` : '';
+    const cond = [
+      surf,
+      WIND_LABEL[o.wind] ? `<span class="ccj-chip">${esc(WIND_LABEL[o.wind])}</span>` : '<span class="ccj-chip">Calm</span>',
+      FORMAT_LABEL[o.format] ? `<span class="ccj-chip">${esc(FORMAT_LABEL[o.format])}</span>` : '',
+      o.courtLabel ? `<span class="ccj-chip">${esc(o.courtLabel)}${o.home ? ' · home' : ''}</span>` : '',
+      o.lights === false ? '<span class="ccj-chip">Daylight</span>' : '<span class="ccj-chip">Under the lights</span>',
+      isNum(o.seed) ? `<span class="ccj-chip ccj-chip--gold">You: seed ${o.seed}</span>` : '',
+    ].join('');
+    const plan = arr(o.plan).filter(Boolean);
+    const sc = o.scouting && o.scouting.opponent && (!opp.id || o.scouting.opponent.id === opp.id) ? o.scouting : null;
+    const list = (items, cls) => {
+      const a = arr(items).filter(Boolean).slice(0, 3);
+      return a.length ? `<ul class="ccj-list ${cls}">${a.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+    };
+    const good = sc ? list(sc.strengths, 'ccj-list--good') : '', bad = sc ? list(sc.weaknesses, 'ccj-list--bad') : '';
+    let label = o.tournamentName || 'Junior Tour';
+    const round = o.roundLabel || o.round;
+    if (round) label += ` · ${roundLong(round)}`;
+    let done = false;
+    const go = () => { if (done) return; done = true; if (typeof onStart === 'function') { try { onStart(); } catch (err) { console.warn('TourUI intro onStart:', err); } } };
+    this._enqueue({
+      kind: 'intro',
+      cls: 'ccj-intro',
+      html: `<div class="ccj-mhead"><div class="cc-label">${esc(label)}</div><h2 class="cc-title ccj-mtitle" id="ccj-mtitle">vs ${esc(opp.name || opp.short || 'Your opponent')}</h2></div>
+        <section class="ccj-card">
+          <div class="ccj-opp"><div class="ccj-avatar" style="--ccj-av:${avatarColor(opp.id || opp.name)}" aria-hidden="true">${esc(initials(opp.name || opp.short))}</div>
+            <div class="ccj-opp__t"><div class="cc-label">${isNum(opp.seed) ? `Seed ${opp.seed}` : 'Unseeded'}${o.venueName ? ' · ' + esc(o.venueName) : ''}</div><b>${esc(opp.name || opp.short || 'Unknown')}</b><span>${esc(meta)}</span></div></div>
+          <div class="ccj-opp__chips">${chips}</div>
+          ${opp.note ? `<div class="ccj-note ccj-blurb" style="margin-top:10px">${esc(opp.note)}</div>` : ''}
+        </section>
+        <div class="ccj-intro__cond">${cond}</div>
+        <section class="ccj-plan" aria-label="Coach Rafa's game plan"><div class="ccj-plan__h">${ICON.clipboard}<b>Rafa’s game plan</b></div>
+          ${plan.length ? `<ol>${plan.map(p => `<li>${esc(p)}</li>`).join('')}</ol>` : '<div class="ccj-note">“Play your game. I will watch the first games and tell you at the changeover.”</div>'}</section>
+        ${good || bad ? `<div class="ccj-intro__sw">${good ? `<section class="ccj-card"><div class="ccj-sec" style="margin-top:0"><span class="cc-label" style="color:#a8e6b8">Strengths</span></div>${good}</section>` : ''}${bad ? `<section class="ccj-card"><div class="ccj-sec" style="margin-top:0"><span class="cc-label" style="color:#ffb4a8">Weaknesses</span></div>${bad}</section>` : ''}</div>` : ''}
+        <div class="ccj-mbtns ccj-mbtns--one"><button type="button" class="cc-btn ccj-btn--gold" data-mact="ok" data-primary>Let’s play ▸</button></div>`,
+      actions: { ok: () => this._finishModal(go) },
+      cancel: 'ok',
     });
   }
 
