@@ -42,6 +42,8 @@ const CSS = `
   animation: ccr-rise 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.15);
 }
 @keyframes ccr-rise { from { transform: translateY(18px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+/* A long card scrolls; its rows never get squeezed (a flex column would shrink the buttons) */
+.ccr-card > * { flex-shrink: 0; }
 .ccr-head { text-align: center; }
 .ccr-head .cc-label { color: var(--cc-gold); letter-spacing: 2.2px; }
 .ccr-title { margin: 4px 0 0; font-size: 26px; line-height: 1.1; }
@@ -136,6 +138,9 @@ const CSS = `
   .ccr-card { padding: 16px 14px 14px; gap: 10px; }
   .ccr-title { font-size: 23px; }
   .ccr-stat b { font-size: 19px; }
+  .ccr-tour { gap: 10px; padding: 9px 12px; }
+  .ccr-tour__ic { width: 34px; height: 34px; font-size: 18px; }
+  .ccr-tour__tx b { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ccr-overlay.is-open, .ccr-card, .ccr-tour.is-final { animation: none; }

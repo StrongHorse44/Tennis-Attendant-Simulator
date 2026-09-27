@@ -395,6 +395,7 @@ button.ccj-rkme:focus-visible { outline: 2px solid var(--cc-gold); outline-offse
   border-radius: 20px; transform: translateY(14px) scale(0.97); transition: transform 0.28s cubic-bezier(.2,.9,.3,1.15);
 }
 .ccj-modal.is-open .ccj-mcard { transform: none; }
+.ccj-mcard > * { flex-shrink: 0; }
 .ccj-mhead { text-align: center; }
 .ccj-mhead .cc-label { color: var(--cc-gold); letter-spacing: 2.2px; }
 .ccj-mtitle { margin: 5px 0 0; font-size: 27px; line-height: 1.12; }
@@ -407,8 +408,10 @@ button.ccj-rkme:focus-visible { outline: 2px solid var(--cc-gold); outline-offse
 .ccj-perks { list-style: none; margin: 0; padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.18); display: flex; flex-direction: column; gap: 7px; }
 .ccj-perks li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; line-height: 1.4; }
 .ccj-perks svg { flex: none; width: 18px; height: 18px; color: var(--cc-gold); margin-top: 1px; }
-.ccj-mbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.ccj-mbtns .cc-btn { min-height: 52px; font-size: 15.5px; }
+/* the card's answer buttons stay in view when a long card scrolls */
+.ccj-mbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; position: sticky; bottom: -18px; z-index: 4;
+  margin-bottom: -6px; padding: 10px 0 6px; background: linear-gradient(180deg, rgba(18, 34, 24, 0), rgba(18, 34, 24, 0.97) 38%); }
+.ccj-mbtns .cc-btn { min-height: 52px; font-size: 15.5px; padding: 10px 10px; }
 .ccj-mbtns--one { grid-template-columns: 1fr; }
 .ccj-mnote { text-align: center; font-size: 12px; color: var(--cc-cream-dim); margin-top: -4px; }
 .ccj-body-txt { font-size: 14.5px; line-height: 1.55; color: var(--cc-cream); }
@@ -492,10 +495,20 @@ button.ccj-rkme:focus-visible { outline: 2px solid var(--cc-gold); outline-offse
   .ccj-tonight { padding: 8px 12px; }
   .ccj-tonight__ic { display: none; }
   .ccj-drawbar { margin-bottom: 6px; }
-  .ccj-mcard { padding: 14px 16px 12px; gap: 10px; }
-  .ccj-res__art { height: 76px; }
-  .ccj-res__art svg { width: 72px; height: 72px; }
-  .ccj-res__art .ccj-ball { width: 56px; height: 56px; }
+  .ccj-modal { padding-top: calc(var(--cc-safe-top) + 8px); padding-bottom: calc(var(--cc-safe-bottom) + 8px); }
+  .ccj-mcard { width: min(560px, 100%); padding: 14px 16px 12px; gap: 8px; }
+  .ccj-mbtns { bottom: -12px; }
+  .ccj-mtitle { font-size: 23px; }
+  .ccj-res.is-champ .ccj-mtitle { font-size: 26px; }
+  .ccj-res__art { height: 54px; }
+  .ccj-res__art svg { width: 54px; height: 54px; }
+  .ccj-res__art .ccj-ball { width: 42px; height: 42px; }
+  .ccj-res__score { font-size: 24px; }
+  .ccj-res__opp { margin-top: -4px; }
+  .ccj-res__chip { padding: 5px 10px; }
+  .ccj-res__chip b { font-size: 18px; }
+  .ccj-res .ccj-note, .ccj-mnote { display: none; }
+  .ccj-quote { font-size: 15px; line-height: 1.45; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ccj-overlay, .ccj-modal, .ccj-panel, .ccj-mcard { transition: none; }
@@ -506,7 +519,7 @@ button.ccj-rkme:focus-visible { outline: 2px solid var(--cc-gold); outline-offse
 
 // ───────────────────────────── icons (24×24, currentColor) ─────────────────────────────
 
-const ic = (inner, extra = '') => `<svg viewBox="0 0 24 24" aria-hidden="true" ${extra}><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</g></svg>`;
+const ic = (inner) => `<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</g></svg>`;
 const ICON = {
   week: ic('<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M12 12.6l1.1 2.2 2.4.3-1.8 1.6.5 2.3-2.2-1.2-2.2 1.2.5-2.3-1.8-1.6 2.4-.3z" stroke-width="1.4"/>'),
   draw: ic('<path d="M3.5 4h5v6.5h-5M3.5 13.5h5V20h-5M8.5 7.2h5v9.6h-5M13.5 12H20"/>'),
@@ -517,11 +530,7 @@ const ICON = {
   close: ic('<path d="M6 6l12 12M18 6L6 18" stroke-width="2.4"/>'),
   trophy: ic('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 5.5H5c0 2.8 1.4 4.3 3.3 4.5M16 5.5h3c0 2.8-1.4 4.3-3.3 4.5M12 13v3.5M8.5 20.5h7M9.7 16.5h4.6l.6 4H9.1z"/>'),
   clipboard: ic('<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 4.5V3h6v1.5M8.5 10h7M8.5 13.5h7M8.5 17h4"/>'),
-  wind: ic('<path d="M3 8.5h10.5a2.8 2.8 0 1 0-2.8-2.8M3 12.5h15a2.8 2.8 0 1 1-2.8 2.8M3 16.5h7"/>'),
-  ball: ic('<circle cx="12" cy="12" r="8.5"/><path d="M5.8 6.2c2.9 2.6 2.9 9 0 11.6M18.2 6.2c-2.9 2.6-2.9 9 0 11.6"/>'),
-  people: ic('<circle cx="8.5" cy="9" r="3"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M3.5 19c.6-3.2 2.6-4.8 5-4.8s4.4 1.6 5 4.8M14 14.6c2.8-.4 5 1 5.6 4.4"/>'),
   map: ic('<path d="M9 4.5L3.5 6.5v13L9 17.5l6 2 5.5-2v-13L15 6.5z"/><path d="M9 4.5v13M15 6.5v13"/>'),
-  lock: ic('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>'),
 };
 const STAR_PATH = 'M12 2.8l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 16.8l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z';
 
@@ -628,13 +637,43 @@ export function describeTourMatch(spec) {
   const opp = nameOf(spec.opponent, 'TBD');
   const venue = venueShortOf(spec);
   const final = !!spec.final || round === 'F';
-  const line = `${round ? round + ' ' : ''}vs ${opp}${venue ? ' — ' + venue : ''}`;
+  const short = final ? 'Final' : round; // "QF vs S. Marquez", but "Final vs T. Wellington"
+  const line = `${short ? short + ' ' : ''}vs ${opp}${venue ? ' — ' + venue : ''}`;
   const bits = [spec.tournamentName, SURFACE_LABEL[spec.surface], FORMAT_LABEL[spec.format]].filter(Boolean);
   const long = round ? roundLong(round).toLowerCase() : 'match';
   return {
     line, sub: bits.join(' · '), round, roundLong: roundLong(round), opponent: opp, venue, final,
     aria: `Play tonight's tournament ${long} against ${fullNameOf(spec.opponent, opp)}${venue ? ' at ' + venue : ''}`,
   };
+}
+
+/** The featured event's status, reading an entry into an event that is still 'open' as 'entered'. */
+const statusOf = (f) => {
+  const s = STATUS_ORDER.includes(f && f.status) ? f.status : 'open';
+  return s === 'open' && f && f.entered ? 'entered' : s;
+};
+
+/**
+ * A complete bracket from whatever the tour sends: every round of the draw present (a later round
+ * the tour hasn't generated yet is filled with to-be-decided matches) and padded to its size.
+ */
+function fullDraw(d) {
+  const first = arr(d.rounds[0]);
+  let size = Number(d.size) || first.length * 2 || 2;
+  const total = Math.round(Math.log2(size));
+  if (!Number.isFinite(total) || total < 1 || Math.pow(2, total) !== size) {
+    size = first.length * 2 || 2; // not a power of two: show the rounds as sent
+    return { size, rounds: d.rounds.map(arr) };
+  }
+  const rounds = [];
+  for (let r = 0; r < total; r++) {
+    const src = arr(d.rounds[r]);
+    const n = size >> (r + 1);
+    const ms = [];
+    for (let i = 0; i < n; i++) ms.push(src[i] && typeof src[i] === 'object' ? src[i] : { a: null, b: null, winner: null, score: '', day: null });
+    rounds.push(ms);
+  }
+  return { size, rounds };
 }
 
 /** Rankings rows to show: the top 20, a window round the player, every club junior; null = a gap. */
@@ -1061,7 +1100,7 @@ export class TourUI {
   }
 
   _statusHtml(h, f) {
-    const status = STATUS_ORDER.includes(f.status) ? f.status : 'open';
+    const status = statusOf(f);
     const days = arr(f.days).filter(d => d && isNum(d.day)).sort((a, b) => a.day - b.day);
     const first = days[0];
     const closeWd = first ? weekdayOf(first.day - 1) : -1;
@@ -1144,7 +1183,7 @@ export class TourUI {
   }
 
   _actionHtml(h, f) {
-    const status = STATUS_ORDER.includes(f.status) ? f.status : 'open';
+    const status = statusOf(f);
     const fee = Number(f.fee) || 0;
     const run = this._myRun(h, f);
     const name = esc(f.name || 'this tournament');
@@ -1207,15 +1246,16 @@ export class TourUI {
   // ── Draw
 
   _html_draw(h) {
-    const d = h.draw;
     const f = h.featured;
-    if (!d || !Array.isArray(d.rounds) || !d.rounds.length) {
+    if (!h.draw || !Array.isArray(h.draw.rounds) || !h.draw.rounds.length) {
       return this._emptyHtml(ICON.draw, 'No draw yet', f && f.name
         ? `The ${f.name} draw is made when entries close, the evening before round 1.${f.entered ? ' You’re in it — check back then.' : ''}`
         : 'Enter a tournament and its draw shows up here once entries close.',
       '<button type="button" class="cc-btn" data-act="tab" data-tab="week">This week’s tournament</button>');
     }
-    const size = d.size || (arr(d.rounds[0]).length * 2);
+    const full = fullDraw(h.draw);
+    const d = { ...h.draw, rounds: full.rounds };
+    const size = full.size;
     const focus = this._drawFocusRound(d);
     let chips = '', cols = '';
     const dayOfRound = (r) => {
@@ -1233,7 +1273,7 @@ export class TourUI {
       const when = isNum(day) && isNum(h.day) && day === h.day && !played ? 'Tonight' : wd >= 0 ? WD[wd] : '';
       chips += `<button type="button" class="ccj-rbtn${mine ? ' has-me' : ''}" data-act="round" data-round="${r}" aria-pressed="${r === focus ? 'true' : 'false'}" aria-label="${esc(roundLong(key))}${mine ? ', you play in this round' : ''}">${esc(key)}</button>`;
       const last = r === d.rounds.length - 1;
-      const cards = arr(ms).map(m => this._matchHtml(m, h, key)).join('');
+      const cards = arr(ms).map(m => this._matchHtml(m, h, key, day)).join('');
       cols += `<section class="ccj-col" data-col="${r}" aria-label="${esc(roundLong(key))}">
         <div class="ccj-col__h">${esc(roundLong(key))}${when ? ' · ' + esc(when) : ''}</div>
         <div class="ccj-col__list">${last ? `<div class="ccj-fgroup">${cards}${this._champHtml(arr(ms)[0])}</div>` : cards}</div></section>`;
@@ -1264,8 +1304,9 @@ export class TourUI {
     return d.rounds.length - 1;
   }
 
-  _matchHtml(m, h, key) {
+  _matchHtml(m, h, key, roundDay) {
     if (!m) return '';
+    const mDay = isNum(m.day) ? m.day : roundDay;
     const done = m.winner === 'a' || m.winner === 'b';
     const mine = (m.a && m.a.isMe) || (m.b && m.b.isMe);
     const clubIds = this._clubIds(h);
@@ -1284,8 +1325,8 @@ export class TourUI {
       const s = String(m.score || '').trim();
       foot = `<span>${/^(w\/?o|walkover)$/i.test(s) ? 'Walkover' : 'Final score'}</span><b>${esc(/^(w\/?o|walkover)$/i.test(s) ? 'W/O' : s || '—')}</b>`;
     } else {
-      const tonight = isNum(m.day) && isNum(h.day) && m.day === h.day;
-      const wd = weekdayOf(m.day);
+      const tonight = isNum(mDay) && isNum(h.day) && mDay === h.day;
+      const wd = weekdayOf(mDay);
       foot = `<span class="${tonight ? 'is-tonight' : ''}">${tonight ? 'Tonight' : wd >= 0 ? WD_LONG[wd] + ' evening' : 'To be played'}</span><b></b>`;
     }
     const na = pname(m.a) || 'to be decided', nb = pname(m.b) || 'to be decided';
@@ -1309,7 +1350,6 @@ export class TourUI {
   _wireBracket() {
     const br = this.bodyEl.querySelector('.ccj-bracket');
     if (!br) return;
-    this._bracket = br;
     const focus = Number(br.dataset.focus) || 0;
     const col = br.querySelector(`[data-col="${focus}"]`);
     if (col) br.scrollLeft = Math.max(0, col.offsetLeft - 2);
@@ -1636,6 +1676,17 @@ export class TourUI {
 
   _globalKey(e) {
     if (!this.isOpen && !this._modal) return;
+    if (e.key === 'Tab') {
+      // Focus outside the top layer (a tap on the backdrop leaves it on <body>): pull it back in,
+      // so Tab never reaches the HUD behind the overlay. Inside, the layer's own trap handles it.
+      const layer = this._modal ? this.modalEl : this.overlay;
+      if (layer.contains(document.activeElement)) return;
+      const items = this._focusables(this._modal ? this.mcard : this.panel);
+      if (!items.length) return;
+      e.preventDefault();
+      items[e.shiftKey ? items.length - 1 : 0].focus();
+      return;
+    }
     if (e.code !== 'Escape' && e.code !== 'KeyP') return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -1656,9 +1707,13 @@ export class TourUI {
     }
   }
 
-  _trap(e, scope) {
-    const items = Array.from(scope.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])'))
+  _focusables(scope) {
+    return Array.from(scope.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])'))
       .filter(x => !x.disabled && x.offsetParent !== null);
+  }
+
+  _trap(e, scope) {
+    const items = this._focusables(scope);
     if (!items.length) return;
     const first = items[0], last = items[items.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
