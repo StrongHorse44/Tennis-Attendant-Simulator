@@ -258,24 +258,7 @@ const chance = (v, def) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d
  */
 export function bowlGroundLeg(ax, az, bx, bz, out = []) {
   planRoute(ax, az, bx, bz, out);
-  if (!_groundPlanner) return out;
-  const pts = out.splice(0, out.length);
-  let px = ax, pz = az;
-  for (let i = 0; i < pts.length; i++) {
-    const q = pts[i];
-    if (roomAt(px, pz) < 0 && roomAt(q.x, q.z) < 0) {
-      _groundPlanner.plan(px, pz, q.x, q.z, _legTmp);
-      for (let k = 0; k < _legTmp.length; k++) out.push(_legTmp[k]);
-      _legTmp.length = 0;
-    } else {
-      out.push(q);
-    }
-    px = q.x; pz = q.z;
-  }
-  // (RoutePlanner may pull a goal that hugs a wall out a little: always end on the real goal)
-  const last = out[out.length - 1];
-  if (!last || last.x !== bx || last.z !== bz) out.push({ x: bx, z: bz });
-  return out;
+  return fenceAwareLegs(ax, az, out.splice(0, out.length), out);
 }
 
 /**
@@ -782,6 +765,19 @@ export class NPC {
     this._bowlTime = 0;
     if (yaw !== null && Number.isFinite(yaw)) this.mesh.rotation.y = yaw;
     this._settleTime = 0; // already resting on the ground (a court pad is higher than 0)
+  }
+
+  /**
+   * Snap the mesh's ground-follow state after another system moved the body directly (e.g. a
+   * match hop onto the pad): the mesh y is recomputed from it every update, eased inside the bowl.
+   * `y` = feet height (default: the ground under the body). A horizontal jump over 1 m snaps
+   * on its own; this is for vertical-only moves.
+   */
+  snapToGround(y = null) {
+    const p = this.body.position;
+    const gy = Number.isFinite(y) ? y : groundAt(p.x, p.z);
+    resetGroundY(this, p.x, gy, p.z);
+    if (!this._sitSeat) this.mesh.position.y = gy;
   }
 
   // ── Centre Court spectators (SpectatorDirector) and the bowl (Ground.js) ──
@@ -1392,9 +1388,9 @@ export class NPC {
         // Standing in the bowl's rail line (an aisle opening): out to the aisle top first, then on
         // round the bowl (the nav graph can't start inside its own blocker)
         const ex = _exitPt.x, ez = _exitPt.z;
-        planRoute(ex, ez, t.x, t.z, out);
+        bowlGroundLeg(ex, ez, t.x, t.z, out);
         out.unshift({ x: ex, z: ez });
-        this._route = out;
+        this._route = densifyRoute(ax, az, out);
       } else {
         // Through building doors / around the club buildings (world/NavRooms.js); straight otherwise
         this._route = planRoute(ax, az, t.x, t.z, out);
