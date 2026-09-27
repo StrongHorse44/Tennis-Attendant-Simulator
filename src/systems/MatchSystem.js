@@ -8,6 +8,7 @@ import { TennisBall, BALL_RADIUS, GRAVITY as G } from '../entities/TennisBall.js
 import { RoutePlanner } from './RoutePlanner.js';
 import { parseHour } from './MissionValidation.js';
 import { Quality } from '../graphics/Quality.js';
+import { groundAt, inCut, inFootprint, levelOf, sameLevel, planLevelRoute, getGroundModel } from '../world/Ground.js';
 
 /**
  * MatchSystem — members play tennis on a court schedule (public/data/schedule.json).
@@ -24,12 +25,27 @@ import { Quality } from '../graphics/Quality.js';
  * At swing start the remaining flight is re-aimed at the real racket position, so the ball
  * visibly meets the strings. Nothing here allocates per frame; one pooled ball per court.
  *
+ * Heights are per court (frame.surf / frame.ballY from court.surfaceY): the flat courts sit at
+ * y 0 and the sunken Centre Court (court6, StadiumLayout) at its baseY. Walks that start or end
+ * in the bowl go through Ground.planLevelRoute (the aisles; players walk on and off the court by
+ * the Players' Walk), everything else through the RoutePlanner exactly as before. A stuck walker
+ * in the bowl re-plans instead of sidestepping, and a hop into / out of it lands on the goal's
+ * level (Ground.groundAt).
+ *
+ * Hooks for the Centre Court spectators (SpectatorDirector; default null, each call guarded):
+ *   onPointEnd(courtId, info)       after a point is scored (not a first-serve fault or a let);
+ *                                   info is ONE reused object — read it now, don't keep it:
+ *                                   { courtId, winner, winnerNpc, loserNpc,
+ *                                     outcome: 'winner'|'ace'|'net'|'out'|'double', rally,
+ *                                     gameWon, matchWon, games: [g0, g1] }
+ *   onMatchEvent(courtId, kind, m)  kind 'start' | 'rain' | 'resume' | 'handshake' | 'finish'
+ * Helpers: getMatch(courtId), isLive(courtId), isBookedSoon(npcId, hours), nextEntryFor(courtId, out).
+ *
  * Debug (dev console): __game.matches.debugStart('court1', ['chad_blake', 'tommy_chen'],
  *   { teleport: true, warmup: 0, gamesToWin: 1 }), .debugStop('court1'), .list(), .enabled
  */
 
-const SURF = SIZES.courtSurfaceY ?? 0.15;
-const BALL_Y = SURF + BALL_RADIUS;      // ball centre when touching the court
+const SURF_REL = SIZES.courtSurfaceY ?? 0.15;   // pad top above the court's base (frame.surf = y0 + this)
 const HALF_L = 12.3;                    // baseline (court-local v)
 const SINGLES_W = 4.65;                 // singles sideline (court-local u)
 const SERVICE_L = 6.62;                 // service line
@@ -48,6 +64,10 @@ const INF = Infinity;
 const SCORE_WORDS = ['Love', '15', '30', '40'];
 const RALLY_PHASES = new Set(['warmup', 'setup', 'point']);
 const COURT_PHASES = new Set(['warmup', 'setup', 'point', 'handshake']);
+const LIVE_PHASES = new Set(['warmup', 'setup', 'point', 'interrupted']);
+const HOP_MIN = 75;                     // a stuck walker may hop to its goal after this (s) …
+const HOP_FORCE = 65;                   // … and does, looked at or not, this much later
+const LEVEL_OPTS = Object.freeze({ prefer: 'players' });   // bowl walks: the Players' Walk
 
 const DEFAULT_SCHEDULE = {
   maxConcurrent: 3,
@@ -90,6 +110,25 @@ export class MatchSystem {
     this.camera = o.camera || null;
     this.waypoints = o.waypoints || {};
     this.planner = o.physicsWorld ? new RoutePlanner(o.physicsWorld) : null;
+    // Ground leg for planLevelRoute (fills `out`: start excluded, goal included)
+    this._groundLeg = (ax, az, bx, bz, out) => {
+      if (this.planner) return this.planner.plan(ax, az, bx, bz, out);
+      out.length = 0;
+      out.push({ x: bx, z: bz });
+      return out;
+    };
+    this._leg = [];            // scratch route leg (_plan)
+    this._pw = null;           // the bowl's Players' Walk aisle (_playersAisle)
+    this._pwLayout = undefined;
+
+    /** (courtId, info) => void after each scored point (see the header); info is reused. */
+    this.onPointEnd = null;
+    /** (courtId, kind, m) => void: 'start' | 'rain' | 'resume' | 'handshake' | 'finish'. */
+    this.onMatchEvent = null;
+    this._pointInfo = {
+      courtId: '', winner: -1, winnerNpc: null, loserNpc: null, outcome: 'winner',
+      rally: 0, gameWon: false, matchWon: false, games: [0, 0],
+    };
 
     this.enabled = true;
     this.matches = [];
@@ -157,8 +196,13 @@ export class MatchSystem {
     const clay = !!court.isClay;
     const surface = BOUNCE[court.surface] ? court.surface : (clay ? 'clay' : 'hard');
     const buf = clay ? (SIZES.clayCourtBuffer || 0) : 2;
+    // Heights: y0 = the court's base (0 on the flat courts), surf = pad top, ballY = ball centre
+    // touching the pad. The sunken Centre Court (stadium) sits at its map.json center.y.
+    const y0 = Number(court.baseY) || 0;
+    const surf = Number.isFinite(court.surfaceY) ? court.surfaceY : y0 + SURF_REL;
     return {
       court, id: court.id, isClay: clay, surface,
+      y0, surf, ballY: surf + BALL_RADIUS, stadium: !!court.isStadium,
       bounceE: BOUNCE[surface].e, bounceKh: BOUNCE[surface].kh,
       cx: cfg.center?.x ?? 0, cz: cfg.center?.z ?? 0, r, c: Math.cos(r), s: Math.sin(r),
       halfPadL: SIZES.courtWidth / 2 + (cfg.adjacentLeft ? 0 : buf),
@@ -174,6 +218,61 @@ export class MatchSystem {
   // ───────────────────────────── availability ─────────────────────────────
 
   isCourtInUse(courtId) { return this.matches.some(m => m.frame.id === courtId); }
+
+  /** The match on `courtId` in any phase (walk-in … walk-off), or null. Allocation-free. */
+  getMatch(courtId) {
+    for (let i = 0; i < this.matches.length; i++) if (this.matches[i].frame.id === courtId) return this.matches[i];
+    return null;
+  }
+
+  /** A match on `courtId` is being played (warm-up, points, or paused for a chat). */
+  isLive(courtId) {
+    const m = this.getMatch(courtId);
+    return !!m && LIVE_PHASES.has(m.phase);
+  }
+
+  /**
+   * `npcId` has a booking today that has not started yet and opens within `hours` (or is open
+   * now and may still start). Allocation-free (the spectator director asks this per candidate).
+   */
+  isBookedSoon(npcId, hours = 0.5) {
+    const w = this.weather;
+    if (!w || !npcId || !this.enabled) return false;
+    const tod = w.timeOfDay;
+    const started = this._day === w.day ? this._started : null;
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i];
+      if (e.players[0] !== npcId && e.players[1] !== npcId) continue;
+      if (started && started.has(i)) continue;
+      if (tod >= e.start - hours && tod <= Math.min(e.end - 0.75, e.start + this.lateStart)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The next booking whose first-choice court is `courtId` and that can still start today, as
+   * `out` = { start (hours), players: [id, id] } ('any' for an open slot); null when none.
+   * `out` is the caller's (e.g. the Centre Court scoreboard); nothing is allocated.
+   */
+  nextEntryFor(courtId, out) {
+    const w = this.weather;
+    if (!w || !out) return null;
+    const tod = w.timeOfDay;
+    const started = this._day === w.day ? this._started : null;
+    let best = null;
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i];
+      if (e.courts[0] !== courtId || (started && started.has(i))) continue;
+      if (tod > Math.min(e.end - 0.75, e.start + this.lateStart)) continue;
+      if (!best || e.start < best.start) best = e;
+    }
+    if (!best) return null;
+    if (!Array.isArray(out.players)) out.players = [null, null];
+    out.start = best.start;
+    out.players[0] = best.players[0];
+    out.players[1] = best.players[1];
+    return out;
+  }
 
   _courtBlocked(frame) {
     if (this.isCourtInUse(frame.id)) return true;
@@ -256,11 +355,11 @@ export class MatchSystem {
 
   // ───────────────────────────── match lifecycle ─────────────────────────────
 
-  _acquireBall() {
+  _acquireBall(frame) {
     let b = this._pool.find(x => !x.inUse);
     if (!b) { b = new TennisBall(this.scene); this._pool.push(b); }
     b.inUse = true;
-    b.groundY = SURF;
+    b.groundY = frame.surf;
     b.hide();
     return b;
   }
@@ -270,7 +369,7 @@ export class MatchSystem {
     const flip = Math.random() < 0.5;
     const m = {
       frame, entry, day: this.weather.day,
-      ball: this._acquireBall(),
+      ball: this._acquireBall(frame),
       phase: 'walkIn', t: 0, phaseT: 0, started: false,
       gamesToWin: opts.gamesToWin ?? this.format.gamesToWin,
       noAd: this.format.noAd,
@@ -297,13 +396,14 @@ export class MatchSystem {
     for (const p of m.players) {
       const x = this._wx(frame, 0, p.side * BASE_V), z = this._wz(frame, 0, p.side * BASE_V);
       if (opts.teleport) {
-        p.npc.body.position.set(x, SURF + SIZES.npcRadius + 0.02, z);
+        p.npc.body.position.set(x, frame.surf + SIZES.npcRadius + 0.02, z);
         p.npc.body.velocity.set(0, 0, 0);
-        p.npc.mesh.position.set(x, SURF, z);
+        p.npc.mesh.position.set(x, frame.surf, z);
         p.npc.mesh.rotation.y = p.yaw;
       }
       this._route(p, x, z, p.yaw);
     }
+    this._emitEvent(m, 'start');
     return m;
   }
 
@@ -315,7 +415,7 @@ export class MatchSystem {
       skill: this._skillOf(npc),
       fh: getClipEventRacketPoint('forehand'),
       bh: getClipEventRacketPoint('backhand'),
-      route: [], ri: 0, arrived: false, endYaw: null, walkT: 0, stuckT: 0, bestD: INF,
+      route: [], ri: 0, arrived: false, endYaw: null, walkT: 0, stuckT: 0, bestD: INF, hopAt: HOP_MIN,
       tSplit: INF, tMove: INF, tSwing: INF, tRecover: INF, swingAt: 0,
       mx: 0, mz: 0, mSpeed: 3, clip: 'forehand', aim: false,
       rx: 0, rz: 0, done: false,
@@ -337,11 +437,67 @@ export class MatchSystem {
     return arr && arr.length ? String(arr[Math.floor(Math.random() * arr.length)]) : fallback;
   }
 
-  /** Plan a walking route for a player (fence / net aware). */
+  /**
+   * Waypoints from (ax, az) to (bx, bz) into `out` (start excluded, goal included): through the
+   * bowl's aisles when either end is in the Centre Court cut (Ground.planLevelRoute), else the
+   * fence / net aware RoutePlanner as always. Players walk onto and off the sunken court by the
+   * Players' Walk whichever side of the club they come from: a ground ↔ pit trip is split at the
+   * top of that aisle (from its own top it always wins the aisle choice).
+   */
+  _plan(ax, az, bx, bz, out) {
+    const pw = this._playersAisle();
+    if (pw && inCut(ax, az) !== inCut(bx, bz)) {
+      const la = levelOf(ax, az), lb = levelOf(bx, bz), top = pw.top;
+      if (la === 'ground' && lb === 'pit') {
+        this._groundLeg(ax, az, top.x, top.z, out);
+        return this._append(out, planLevelRoute(top.x, top.z, bx, bz, this._leg, this._groundLeg, LEVEL_OPTS));
+      }
+      if (la === 'pit' && lb === 'ground') {
+        if (planLevelRoute(ax, az, top.x, top.z, out, this._groundLeg, LEVEL_OPTS)) {
+          return this._append(out, this._groundLeg(top.x, top.z, bx, bz, this._leg));
+        }
+      }
+    }
+    if (planLevelRoute(ax, az, bx, bz, out, this._groundLeg, LEVEL_OPTS)) return out;
+    if (this.planner) this.planner.plan(ax, az, bx, bz, out);
+    else { out.length = 0; out.push({ x: bx, z: bz }); }
+    return out;
+  }
+
+  /** The bowl's Players' Walk aisle (StadiumLayout), or null without a bowl. */
+  _playersAisle() {
+    const L = getGroundModel();
+    if (L !== this._pwLayout) {
+      this._pwLayout = L;
+      this._pw = L && Array.isArray(L.aisles) ? (L.aisles.find(a => a.players) || null) : null;
+    }
+    return this._pw;
+  }
+
+  /** Append the points of `leg` (a filled route or null) to `out`, skipping a repeat of its last point. */
+  _append(out, leg) {
+    if (!leg) return out;
+    for (let i = 0; i < leg.length; i++) {
+      const q = leg[i], l = out[out.length - 1];
+      if (l && Math.abs(l.x - q.x) < 1e-6 && Math.abs(l.z - q.z) < 1e-6) continue;
+      out.push({ x: q.x, z: q.z });
+    }
+    leg.length = 0;
+    return out;
+  }
+
+  /** Plan a walking route for a player (fence / net aware; through the aisles into the bowl). */
   _route(p, x, z, endYaw) {
     const b = p.npc.body.position;
-    if (this.planner) this.planner.plan(b.x, b.z, x, z, p.route);
-    else { p.route.length = 0; p.route.push({ x, z }); }
+    this._plan(b.x, b.z, x, z, p.route);
+    // Long walks (a west-side member to Centre Court) may not hop early: 1.6 × the walking time
+    let len = 0, px = b.x, pz = b.z;
+    for (let i = 0; i < p.route.length; i++) {
+      const w = p.route[i];
+      len += Math.hypot(w.x - px, w.z - pz);
+      px = w.x; pz = w.z;
+    }
+    p.hopAt = Math.max(HOP_MIN, 1.6 * len / WALK_SPEED);
     p.ri = 0; p.arrived = false; p.endYaw = endYaw; p.walkT = 0; p.stuckT = 0; p.bestD = INF;
     p.goalX = x; p.goalZ = z; p.retries = 0;
     p.npc.stopMove();
@@ -351,16 +507,21 @@ export class MatchSystem {
   _unstick(p) {
     const npc = p.npc;
     const b = npc.body.position;
+    p.retries++;
+    if (inFootprint(b.x, b.z, 0)) {
+      // In the bowl (stairs, rail openings): no sidestep off a row edge, just re-plan from here
+      this._plan(b.x, b.z, p.goalX, p.goalZ, p.route);
+      p.ri = 0; p.stuckT = 0; p.bestD = INF;
+      npc.stopMove();
+      return;
+    }
     const w = p.route[Math.min(p.route.length - 1, Math.max(0, p.ri - 1))] || { x: p.goalX, z: p.goalZ };
     let dx = w.x - b.x, dz = w.z - b.z;
     const d = Math.hypot(dx, dz) || 1;
     dx /= d; dz /= d;
-    const side = p.retries % 2 ? 1 : -1;
+    const side = (p.retries - 1) % 2 ? 1 : -1;
     const sx = b.x - dz * 1.6 * side - dx * 0.5, sz = b.z + dx * 1.6 * side - dz * 0.5;
-    p.retries++;
-    const rest = [];
-    if (this.planner) this.planner.plan(sx, sz, p.goalX, p.goalZ, rest);
-    else rest.push({ x: p.goalX, z: p.goalZ });
+    const rest = this._plan(sx, sz, p.goalX, p.goalZ, []);
     p.route.length = 0;
     p.route.push({ x: sx, z: sz }, ...rest);
     p.ri = 0; p.stuckT = 0; p.bestD = INF;
@@ -394,12 +555,20 @@ export class MatchSystem {
       if (d < p.bestD - 0.25) { p.bestD = d; p.stuckT = 0; } else if ((p.stuckT += dt) > 2.5) this._unstick(p);
     }
     // Hopelessly stuck (hedge corner, cart parked in the way): hop there when nobody is looking
-    if (p.walkT > 75 && p.route.length) {
+    if (p.walkT > p.hopAt && p.route.length) {
       const g = p.route[p.route.length - 1];
       const cam = CameraTracker.position;
-      if (p.walkT > 140 || !CameraTracker.valid || Math.hypot(cam.x - g.x, cam.z - g.z) > 30) {
+      if (p.walkT > p.hopAt + HOP_FORCE || !CameraTracker.valid || Math.hypot(cam.x - g.x, cam.z - g.z) > 30) {
         npc.stopMove();
-        npc.body.position.x = g.x; npc.body.position.z = g.z;
+        const b = npc.body.position;
+        // Into / out of the bowl: land on the goal's level (a pit spot is 2.85 m down)
+        const bowl = inCut(b.x, b.z) || inCut(g.x, g.z);
+        b.x = g.x; b.z = g.z;
+        if (bowl) {
+          const gy = groundAt(g.x, g.z);
+          b.y = gy + SIZES.npcRadius + 0.02;
+          npc.mesh.position.y = gy;
+        }
         npc.body.velocity.set(0, 0, 0);
         p.ri = p.route.length;
       }
@@ -438,6 +607,7 @@ export class MatchSystem {
     for (const p of m.players) {
       if (p.npc.playing) { p.npc.releaseShelter(); p.npc.stopPlaying(); }
     }
+    this._emitEvent(m, 'finish');
   }
 
   _clearRally(m) {
@@ -544,6 +714,7 @@ export class MatchSystem {
           }
           NPC.setAreaBusy(f.id, true);
           this._setPhase(m, 'walkIn');
+          this._emitEvent(m, 'resume');
         }
         break;
       }
@@ -587,11 +758,17 @@ export class MatchSystem {
     this._setPhase(m, 'interrupted');
   }
 
+  /**
+   * Rain delay: each player shelters on the nearest free bench on their own level (Centre Court
+   * players on the pad benches down in the pit, never the reserved stand seats or the rim), else
+   * at the court's `<id>_bench` waypoint when it is on their level, else beside the court.
+   */
   _startRain(m) {
+    const f = m.frame;
     this._clearRally(m);
     this._setPhase(m, 'rain');
     m.rainT = 0;
-    NPC.setAreaBusy(m.frame.id, false);
+    NPC.setAreaBusy(f.id, false);
     const seats = findSeats(this.scene);
     for (const p of m.players) {
       const npc = p.npc;
@@ -599,16 +776,23 @@ export class MatchSystem {
       let best = null, bd = 30 * 30;
       for (const s of seats) {
         if (s.taken && s.taken !== npc) continue;
+        if (s.reserved || !sameLevel(s.x, s.z, x, z)) continue;
         const d = (s.x - x) ** 2 + (s.z - z) ** 2;
         if (d < bd) { bd = d; best = s; }
       }
       if (best && !claimSeat(best, npc)) best = null;
-      const wp = this.waypoints[`${m.frame.id}_bench`];
-      const side = m.frame.halfPadL + 1.5;
-      const pt = wp || { x: this._wx(m.frame, -side, p.side * 2), z: this._wz(m.frame, -side, p.side * 2) };
+      const wp = this.waypoints[`${f.id}_bench`];
+      let pt = wp && (!f.stadium || sameLevel(wp.x, wp.z, x, z)) ? wp : null;
+      if (!pt) {
+        // Beside the court: on the flat courts past the pad; in the bowl on the pit walkway
+        const side = f.stadium ? f.halfPadL + 0.3 : f.halfPadL + 1.5;
+        const v = p.side * (f.stadium ? 6 : 2);
+        pt = { x: this._wx(f, -side, v), z: this._wz(f, -side, v) };
+      }
       npc.shelter(best, pt);
     }
     if (Math.random() < 0.7) this._say(m.players[0], 'Rain delay!', 1.8);
+    this._emitEvent(m, 'rain');
   }
 
   // ───────────────────────────── warm-up / points ─────────────────────────────
@@ -796,7 +980,7 @@ export class MatchSystem {
         if (sh.missed) {
           // Swing and a miss: the ball flies on
           m.segType = 'bounce';
-          m.segEnd = b.timeToHeight(BALL_Y);
+          m.segEnd = b.timeToHeight(f.ballY);
           if (!m.resolved) this._resolve(m, sh.hitter === sh.receiver ? -1 : sh.hitter, 1.4);
           return;
         }
@@ -813,7 +997,7 @@ export class MatchSystem {
         if (f.wear) this._queueWear(m, pos.x, pos.z, 0.3, 0.035);
         const vx = b.v0.x, vy = b.vyAt(t), vz = b.v0.z;
         if (m.bounces === 1 && sh.returnable && !sh.missed && t < sh.tContact) {
-          _v1.set(pos.x, BALL_Y, pos.z);
+          _v1.set(pos.x, f.ballY, pos.z);
           this._launchTo(m, _v1, m.aimPt, sh.tContact - t, t);
           m.segType = 'contact'; m.segEnd = sh.tContact;
         } else {
@@ -830,10 +1014,10 @@ export class MatchSystem {
         return;
       }
       case 'net': {
-        this._pock(pos, 'bounce');
+        this._pock(pos, 'bounce', f.surface);
         const vx = b.v0.x, vz = b.v0.z;
-        b.launch(t, pos.x - vx * 0.004, Math.max(pos.y, BALL_Y), pos.z - vz * 0.004, -vx * 0.08, 0.4, -vz * 0.08);
-        m.segType = 'bounce'; m.segEnd = b.timeToHeight(BALL_Y);
+        b.launch(t, pos.x - vx * 0.004, Math.max(pos.y, f.ballY), pos.z - vz * 0.004, -vx * 0.08, 0.4, -vz * 0.08);
+        m.segType = 'bounce'; m.segEnd = b.timeToHeight(f.ballY);
         m.bounces = 5;
         if (!m.resolved) this._resolve(m, sh.receiver, 1.5);
         return;
@@ -844,7 +1028,7 @@ export class MatchSystem {
         const lu = vx * f.c - vz * f.s, lv = vx * f.s + vz * f.c;
         const nu = lu * 0.4, nv = -lv * 0.25;
         b.launch(t, pos.x, pos.y, pos.z, nu * f.c + nv * f.s, Math.min(vy, 0.5), -nu * f.s + nv * f.c);
-        m.segType = 'bounce'; m.segEnd = b.timeToHeight(BALL_Y);
+        m.segType = 'bounce'; m.segEnd = b.timeToHeight(f.ballY);
         m.bounces = Math.max(m.bounces, 2);
         if (!m.resolved) this._resolve(m, sh.hitter, 1.2);
         return;
@@ -864,7 +1048,7 @@ export class MatchSystem {
       m.segType = 'none'; m.segEnd = INF;
       return;
     }
-    b.launch(t, pos.x, BALL_Y, pos.z, nvx, nvy, nvz);
+    b.launch(t, pos.x, f.ballY, pos.z, nvx, nvy, nvz);
     let tEnd = t + 2 * nvy / G, type = 'bounce';
     const v0 = this._lv(f, pos.x, pos.z), vv = nvx * f.s + nvz * f.c;
     if (Math.abs(vv) > 1e-3) {
@@ -923,7 +1107,7 @@ export class MatchSystem {
 
     if (outcome === 'net') {
       const nu = THREE.MathUtils.clamp(cu * 0.5 + rand(-2.5, 2.5), -4, 4);
-      const top = SURF + NET_H0 + (NET_H1 - NET_H0) * (nu / NET_POST) ** 2;
+      const top = f.surf + NET_H0 + (NET_H1 - NET_H0) * (nu / NET_POST) ** 2;
       _v1.set(this._wx(f, nu, -r * 0.02), top - rand(0.12, 0.35), this._wz(f, nu, -r * 0.02));
       const d = Math.hypot(_v1.x - C.x, _v1.z - C.z);
       const tn = d / rand(13, 17);
@@ -980,10 +1164,10 @@ export class MatchSystem {
       let T1 = D / speedBase;
       const fr = (0 - cv) / (bv - cv);
       const nu = cu + (bu - cu) * fr;
-      const need = SURF + NET_H0 + (NET_H1 - NET_H0) * (nu / NET_POST) ** 2 + BALL_RADIUS + (kind === 'serve' ? 0.12 : 0.3);
+      const need = f.surf + NET_H0 + (NET_H1 - NET_H0) * (nu / NET_POST) ** 2 + BALL_RADIUS + (kind === 'serve' ? 0.12 : 0.3);
       let vy0 = 0;
       for (let k = 0; k < 30; k++) {
-        vy0 = (BALL_Y - C.y + 0.5 * G * T1 * T1) / T1;
+        vy0 = (f.ballY - C.y + 0.5 * G * T1 * T1) / T1;
         const tn = fr * T1;
         if (fr <= 0 || fr >= 1 || C.y + vy0 * tn - 0.5 * G * tn * tn >= need) break;
         T1 += 0.05;
@@ -1066,7 +1250,7 @@ export class MatchSystem {
       const cp = ci === 0 ? rcv.fh : rcv.bh;
       if (!cp) continue;
       const hc = gy + cp.y * rcv.scale;
-      const disc = vyb * vyb - 2 * G * (hc - BALL_Y);
+      const disc = vyb * vyb - 2 * G * (hc - f.ballY);
       const r0 = disc >= 0 ? Math.sqrt(disc) : 0;
       for (let k = 0; k < (disc >= 0 ? 2 : 1); k++) {
         const tau = disc >= 0 ? (k === 0 ? (vyb + r0) / G : (vyb - r0) / G) : vyb / G;
@@ -1127,15 +1311,47 @@ export class MatchSystem {
     sc.pts[w]++;
     const a = sc.pts[w], b = sc.pts[1 - w];
     const game = m.noAd ? a >= 4 : (a >= 4 && a - b >= 2);
+    let matchWon = false;
     if (game) {
       sc.games[w]++;
       sc.pts[0] = sc.pts[1] = 0;
       sc.server = 1 - sc.server;
-      if (sc.games[w] >= m.gamesToWin) { m.winner = w; this._startHandshake(m); return; }
+      matchWon = sc.games[w] >= m.gamesToWin;
+    }
+    this._emitPoint(m, w, W, L, game, matchWon);
+    if (game) {
+      if (matchWon) { m.winner = w; this._startHandshake(m); return; }
       this._say(W, 'Game!', 1.3);
     }
     if (over) { this._endMatch(m); return; }
     this._setupPoint(m, false);
+  }
+
+  /** onPointEnd hook: fill the reused info object (after the score update) and call it. */
+  _emitPoint(m, w, W, L, gameWon, matchWon) {
+    const cb = this.onPointEnd;
+    if (typeof cb !== 'function') return;
+    const sh = m.shot, info = this._pointInfo;
+    let o = sh.outcome === 'in' ? 'winner' : sh.outcome;         // unreturned ball = a winner
+    if (sh.kind === 'serve') o = o === 'winner' ? 'ace' : 'double'; // a serve fault here is the second
+    info.courtId = m.frame.id;
+    info.winner = w;
+    info.winnerNpc = W.npc;
+    info.loserNpc = L.npc;
+    info.outcome = o;
+    info.rally = m.rallyLen;
+    info.gameWon = !!gameWon;
+    info.matchWon = !!matchWon;
+    info.games[0] = m.score.games[0];
+    info.games[1] = m.score.games[1];
+    try { cb(m.frame.id, info); } catch (e) { console.error('MatchSystem.onPointEnd:', e); }
+  }
+
+  /** onMatchEvent hook ('start' | 'rain' | 'resume' | 'handshake' | 'finish'). */
+  _emitEvent(m, kind) {
+    const cb = this.onMatchEvent;
+    if (typeof cb !== 'function') return;
+    try { cb(m.frame.id, kind, m); } catch (e) { console.error(`MatchSystem.onMatchEvent(${kind}):`, e); }
   }
 
   _endMatch(m) {
@@ -1172,6 +1388,7 @@ export class MatchSystem {
       p.shook = false;
     }
     m.reactAt = INF; m.leaveAt = INF;
+    this._emitEvent(m, 'handshake');
   }
 
   _updateHandshake(m) {
