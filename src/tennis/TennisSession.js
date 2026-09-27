@@ -125,10 +125,21 @@ const _v3 = new THREE.Vector3();
 const _exit = { x: 0, z: 0, y: 0 };
 const _R = STROKES.map(() => new THREE.Vector3());
 
+// A show court's end boards (map.json stadium.endBoards; the same defaults as Court._addEndBoards)
+const BOARD_V0 = 14.3, BOARD_H = 1.0, BOARD_HALF_U = 9.0;
+const BOARD_CAP = 0.06;         // the green cap on top of the boards
+
 /**
  * The session court's frame: centre, rotation (court-local u across, v along; the net is v = 0)
  * and heights: y0 = the court frame's world y (court.baseY: 0 on the flat courts, below the lawn
  * on the sunken Centre Court), surfY = its playing surface.
+ *
+ * fence = the back wall behind each baseline, as the ball meets it: v (court-local |v| of the
+ * ball's centre at the wall), top (world y of its top: a ball whose bottom is under it hits it),
+ * halfU (its reach across, court-local |u|). A flat court's 3 m chain-link stops every ball that gets there (top / halfU Infinity:
+ * the same rule as ever). A show court (map.json `stadium`, the sunken Centre Court) has only its
+ * 1 m end boards (`open`): a ball above them or past their open corners flies on over the
+ * walkway and is a dead ball where it meets the stands.
  */
 class CourtFrame {
   constructor(court) {
@@ -140,6 +151,17 @@ class CourtFrame {
     this.c = Math.cos(this.r); this.s = Math.sin(this.r);
     this.y0 = Number.isFinite(court.baseY) ? court.baseY : 0;
     this.surfY = Number.isFinite(court.surfaceY) ? court.surfaceY : this.y0 + SURF_REL;
+    this.fence = { v: FENCE_V, top: INF, halfU: INF, open: false };
+    if (court.isStadium && cfg.stadium) {
+      const eb = cfg.stadium.endBoards || {};
+      const v0 = Number.isFinite(eb.v0) ? eb.v0 : BOARD_V0;
+      const h = Number.isFinite(eb.height) ? eb.height : BOARD_H;
+      const hu = Number.isFinite(eb.halfU) ? eb.halfU : BOARD_HALF_U;
+      this.fence.v = v0 - R;                        // the ball's centre when it touches their inner face
+      this.fence.top = this.surfY + h + BOARD_CAP;  // (the ball clears them when its bottom is above this)
+      this.fence.halfU = hu;
+      this.fence.open = true;
+    }
   }
   wx(u, v) { return this.cx + u * this.c + v * this.s; }
   wz(u, v) { return this.cz - u * this.s + v * this.c; }
@@ -223,6 +245,7 @@ export class TennisSession {
     this.pred = new BallPredictor();
     this.pred2 = new BallPredictor();
     this.rallyShots = 0;
+    this._boardSet = false;      // the stadium scoreboard shows this session's match (_stadiumBoard)
     this._built = false;
   }
 
@@ -392,6 +415,7 @@ export class TennisSession {
     if (!this.active) return;
     const g = this.game;
     this._applyPendingXp();
+    this._clearStadiumBoard();
     this.active = false;
     this.phase = 'off';
     this.mode = null;
@@ -496,6 +520,7 @@ export class TennisSession {
     if (this.frame && court.id === this.frame.id) { this._setSurfaceKey(surfaceOf(court)); return true; }
     if (this.active && this.phase !== 'menu') return false;
     if (!this.active) { this.frame = new CourtFrame(court); this._applyCourtBase(); this._setSurfaceKey(surfaceOf(court)); return true; }
+    this._clearStadiumBoard();
     try { this.occ.end(); } catch (err) { console.error('TennisOcclusion', err); }
     NPC.setAreaBusy(this.frame.id, false);
     this.frame = new CourtFrame(court);
@@ -572,6 +597,7 @@ export class TennisSession {
   openMenu(abandon) {
     if (abandon && (this.phase !== 'menu' && this.phase !== 'results')) this._applyPendingXp();
     this._stopPlay();
+    this._clearStadiumBoard();
     this.phase = 'menu';
     this.mode = null;
     this.ball.hide();
@@ -655,6 +681,7 @@ export class TennisSession {
     if (!DRILLS[type]) type = 'fh';
     this.lastDrill = type;
     this.mode = 'drill';
+    this._clearStadiumBoard();
     this.setWind(this.windKey);
     this.drill = { type, rep: 0, score: 0, count: 0, best: 0 };
     this.momentum[0] = this.momentum[1] = 0;
@@ -1258,6 +1285,9 @@ export class TennisSession {
     fl.netH = hNet;
     fl.tGround = tg;
     fl.tFence = INF;
+    // A show court's end boards stand close behind the baselines: a long ball can meet them on
+    // the full (a flat court's fence is only ever reached after a bounce, as before)
+    if (f.fence.open) this._wallAhead(tg);
     if (tg < INF) { b.at(tg); fl.landX = b.pos.x; fl.landZ = b.pos.z; } else { fl.landX = b.p0.x; fl.landZ = b.p0.z; }
     fl.willBeIn = !fl.netPending && this._isIn(f.lu(fl.landX, fl.landZ), f.lv(fl.landX, fl.landZ), fl.kind, fl.hitter);
     fl.pace = tg < INF ? Math.hypot(fl.landX - cx, fl.landZ - cz) / Math.max(0.05, tg - t) : 10;
@@ -1400,11 +1430,18 @@ export class TennisSession {
       else if (te === fl.tGround) this._evGround(te);
       else this._evFence(te);
     }
+    const fe = this.frame.fence;
     if (b.rolling) {
       b.stepRoll(dt);
-      const v = this.frame.lv(b.pos.x, b.pos.z);
-      if (Math.abs(v) > FENCE_V) { b.v0.x = 0; b.v0.z = 0; }
-    } else if (fl.active) b.at(t);
+      if (fe.open) this._rollInBowl(dt);
+      else {
+        const v = this.frame.lv(b.pos.x, b.pos.z);
+        if (Math.abs(v) > fe.v) { b.v0.x = 0; b.v0.z = 0; }
+      }
+    } else if (fl.active) {
+      b.at(t);
+      if (fe.open) this._meetStands(t);   // (the sunken court: the stands rise round its walkway)
+    }
     const flying = b.active && !b.rolling && fl.active;
     if (flying && this.opts.trail) {
       b.velAt(t, _v3);
@@ -1457,6 +1494,7 @@ export class TennisSession {
       const lu = this.frame.lu(b.pos.x, b.pos.z), lv = this.frame.lv(b.pos.x, b.pos.z);
       fl.landX = b.pos.x; fl.landZ = b.pos.z;
       fl.willBeIn = this._isIn(lu, lv, fl.kind, fl.hitter);
+      if (this.frame.fence.open) this._wallAhead(fl.tGround);
       b.at(te);
       this.hud.pop('Net cord!', 'call');
       this._onFlight(true);
@@ -1466,6 +1504,7 @@ export class TennisSession {
     b.launchG(te, pos.x - _v3.x * 0.01, Math.max(pos.y, BALL_Y), pos.z - _v3.z * 0.01, -_v3.x * 0.08, 0.3, -_v3.z * 0.08, G);
     b.spin = 'dead'; b.bounced = 3;
     fl.tGround = b.timeToHeight(BALL_Y);
+    if (this.frame.fence.open) fl.tFence = INF;   // (the end boards were ahead of the old flight)
     this._cancelContact();
     if (!fl.resolved) {
       if (fl.kind === 'serve') this._fault('net');
@@ -1537,11 +1576,79 @@ export class TennisSession {
     fl.tGround = b.timeToHeight(BALL_Y);
     // Back fence before the next bounce?
     fl.tFence = INF;
+    if (f.fence.open) { this._wallAhead(fl.tGround); return; }   // a show court's end boards
     const vv = st.vx * f.s + st.vz * f.c;
     if (Math.abs(vv) > 1e-3) {
       const tf = crossTime(f, pos.x, pos.z, st.vx, st.vz, b.a.x, b.a.z, Math.sign(vv) * FENCE_V, fl.tGround - te);
       if (tf > 0.01 && tf < INF) fl.tFence = te + tf;
     }
+  }
+
+  /**
+   * Show court: does the ball's current segment (heading for an end, from the court side of its
+   * boards) meet the end boards before tEnd — its bottom under their top and within their ends? Sets
+   * fl.tFence, else INF. A ball over them or past their open corners flies on over the walkway
+   * (court level: a landing there is an ordinary bounce) until _meetStands ends it.
+   */
+  _wallAhead(tEnd) {
+    const f = this.frame, fe = f.fence, b = this.ball, fl = this.fl;
+    fl.tFence = INF;
+    const p = b.p0, v = b.v0, a = b.a;
+    const vv = v.x * f.s + v.z * f.c;
+    // (only from the court side of the boards it is heading for)
+    if (!(Math.abs(vv) > 1e-3) || !(Math.sign(vv) * f.lv(p.x, p.z) < fe.v)) return;
+    // (any crossing ahead, however soon: a low bounce a hand's width in front of the boards
+    // still meets them)
+    const tf = crossTime(f, p.x, p.z, v.x, v.z, a.x, a.z, Math.sign(vv) * fe.v, tEnd - b.t0);
+    if (!(tf < INF)) return;
+    const k = 0.5 * tf * tf;
+    const y = p.y + v.y * tf + a.y * k;
+    const u = f.lu(p.x + v.x * tf + a.x * k, p.z + v.z * tf + a.z * k);
+    if (y - R < fe.top && Math.abs(u) < fe.halfU + R) fl.tFence = b.t0 + tf;
+  }
+
+  /**
+   * Show court: a flying ball that comes down onto the stands' treads (past the boards, or wide
+   * of the walkway) or onto the lawn beyond them is a dead ball, resting where it met them. The
+   * pit floor and the walkway are court level (groundAt = the surface), so nothing on or round
+   * the court itself ever gets here.
+   */
+  _meetStands(t) {
+    const b = this.ball, p = b.pos;
+    const gy = groundAt(p.x, p.z);
+    if (!(p.y - R < gy - 0.01)) return;
+    const fl = this.fl;
+    this.audio.bounce(p, 'hard');
+    b.p0.set(p.x, gy + R, p.z);
+    b.v0.set(0, 0, 0);
+    b.w.set(0, 0, 0);
+    b.t0 = t; b.rolling = true; b.active = true;
+    b.pos.copy(b.p0);
+    b.bounced = Math.max(b.bounced, 2);
+    fl.tGround = fl.tNet = fl.tFence = INF; fl.netPending = false;
+    fl.contactBy = -1; fl.tContact = INF;
+    this._offCourt();
+  }
+
+  /**
+   * Show court, a rolling ball: it stops against the end boards (between their ends) or at the
+   * foot of the stands' first riser; past the open corners it rolls on over the walkway.
+   */
+  _rollInBowl(dt) {
+    const b = this.ball, f = this.frame, fe = f.fence, p = b.pos, v = b.v0;
+    const px = p.x - v.x * dt, pz = p.z - v.z * dt;   // where it was before this frame's roll
+    const board = Math.abs(f.lv(p.x, p.z)) > fe.v && Math.abs(f.lv(px, pz)) <= fe.v && Math.abs(f.lu(p.x, p.z)) < fe.halfU + R;
+    if (!board && !(groundAt(p.x, p.z) > p.y - R + 0.01)) return;
+    b.p0.x = px; b.p0.z = pz; b.pos.copy(b.p0);
+    v.x = 0; v.z = 0;
+  }
+
+  /** The ball left the court unplayed (the back wall, the stands): out on the full, a winner after a bounce. */
+  _offCourt() {
+    const fl = this.fl;
+    if (fl.resolved || fl.kind === 'toss') return;
+    if (fl.bounces === 0) { if (fl.kind === 'serve') this._fault('out'); else this._resolve(fl.receiver, 'out'); }
+    else this._resolve(fl.hitter, fl.kind === 'serve' && !fl.touchedByReceiver ? 'ace' : 'winner');
   }
 
   _evFence(te) {
@@ -1556,10 +1663,7 @@ export class TennisSession {
     b.launchG(te, pos.x, pos.y, pos.z, nu * f.c + nv * f.s, Math.min(vy, 0.5), -nu * f.s + nv * f.c, G);
     b.bounced = Math.max(b.bounced, 2);
     fl.tGround = b.timeToHeight(BALL_Y);
-    if (!fl.resolved && fl.kind !== 'toss') {
-      if (fl.bounces === 0) { if (fl.kind === 'serve') this._fault('out'); else this._resolve(fl.receiver, 'out'); }
-      else this._resolve(fl.hitter, fl.kind === 'serve' && !fl.touchedByReceiver ? 'ace' : 'winner');
-    }
+    this._offCourt();
   }
 
   _deadBounceFromHere(te) {
@@ -2186,7 +2290,38 @@ export class TennisSession {
 
   _updateScoreboard() {
     if (this.mode !== 'match' || !this.score) return;
-    this.hud.setScore(this.score, this.phase === 'serve' ? this.srv.who : this.score.currentServer);
+    const server = this.phase === 'serve' ? this.srv.who : this.score.currentServer;
+    this.hud.setScore(this.score, server);
+    this._stadiumBoard(server);
+  }
+
+  /**
+   * On the show court the stadium's big scoreboards show this match (Stadium.setScoreOverride,
+   * when the world has one): names, games (the last set's once it is over), points, the server
+   * and sets. Called on a score change only; _clearStadiumBoard hands the boards back to the
+   * club (menu, drills, another court, leaving).
+   */
+  _stadiumBoard(server) {
+    const st = this.game.world?.stadium, f = this.frame, sc = this.score;
+    if (typeof st?.setScoreOverride !== 'function') return;
+    if (!sc || !f?.court?.isStadium || (st.layout && st.layout.id !== f.id)) { this._clearStadiumBoard(); return; }
+    const g = sc.done && sc.sets.length ? sc.sets[sc.sets.length - 1].g : sc.games;
+    try {
+      st.setScoreOverride({
+        names: ['YOU', 'R. IBARRA'],
+        games: [g[0], g[1]],
+        points: sc.done ? ['', ''] : [sc.pointText(0), sc.pointText(1)],
+        server: server === 1 ? 1 : 0,
+        sets: [sc.setsWon[0], sc.setsWon[1]],
+      });
+      this._boardSet = true;
+    } catch (e) { /* cosmetic */ }
+  }
+
+  _clearStadiumBoard() {
+    if (!this._boardSet) return;
+    this._boardSet = false;
+    try { this.game.world?.stadium?.setScoreOverride?.(null); } catch (e) { /* cosmetic */ }
   }
 
   _finishMatch() {
