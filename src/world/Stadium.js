@@ -82,6 +82,14 @@ const _v3 = new THREE.Vector3();
 const _exit = { x: 0, z: 0, y: 0 };
 const _push = { x: 0, z: 0 };
 
+/** True when every component is finite (one NaN / ±Infinity makes the sum non-finite). */
+function finite3(v) {
+  return Number.isFinite(v.x + v.y + v.z);
+}
+function finiteQ(q) {
+  return Number.isFinite(q.x + q.y + q.z + q.w);
+}
+
 function hashU(i, j) {
   let h = (Math.imul(i | 0, 374761393) + Math.imul(j | 0, 668265263)) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -276,11 +284,16 @@ export class Stadium {
 
   /**
    * Rescue pass (every dynamic body that collides; the player's body in the cart is skipped):
-   *  1. a non-finite position goes to the nearest aisle top;
+   *  1. a non-finite position goes to the nearest aisle top; a non-finite velocity, angular
+   *     velocity, quaternion, force or torque (with a finite position) is reset where it stands —
+   *     one NaN in the solver would otherwise spread to every body it touches and the static
+   *     ground, and cannon-es would throw on every later step;
    *  2. a vehicle (more than one shape / not a sphere) inside the footprint + 0.3 is pushed out;
    *  3. a sphere that fell (y < surfY − 1), sits under the lawn outside the cut (y < −0.1: only a
    *     teleport at pit height does that), or is embedded in the cut (below the lowest ground
    *     within 0.3 m − 0.05) is put back on the ground.
+   * A static body (the ground and pit planes, the stands) never moves, so a non-finite velocity
+   * on one (the solver adds 0 × NaN to it) is zeroed.
    * A body pressed against a riser sees the lower row in groundMinAround, so it is never lifted a
    * row (no climbing assist). On the flat club none of this ever fires (bodies rest at y = r).
    */
@@ -288,7 +301,16 @@ export class Stadium {
     const L = this.layout, B = this.physicsWorld.bodies;
     for (let i = 0; i < B.length; i++) {
       const b = B[i];
-      if (b.type !== DYN || b.collisionResponse === false) continue;
+      if (b.type !== DYN) {
+        if (!finite3(b.velocity) || !finite3(b.angularVelocity)) {
+          b.velocity.set(0, 0, 0);
+          b.angularVelocity.set(0, 0, 0);
+          this.stats.rescues++;
+          this._warnOnce(b, 'non-finite velocity on a static body');
+        }
+        continue;
+      }
+      if (b.collisionResponse === false) continue;
       const p = b.position;
       const vehicle = b.shapes.length > 1 || b.shapes[0].type !== SPHERE;
       const r = vehicle ? 0.6 * SIZES.cartScale : b.shapes[0].radius;
@@ -298,6 +320,11 @@ export class Stadium {
         this.stats.rescues++;
         this._warnOnce(b, 'non-finite position');
         continue;
+      }
+      if (!finite3(b.velocity) || !finite3(b.angularVelocity) || !finiteQ(b.quaternion) || !finite3(b.force) || !finite3(b.torque)) {
+        this._resetMotion(b, vehicle);
+        this.stats.rescues++;
+        this._warnOnce(b, 'non-finite velocity / rotation');
       }
       if (vehicle) {
         if (L.inFootprint(p.x, p.z, 0.3)) {
@@ -321,11 +348,30 @@ export class Stadium {
     b.position.set(x, y, z);
     b.previousPosition.set(x, y, z);
     b.interpolatedPosition.set(x, y, z);
-    b.velocity.set(0, 0, 0);
-    if (b.angularVelocity) b.angularVelocity.set(0, 0, 0);
+    this._resetMotion(b, b.shapes.length > 1 || b.shapes[0].type !== SPHERE);
     // the mask follows the new position at once
     const c = this.layout.cut;
     b.collisionFilterMask = (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) ? MASK_IN : MASK_OUT;
+  }
+
+  /**
+   * Zero velocity, angular velocity, force and torque; the orientation becomes upright: identity,
+   * or for a vehicle its yaw alone (the twist about y) when its quaternion is still finite.
+   */
+  _resetMotion(b, vehicle) {
+    b.velocity.set(0, 0, 0);
+    b.angularVelocity.set(0, 0, 0);
+    b.force.set(0, 0, 0);
+    b.torque.set(0, 0, 0);
+    const q = b.quaternion;
+    let qy = 0, qw = 1;
+    if (vehicle && finiteQ(q)) {
+      const n = Math.hypot(q.y, q.w);
+      if (n > 1e-6) { qy = q.y / n; qw = q.w / n; }
+    }
+    q.set(0, qy, 0, qw);
+    b.previousQuaternion.copy(q);
+    b.interpolatedQuaternion.copy(q);
   }
 
   _warnOnce(b, what) {
