@@ -2013,6 +2013,7 @@ export class TennisSession {
     load *= 0.6 + 0.4 * sw.q;
     const prof = this._shapeSpin(this._prof, label, sw.clip, load, 0.75 + 0.5 * spn);
     if (punch && label !== 'slice') prof.top -= 1.5;
+    this._spinBudget(prof, st, f.wx(u, v), f.wz(u, v));
     // → the physics
     const I = this._intent, X = this._exec;
     I.tx = f.wx(u, v); I.tz = f.wz(u, v); I.profile = prof;
@@ -2108,6 +2109,20 @@ export class TennisSession {
   }
 
   /**
+   * A heavy topspin ball sent back with topspin: its spin reads as backspin in the new direction,
+   * and a racket can only reverse so much of it — ask for less topspin up front (the impact
+   * inverse would otherwise re-plan down to it). st: the ball at contact; (tx, tz): the target.
+   */
+  _spinBudget(prof, st, tx, tz) {
+    if (!(prof.top > 0)) return prof;
+    let dx = tx - st.x, dz = tz - st.z;
+    const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+    const inTop = st.wx * dz - st.wz * dx;          // its spin about the new flight's topspin axis (− = reads as backspin)
+    if (inTop < -4) prof.top *= clamp(1 - 0.045 * (-inTop - 4), 0.55, 1);
+    return prof;
+  }
+
+  /**
    * Rafa's racket meets the ball (st: the true ball at tc): TennisTactics picks the intention
    * (shot, target with his margins, speed, spin) and samples his execution (timing error, string
    * contact, the odd mishit), and the physics does the rest — his errors come out of it.
@@ -2121,7 +2136,7 @@ export class TennisSession {
       const u = side * us, v = side * rand(8.6, 10.6);
       I.tx = f.wx(u, v); I.tz = f.wz(u, v);
       I.profile = this._shapeSpin(this._prof, 'topspin', ai.plan.clip, 0.75, 0.9);
-      I.speed = 0; I.pace = Math.min(15.5, rand(11, 12.3) + 0.12 * n); I.margin = rand(0.7, 1); I.minT = 0;
+      I.speed = Math.min(26, rand(21.5, 23) + 0.15 * n); I.pace = 0; I.margin = rand(0.7, 1); I.minT = 0;
       I.kind = 'ground'; I.wing = ai.plan.clip === 'backhand' ? 'bh' : 'fh';
       X.e = 0; X.gw = 0.05; X.a = 0; X.b = 0; X.B = null; X.outSign = 1;
       this._makeAndFly(1, 'rally', 'topspin', tc, st, I, X, true);
@@ -2137,6 +2152,7 @@ export class TennisSession {
     const load = s.spin === 'drop' || s.spin === 'lob' || !s.speed ? 1 : clamp(0.6 + 0.6 * (s.speed - sr[0]) / Math.max(1, sr[1] - sr[0]), 0.45, 1.3);
     I.profile = this._shapeSpin(this._prof, s.spin, ai.plan.clip, load, ai.diff.spin ?? 1);
     I.tx = f.wx(s.u, s.v); I.tz = f.wz(s.u, s.v);
+    this._spinBudget(I.profile, st, I.tx, I.tz);
     I.speed = s.speed || 0; I.pace = s.speed ? 0 : s.pace || 10; I.margin = s.margin; I.minT = s.minT || 0;
     I.kind = s.phys || 'ground'; I.wing = s.wing || 'fh';
     X.e = s.e; X.gw = s.gw; X.a = s.a; X.b = s.b; X.outSign = 1;
@@ -2155,7 +2171,7 @@ export class TennisSession {
     this.phase = 'rally'; // before the launch: the player's flight handlers (held SWING, split step) need it
     I.tx = f.wx(plan.u, plan.v); I.tz = f.wz(plan.u, plan.v);
     I.profile = this._shapeSpin(this._prof, plan.spin, 'forehand', plan.spin === 'topspin' ? 0.7 : 1, 1);
-    I.speed = 0; I.pace = plan.pace; I.margin = plan.margin; I.minT = 0; I.kind = 'ground'; I.wing = 'fh';
+    I.speed = plan.speed || 0; I.pace = plan.speed ? 0 : plan.pace || 12; I.margin = plan.margin; I.minT = 0; I.kind = 'ground'; I.wing = 'fh';
     X.e = 0; X.gw = 0.05; X.a = 0; X.b = 0; X.B = null; X.outSign = 1;
     this._makeAndFly(1, 'rally', plan.spin, tc, st, I, X, true);
     this._launchBook(1, 'rally', plan.spin, tc, st);
@@ -2765,7 +2781,7 @@ export class TennisSession {
     }
     const pv = d.type === 'volley' ? 3.4 : BASE_V;
     if (first || d.type === 'volley' || d.type === 'rally') this._placePlayer(0, side * pv);
-    this.ai.place(0, this.sides[1] * (d.type === 'volley' ? 11.8 : d.type === 'rally' ? BASE_V : 11.2));
+    this.ai.place(0, this.sides[1] * (d.type === 'volley' ? 7.2 : d.type === 'rally' ? BASE_V : 11.2));
     this.coachNpc.character.setBallVisible(true);
     this.phase = 'feedWait';
     this.tFeed = this.t + (first ? 1.6 : 0.9);
@@ -2777,12 +2793,13 @@ export class TennisSession {
     const pu = this.pl.u;
     let plan;
     if (d.type === 'volley') {
+      // (from inside his service line: it reaches you at the net at a volley's height)
       const off = (Math.random() < 0.5 ? 1 : -1) * rand(0.5, 1.3);
-      plan = { u: clamp(pu + side * off, -3.8, 3.8), v: side * rand(6.4, 7.6), pace: rand(10.5, 12), margin: rand(0.25, 0.4), spin: 'flat' };
+      plan = { u: clamp(pu + side * off, -3.8, 3.8), v: side * rand(6.6, 7.6), speed: rand(17, 19), margin: 0.25, spin: 'flat' };
     } else {
       const toRight = d.type === 'fh' ? 1 : d.type === 'bh' ? -1 : (Math.random() < 0.5 ? 1 : -1); // player's forehand = screen right
       const us = clamp(side * pu + toRight * rand(0.8, 2.0) + rand(-0.8, 0.8), -3.9, 3.9);
-      plan = { u: side * us, v: side * rand(8.4, 10.4), pace: rand(11, 13), margin: rand(0.6, 0.9), spin: 'topspin' };
+      plan = { u: side * us, v: side * rand(8.4, 10.4), speed: rand(21.5, 23.5), margin: rand(0.6, 0.9), spin: 'topspin' };
     }
     this.ai.feed(this.t, plan);
     this.phase = 'feeding';
