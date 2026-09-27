@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { SIZES, GAME } from '../utils/Constants.js';
-import { NPC } from '../entities/NPC.js';
+import { NPC, bowlGroundLeg } from '../entities/NPC.js';
 import { CameraTracker, hashString } from '../entities/CharacterModel.js';
 import { getClipEventRacketPoint } from '../entities/CharacterAnimations.js';
 import { findSeats, claimSeat } from '../entities/Seats.js';
@@ -8,7 +9,8 @@ import { TennisBall, BALL_RADIUS, GRAVITY as G } from '../entities/TennisBall.js
 import { RoutePlanner } from './RoutePlanner.js';
 import { parseHour } from './MissionValidation.js';
 import { Quality } from '../graphics/Quality.js';
-import { groundAt, inCut, inFootprint, levelOf, sameLevel, planLevelRoute, getGroundModel } from '../world/Ground.js';
+import { groundAt, inCut, inFootprint, isWanderable, levelOf, sameLevel, planLevelRoute, getGroundModel } from '../world/Ground.js';
+import { roomAt } from '../world/NavRooms.js';
 
 /**
  * MatchSystem — members play tennis on a court schedule (public/data/schedule.json).
@@ -28,9 +30,20 @@ import { groundAt, inCut, inFootprint, levelOf, sameLevel, planLevelRoute, getGr
  * Heights are per court (frame.surf / frame.ballY from court.surfaceY): the flat courts sit at
  * y 0 and the sunken Centre Court (court6, StadiumLayout) at its baseY. Walks that start or end
  * in the bowl go through Ground.planLevelRoute (the aisles; players walk on and off the court by
- * the Players' Walk), everything else through the RoutePlanner exactly as before. A stuck walker
- * in the bowl re-plans instead of sidestepping, and a hop into / out of it lands on the goal's
- * level (Ground.groundAt).
+ * the Players' Walk), everything else through the RoutePlanner exactly as before; a walk with an
+ * end indoors (a member in the lounge) goes out through the building doors (NavRooms, _groundLeg).
+ * A stuck walker in the bowl, or indoors where a sidestep would leave the room, re-plans instead
+ * of sidestepping, and a hop into / out of the bowl lands on the goal's level (Ground.groundAt).
+ * Centre Court players walk off to the concourse by the Players' Walk head and wander on from
+ * there; a walk-off goal inside a round obstacle (the garden fountain's basin) moves to the
+ * nearest clear waypoint.
+ *
+ * Court hand-over: a walk-off whose players have left the pad no longer holds its court or a
+ * maxConcurrent slot (_handedOver), so the next booking can walk on while they leave (on Centre
+ * Court by the other lane of the Players' Walk), and its players may be booked again. A booking
+ * whose first choice is Centre Court waits for it while the match there is winding up
+ * (handshake / walk-off / past its end) rather than falling back, while its late window allows.
+ * getMatch / isLive prefer the match being played over a walk-off on the same court.
  *
  * Hooks for the Centre Court spectators (SpectatorDirector; default null, each call guarded):
  *   onPointEnd(courtId, info)       after a point is scored (not a first-serve fault or a let);
@@ -38,7 +51,9 @@ import { groundAt, inCut, inFootprint, levelOf, sameLevel, planLevelRoute, getGr
  *                                   { courtId, winner, winnerNpc, loserNpc,
  *                                     outcome: 'winner'|'ace'|'net'|'out'|'double', rally,
  *                                     gameWon, matchWon, games: [g0, g1] }
- *   onMatchEvent(courtId, kind, m)  kind 'start' | 'rain' | 'resume' | 'handshake' | 'finish'
+ *   onMatchEvent(courtId, kind, m)  kind 'start' | 'rain' | 'resume' | 'handshake' | 'finish';
+ *                                   'finish' once per match: when it leaves the list, or just
+ *                                   before the next match's 'start' on its court (hand-over)
  * Helpers: getMatch(courtId), isLive(courtId), isBookedSoon(npcId, hours), nextEntryFor(courtId, out).
  *
  * Debug (dev console): __game.matches.debugStart('court1', ['chad_blake', 'tommy_chen'],
@@ -68,6 +83,11 @@ const LIVE_PHASES = new Set(['warmup', 'setup', 'point', 'interrupted']);
 const HOP_MIN = 75;                     // a stuck walker may hop to its goal after this (s) …
 const HOP_FORCE = 65;                   // … and does, looked at or not, this much later
 const LEVEL_OPTS = Object.freeze({ prefer: 'players' });   // bowl walks: the Players' Walk
+const PAD_HALF_V = (SIZES.courtDepth ?? 28) / 2 + 0.5;     // pad ends (the back fences) in court-local v
+const WAIT_FIRST_MARGIN = 0.25;         // h: a booking waits for Centre Court (first choice) until this before its late limit
+const EXIT_NEAR = 12;                   // m: a Centre Court walk-off ends within this of the Players' Walk head
+const EXIT_CLEAR = 2;                   // m: …but not on the head itself (the next players come down that way)
+const WALKER_R = SIZES.npcRadius ?? 0.35;
 
 const DEFAULT_SCHEDULE = {
   maxConcurrent: 3,
@@ -109,9 +129,16 @@ export class MatchSystem {
     this.sound = o.sound || null;
     this.camera = o.camera || null;
     this.waypoints = o.waypoints || {};
+    this.physicsWorld = o.physicsWorld || null;
     this.planner = o.physicsWorld ? new RoutePlanner(o.physicsWorld) : null;
-    // Ground leg for planLevelRoute (fills `out`: start excluded, goal included)
+    // Ground leg of every walk (planLevelRoute's groundLeg, and the whole route on the flat club;
+    // fills `out`: start excluded, goal included). An end indoors (a member in the lounge or the
+    // café) takes the building nav graph through the doors, as the NPCs' own bowl routes do (NPC.js
+    // bowlGroundLeg: NavRooms, then fence-aware outdoor legs); the RoutePlanner alone starts inside
+    // a wall's margin there and runs a straight line through the clubhouse wall. Outdoors: the
+    // RoutePlanner over the static boxes, as before.
     this._groundLeg = (ax, az, bx, bz, out) => {
+      if (roomAt(ax, az) >= 0 || roomAt(bx, bz) >= 0) return bowlGroundLeg(ax, az, bx, bz, out);
       if (this.planner) return this.planner.plan(ax, az, bx, bz, out);
       out.length = 0;
       out.push({ x: bx, z: bz });
@@ -120,6 +147,9 @@ export class MatchSystem {
     this._leg = [];            // scratch route leg (_plan)
     this._pw = null;           // the bowl's Players' Walk aisle (_playersAisle)
     this._pwLayout = undefined;
+    this._exitSpots = null;    // concourse waypoints by the Players' Walk head (_exitSpotsFor)
+    this._roundObs = null;     // static round obstacles (the fountain basin …) for walk-off goals
+    this._probe = [];          // scratch route (_clearSpot)
 
     /** (courtId, info) => void after each scored point (see the header); info is reused. */
     this.onPointEnd = null;
@@ -219,10 +249,20 @@ export class MatchSystem {
 
   isCourtInUse(courtId) { return this.matches.some(m => m.frame.id === courtId); }
 
-  /** The match on `courtId` in any phase (walk-in … walk-off), or null. Allocation-free. */
+  /**
+   * The match on `courtId` in any phase (walk-in … walk-off), or null. A court can briefly hold
+   * two: the next booking walking in while the last one's players walk off (see _handedOver);
+   * the one being played wins. Allocation-free.
+   */
   getMatch(courtId) {
-    for (let i = 0; i < this.matches.length; i++) if (this.matches[i].frame.id === courtId) return this.matches[i];
-    return null;
+    let off = null;
+    for (let i = 0; i < this.matches.length; i++) {
+      const m = this.matches[i];
+      if (m.frame.id !== courtId) continue;
+      if (m.phase !== 'walkOut') return m;
+      if (!off) off = m;
+    }
+    return off;
   }
 
   /** A match on `courtId` is being played (warm-up, points, or paused for a chat). */
@@ -275,8 +315,76 @@ export class MatchSystem {
   }
 
   _courtBlocked(frame) {
-    if (this.isCourtInUse(frame.id)) return true;
+    if (this._courtHeld(frame.id)) return true;
     return this._grooming(frame);
+  }
+
+  /** A match on `courtId` still holds it (anything but a walk-off whose players have left the pad). */
+  _courtHeld(courtId) {
+    for (let i = 0; i < this.matches.length; i++) {
+      const m = this.matches[i];
+      if (m.frame.id === courtId && !this._handedOver(m)) return true;
+    }
+    return false;
+  }
+
+  /** Matches that count toward maxConcurrent (a walk-off off the pad no longer does). */
+  _activeCount() {
+    let n = 0;
+    for (let i = 0; i < this.matches.length; i++) if (!this._handedOver(this.matches[i])) n++;
+    return n;
+  }
+
+  /**
+   * A walk-off whose players are all off the pad (or done) has handed its court back: the next
+   * booking may start there and it no longer takes a maxConcurrent slot. Latched once true. On
+   * Centre Court the Players' Walk keeps the two apart (walk-ons descend its + lane, walk-offs
+   * climb the − lane); on the flat courts the walk-offs are already beyond the fence.
+   */
+  _handedOver(m) {
+    if (m.handedOver) return true;
+    if (m.phase !== 'walkOut') return false;
+    const f = m.frame;
+    for (let i = 0; i < m.players.length; i++) {
+      const p = m.players[i];
+      if (p.done) continue;
+      const b = p.npc.body.position;
+      const u = this._lu(f, b.x, b.z), v = this._lv(f, b.x, b.z);
+      if (u > -f.halfPadL && u < f.halfPadR && v > -PAD_HALF_V && v < PAD_HALF_V) return false;
+    }
+    m.handedOver = true;
+    return true;
+  }
+
+  /**
+   * Every match on `courtId` is winding up (walking off, shaking hands, or past its booking's end):
+   * the court is free in a moment.
+   */
+  _freeSoon(courtId, tod) {
+    let any = false;
+    for (let i = 0; i < this.matches.length; i++) {
+      const m = this.matches[i];
+      if (m.frame.id !== courtId) continue;
+      if (m.phase !== 'walkOut' && m.phase !== 'handshake' && tod < m.entry.end) return false;
+      any = true;
+    }
+    return any;
+  }
+
+  /**
+   * The court a due booking starts on now, or null (none free, or waiting for its first choice):
+   * the first free court of its list, except that a booking naming the show court (Centre Court)
+   * first waits for it while the match there is winding up and the late window allows (the evening
+   * event matches follow cc-pm there, "the final, on Centre Court"). Allocation-free.
+   */
+  _pickCourt(e, tod, latest) {
+    for (let k = 0; k < e.courts.length; k++) {
+      const f = this._frames.get(e.courts[k]);
+      if (!f) continue;
+      if (!this._courtBlocked(f)) return f;
+      if (k === 0 && f.stadium && tod < latest - WAIT_FIRST_MARGIN && this._freeSoon(f.id, tod)) return null;
+    }
+    return null;
   }
 
   _grooming(frame) {
@@ -303,11 +411,44 @@ export class MatchSystem {
     return set;
   }
 
-  _available(npc, busy) {
+  /**
+   * `npc` can be booked now. Not while in a match, walk-off included — except, with `walkOff`, a
+   * walk-off that has handed its court over (_handedOver): a member named in the next booking goes
+   * straight to it (e.g. from Centre Court's Players' Walk). Substitutes and "any" picks are never
+   * taken off a walk-off.
+   */
+  _available(npc, busy, walkOff = false) {
     if (!npc || npc.away || this.exclude.has(npc.id)) return false;
-    if (npc.playing || npc.state === 'talking' || npc.state === 'playing') return false;
+    if (npc.state === 'talking') return false;
     if (busy.has(npc.id)) return false; // a pending "!" encounter is fine: talk to them courtside
-    return !this.matches.some(m => m.players[0].npc === npc || m.players[1].npc === npc);
+    const role = this._matchRole(npc);
+    if (role === 1 || (role === 2 && !walkOff)) return false;
+    return role === 2 || !(npc.playing || npc.state === 'playing');
+  }
+
+  /** 0: in no match (or done walking off one), 1: in a match that holds its court, 2: walking off a handed-over one. */
+  _matchRole(npc) {
+    let role = 0;
+    for (let i = 0; i < this.matches.length; i++) {
+      const m = this.matches[i];
+      for (let k = 0; k < m.players.length; k++) {
+        const p = m.players[k];
+        if (p.npc !== npc || p.done) continue;
+        if (!this._handedOver(m)) return 1;
+        role = 2;
+      }
+    }
+    return role;
+  }
+
+  /** `npc` joins a new match: a walk-off it was still on lets it go (without stopPlaying). */
+  _detach(npc) {
+    for (let i = 0; i < this.matches.length; i++) {
+      const ps = this.matches[i].players;
+      for (let k = 0; k < ps.length; k++) {
+        if (ps[k].npc === npc && !ps[k].done) { ps[k].done = true; ps[k].detached = true; }
+      }
+    }
   }
 
   // ───────────────────────────── schedule ─────────────────────────────
@@ -320,11 +461,12 @@ export class MatchSystem {
     const tod = w.timeOfDay;
     const busy = this._missionNpcs();
     for (let i = 0; i < this.entries.length; i++) {
-      if (this.matches.length >= this.maxConcurrent) return;
+      if (this._activeCount() >= this.maxConcurrent) return;
       const e = this.entries[i];
       if (this._started.has(i)) continue;
-      if (tod < e.start || tod > Math.min(e.end - 0.75, e.start + this.lateStart)) continue;
-      const frame = e.courts.map(id => this._frames.get(id)).find(f => f && !this._courtBlocked(f));
+      const latest = Math.min(e.end - 0.75, e.start + this.lateStart);
+      if (tod < e.start || tod > latest) continue;
+      const frame = this._pickCourt(e, tod, latest);
       if (!frame) continue;
       const picked = this._pickPlayers(e, tod, busy);
       if (!picked) continue;
@@ -338,7 +480,7 @@ export class MatchSystem {
     const allowSub = tod - e.start > 0.2; // give the booked member a moment to free up
     for (const id of e.players) {
       let npc = id !== 'any' ? this._npcById.get(id) : null;
-      if (npc && (!this._available(npc, busy) || out.includes(npc))) {
+      if (npc && (!this._available(npc, busy, true) || out.includes(npc))) {
         if (!allowSub) return null;
         npc = null;
       }
@@ -385,14 +527,26 @@ export class MatchSystem {
       resumePhase: null, winner: -1, reactAt: INF, leaveAt: INF,
       wear: new Float32Array(4 * 16), wearN: 0, wearT: 0,
       rainT: 0, talkWas: false,
+      handedOver: false, finishSent: false,
       players: npcs.map((npc, i) => this._makePlayer(npc, (i === 0) !== flip ? 1 : -1, frame, i)),
     };
     for (const p of m.players) {
+      this._detach(p.npc);
       p.npc.startPlaying(frame.id, p.side > 0 ? 'north' : 'south');
       p.npc.character.setBallVisible(false);
     }
     NPC.setAreaBusy(frame.id, true);
-    this.matches.push(m);
+    // The court may still hold the last match's walk-off (handed over, see _handedOver): it is over
+    // for the court's watchers now ('finish' before this 'start', as with one match per court), and
+    // the new match goes in front of it so list scanners (scoreboards) find the one being played.
+    let at = this.matches.length;
+    for (let i = 0; i < this.matches.length; i++) {
+      const o = this.matches[i];
+      if (o.frame.id !== frame.id) continue;
+      if (i < at) at = i;
+      this._emitFinish(o);
+    }
+    if (at === this.matches.length) this.matches.push(m); else this.matches.splice(at, 0, m);
     for (const p of m.players) {
       const x = this._wx(frame, 0, p.side * BASE_V), z = this._wz(frame, 0, p.side * BASE_V);
       if (opts.teleport) {
@@ -418,7 +572,7 @@ export class MatchSystem {
       route: [], ri: 0, arrived: false, endYaw: null, walkT: 0, stuckT: 0, bestD: INF, hopAt: HOP_MIN,
       tSplit: INF, tMove: INF, tSwing: INF, tRecover: INF, swingAt: 0,
       mx: 0, mz: 0, mSpeed: 3, clip: 'forehand', aim: false,
-      rx: 0, rz: 0, done: false,
+      rx: 0, rz: 0, done: false, detached: false,
     };
   }
 
@@ -459,9 +613,8 @@ export class MatchSystem {
       }
     }
     if (planLevelRoute(ax, az, bx, bz, out, this._groundLeg, LEVEL_OPTS)) return out;
-    if (this.planner) this.planner.plan(ax, az, bx, bz, out);
-    else { out.length = 0; out.push({ x: bx, z: bz }); }
-    return out;
+    // Flat club: the RoutePlanner as always, or the door-aware leg when an end is indoors
+    return this._groundLeg(ax, az, bx, bz, out);
   }
 
   /** The bowl's Players' Walk aisle (StadiumLayout), or null without a bowl. */
@@ -503,24 +656,28 @@ export class MatchSystem {
     p.npc.stopMove();
   }
 
-  /** Blocked (column, parked cart, a person): sidestep and re-plan from there. */
+  /**
+   * Blocked (column, parked cart, a person): sidestep and re-plan from there. No sidestep in the
+   * bowl (stairs, rail openings: it could step off a row edge) or out of the room indoors (it would
+   * land behind a wall): there it just re-plans from here, through the aisles / the doors.
+   */
   _unstick(p) {
     const npc = p.npc;
     const b = npc.body.position;
     p.retries++;
-    if (inFootprint(b.x, b.z, 0)) {
-      // In the bowl (stairs, rail openings): no sidestep off a row edge, just re-plan from here
-      this._plan(b.x, b.z, p.goalX, p.goalZ, p.route);
-      p.ri = 0; p.stuckT = 0; p.bestD = INF;
-      npc.stopMove();
-      return;
-    }
     const w = p.route[Math.min(p.route.length - 1, Math.max(0, p.ri - 1))] || { x: p.goalX, z: p.goalZ };
     let dx = w.x - b.x, dz = w.z - b.z;
     const d = Math.hypot(dx, dz) || 1;
     dx /= d; dz /= d;
     const side = (p.retries - 1) % 2 ? 1 : -1;
     const sx = b.x - dz * 1.6 * side - dx * 0.5, sz = b.z + dx * 1.6 * side - dz * 0.5;
+    const room = roomAt(b.x, b.z);
+    if (inFootprint(b.x, b.z, 0) || (room >= 0 && roomAt(sx, sz) !== room)) {
+      this._plan(b.x, b.z, p.goalX, p.goalZ, p.route);
+      p.ri = 0; p.stuckT = 0; p.bestD = INF;
+      npc.stopMove();
+      return;
+    }
     const rest = this._plan(sx, sz, p.goalX, p.goalZ, []);
     p.route.length = 0;
     p.route.push({ x: sx, z: sz }, ...rest);
@@ -580,12 +737,13 @@ export class MatchSystem {
 
   _setPhase(m, phase) { m.phase = phase; m.phaseT = 0; }
 
-  /** Begin leaving: route each player to one of their preferred spots. */
+  /** Begin leaving: route each player to one of their preferred spots (see _walkOffGoal). */
   _startWalkOut(m) {
     if (m.phase === 'walkOut') return;
     this._clearRally(m);
     NPC.setAreaBusy(m.frame.id, false);
     this._setPhase(m, 'walkOut');
+    let taken = null;          // the first player's goal (Centre Court: the second takes another spot)
     for (const p of m.players) {
       const npc = p.npc;
       p.done = false;
@@ -594,8 +752,106 @@ export class MatchSystem {
       let wp = null;
       try { wp = npc._getPreferredWaypoint(); } catch (e) { wp = null; }
       if (!wp) { npc.stopPlaying(); p.done = true; continue; }
+      wp = this._walkOffGoal(m, p, wp, taken);
+      taken = wp;
       this._route(p, wp.x, wp.z, null);
     }
+  }
+
+  /**
+   * Where a player walks off to, given their preferred waypoint `wp`:
+   *  - Centre Court: up the Players' Walk to the concourse by its head (their preferred spot when
+   *    it is that close, else the nearest concourse waypoint; not the one `taken` by the other
+   *    player); from there they wander on as members do. Their preferred spot across the club
+   *    was a 55–130 m walk that still counted as the match.
+   *  - A spot inside a round obstacle (the garden: its first waypoint is the fountain's centre, in
+   *    the basin): the nearest clear waypoint (garden_south; garden_north is on the clubhouse wall).
+   *  - Anything else: `wp`, as before.
+   */
+  _walkOffGoal(m, p, wp, taken = null) {
+    const pw = m.frame.stadium ? this._playersAisle() : null;
+    if (pw) {
+      const t = pw.top, d = Math.hypot(wp.x - t.x, wp.z - t.z);
+      if (wp !== taken && d <= EXIT_NEAR && d >= EXIT_CLEAR && this._clearSpot(wp.x, wp.z)) return wp;
+      const spots = this._exitSpotsFor(pw);
+      for (let k = 0; k < spots.length; k++) {
+        const s = spots[(p.idx + k) % spots.length];
+        if (s !== taken) return s;
+      }
+      if (spots.length) return spots[0];
+    }
+    if (!this._blockedAt(wp.x, wp.z)) return wp;
+    let best = null, bd = Infinity;
+    for (const key in this.waypoints) {
+      const w = this.waypoints[key];
+      if (!w || w === wp || !this._freeSpot(key, w)) continue;
+      const d = (w.x - wp.x) ** 2 + (w.z - wp.z) ** 2;
+      if (d < bd) { bd = d; best = w; }
+    }
+    return best || wp;
+  }
+
+  /** A waypoint a member may end a walk-off on: not a duty point, and a clear spot (_clearSpot). */
+  _freeSpot(key, w) {
+    return !!w && Number.isFinite(w.x) && Number.isFinite(w.z) && !/^(post|patrol)_/i.test(key) && this._clearSpot(w.x, w.z);
+  }
+
+  /**
+   * (x, z) is somewhere a walk can end: outside the bowl, not in a round obstacle (_blockedAt) and
+   * not against a wall — the RoutePlanner would pull a goal there out of the wall's margin, often
+   * to the wrong side (garden_north sits on the clubhouse's south wall).
+   */
+  _clearSpot(x, z) {
+    if (!isWanderable(x, z) || this._blockedAt(x, z)) return false;
+    if (!this.planner) return true;
+    const r = this.planner.plan(x, z, x, z, this._probe);
+    const e = r[r.length - 1];
+    return !!e && Math.abs(e.x - x) < 1e-6 && Math.abs(e.z - z) < 1e-6;
+  }
+
+  /** Concourse waypoints within EXIT_NEAR of the Players' Walk head (not on it), nearest first. Built once. */
+  _exitSpotsFor(pw) {
+    if (this._exitSpots && this._exitSpots.pw === pw) return this._exitSpots.list;
+    const t = pw.top, list = [];
+    for (const key in this.waypoints) {
+      const w = this.waypoints[key];
+      if (!w || !this._freeSpot(key, w) || roomAt(w.x, w.z) >= 0) continue;
+      const d = Math.hypot(w.x - t.x, w.z - t.z);
+      if (d >= EXIT_CLEAR && d <= EXIT_NEAR) list.push({ w, d });
+    }
+    list.sort((a, b) => a.d - b.d);
+    this._exitSpots = { pw, list: list.map(o => o.w) };
+    return this._exitSpots.list;
+  }
+
+  /**
+   * (x, z) is inside a static round obstacle a walker cannot enter (a Cylinder / Sphere body at
+   * walking height — the RoutePlanner only knows boxes): the garden fountain's basin, a trunk.
+   */
+  _blockedAt(x, z) {
+    let obs = this._roundObs;
+    if (!obs) {
+      obs = this._roundObs = [];
+      const bodies = this.physicsWorld ? this.physicsWorld.bodies : [];
+      for (const b of bodies) {
+        if (b.type !== CANNON.Body.STATIC) continue;
+        for (let i = 0; i < b.shapes.length; i++) {
+          const s = b.shapes[i];
+          let r = 0, h = 0;
+          if (s instanceof CANNON.Cylinder) { r = Math.max(s.radiusTop, s.radiusBottom); h = s.height / 2; }
+          else if (s instanceof CANNON.Sphere) { r = h = s.radius; }
+          else continue;
+          const o = b.shapeOffsets[i], cy = b.position.y + o.y;
+          if (!(r > 0) || cy + h < 0.05 || cy - h > 1.3) continue;
+          obs.push({ x: b.position.x + o.x, z: b.position.z + o.z, r: r + WALKER_R });
+        }
+      }
+    }
+    for (let i = 0; i < obs.length; i++) {
+      const o = obs[i];
+      if ((x - o.x) ** 2 + (z - o.z) ** 2 < o.r * o.r) return true;
+    }
+    return false;
   }
 
   _finish(m) {
@@ -605,10 +861,26 @@ export class MatchSystem {
     m.ball.hide();
     m.ball.inUse = false;
     this._flushWear(m);
-    NPC.setAreaBusy(m.frame.id, false);
+    if (!this._areaHeld(m.frame.id)) NPC.setAreaBusy(m.frame.id, false);
     for (const p of m.players) {
-      if (p.npc.playing) { p.npc.releaseShelter(); p.npc.stopPlaying(); }
+      if (p.npc.playing && !p.detached) { p.npc.releaseShelter(); p.npc.stopPlaying(); }
     }
+    this._emitFinish(m);
+  }
+
+  /** Another match on `courtId` keeps it marked busy for wanderers (walking on, playing, shaking hands). */
+  _areaHeld(courtId) {
+    for (let i = 0; i < this.matches.length; i++) {
+      const o = this.matches[i];
+      if (o.frame.id === courtId && o.phase !== 'walkOut' && o.phase !== 'rain') return true;
+    }
+    return false;
+  }
+
+  /** The 'finish' hook, once per match: when it leaves, or earlier when the next booking takes the court. */
+  _emitFinish(m) {
+    if (m.finishSent) return;
+    m.finishSent = true;
     this._emitEvent(m, 'finish');
   }
 
@@ -618,7 +890,7 @@ export class MatchSystem {
     m.ball.hide();
     for (const p of m.players) {
       p.tSplit = p.tMove = p.tSwing = p.tRecover = INF;
-      p.npc.character.setBallVisible(false);
+      if (!p.detached) p.npc.character.setBallVisible(false);   // (a detached player is in their next match)
     }
   }
 
@@ -761,9 +1033,12 @@ export class MatchSystem {
   }
 
   /**
-   * Rain delay: each player shelters on the nearest free bench on their own level (Centre Court
-   * players on the pad benches down in the pit, never the reserved stand seats or the rim), else
-   * at the court's `<id>_bench` waypoint when it is on their level, else beside the court.
+   * Rain delay: each player shelters on the nearest free bench on their own level, never the
+   * reserved stand seats, else at the court's `<id>_bench` waypoint when it is on their level, else
+   * beside the court. On Centre Court the levels are the shelter levels (_shelterLevel): anyone
+   * down in the cut — on the pad, the walkway or partway up an aisle — takes the pad benches (the
+   * pit is always reachable by the aisles); anyone at ground height (the lawn, the lip, row 7) the
+   * rim benches or `court6_bench`.
    */
   _startRain(m) {
     const f = m.frame;
@@ -775,16 +1050,18 @@ export class MatchSystem {
     for (const p of m.players) {
       const npc = p.npc;
       const x = npc.body.position.x, z = npc.body.position.z;
+      const lv = f.stadium ? this._shelterLevel(x, z) : null;
       let best = null, bd = 30 * 30;
       for (const s of seats) {
         if (s.taken && s.taken !== npc) continue;
-        if (s.reserved || !sameLevel(s.x, s.z, x, z)) continue;
+        if (s.reserved) continue;
+        if (lv ? this._shelterLevel(s.x, s.z) !== lv : !sameLevel(s.x, s.z, x, z)) continue;
         const d = (s.x - x) ** 2 + (s.z - z) ** 2;
         if (d < bd) { bd = d; best = s; }
       }
       if (best && !claimSeat(best, npc)) best = null;
       const wp = this.waypoints[`${f.id}_bench`];
-      let pt = wp && (!f.stadium || sameLevel(wp.x, wp.z, x, z)) ? wp : null;
+      let pt = wp && (!lv || this._shelterLevel(wp.x, wp.z) === lv) ? wp : null;
       if (!pt) {
         // Beside the court: on the flat courts past the pad; in the bowl on the pit walkway
         const side = f.stadium ? f.halfPadL + 0.3 : f.halfPadL + 1.5;
@@ -795,6 +1072,11 @@ export class MatchSystem {
     }
     if (Math.random() < 0.7) this._say(m.players[0], 'Rain delay!', 1.8);
     this._emitEvent(m, 'rain');
+  }
+
+  /** Centre Court rain shelter level: 'ground' at lawn height (outside the cut, the lip, row 7), else 'pit'. */
+  _shelterLevel(x, z) {
+    return !inCut(x, z) || groundAt(x, z) > -0.01 ? 'ground' : 'pit';
   }
 
   // ───────────────────────────── warm-up / points ─────────────────────────────
@@ -1459,8 +1741,9 @@ export class MatchSystem {
   debugStart(courtId = 'court1', ids = null, opts = {}) {
     const frame = this._frames.get(courtId);
     if (!frame) return `unknown court ${courtId}`;
-    const existing = this.matches.find(m => m.frame.id === courtId);
-    if (existing) this._finish(existing);
+    for (let i = this.matches.length - 1; i >= 0; i--) {
+      if (this.matches[i] && this.matches[i].frame.id === courtId) this._finish(this.matches[i]);
+    }
     const busy = this._missionNpcs();
     let npcs = (ids || []).map(id => this._npcById.get(id)).filter(Boolean);
     for (const n of npcs) {
@@ -1477,7 +1760,7 @@ export class MatchSystem {
   }
 
   debugStop(courtId) {
-    const m = this.matches.find(x => x.frame.id === courtId);
+    const m = this.getMatch(courtId);
     if (m) this._startWalkOut(m);
     return !!m;
   }
