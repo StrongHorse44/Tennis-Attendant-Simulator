@@ -33,11 +33,13 @@
  * Hooks (Game sets them; all optional): onChange(kind), onMarkers(), onToast(text, icon),
  *   onCareer(career, { chosen }), onOpenHub(), onCelebrate(kind)
  *
- * matchSpec = { tournamentId, tournamentName, tier, tierLabel, venueId, venueName, courtLabel,
- *   courtId (home event: the club court, else null), home, surface, wind, round ('QF'…),
- *   roundIndex, roundLabel, format ('short' | 'set' | 'bo3'), final, day, week, drawSize,
- *   opponent: { id, name, short, npcId | null, rating, effRating, style, styleLabel, age, club,
+ * matchSpec = { tournamentId, tournamentName, tier, tierLabel, venueId, venueName, venueShort, courtLabel,
+ *   courtId (home event: the club court, else null), home, surface, wind, round ('QF'…), roundIndex,
+ *   roundLabel (the short label, = round: 'R16' | 'QF' | 'SF' | 'F'), roundName ('Quarterfinal'),
+ *   format ('short' | 'set' | 'bo3'), final, day, week, drawSize, seed (yours | null),
+ *   opponent: { id, name, short, npcId | null, rating, effRating, style, styleLabel, age, club, adult,
  *     seed | null, look: { shirtColor, seed }, styleMods, aiMods, note, level }, crowd (0..1) }
+ * Everywhere in the hub, `round` / `roundLabel` are round codes and `roundName` the long name.
  */
 
 import {
@@ -408,10 +410,15 @@ export class TourSystem {
     });
   }
 
+  /**
+   * Hank's crossroads. With a TourUI that has showChoice, his question ends on its choice card (each
+   * path's consequences spelled out; Esc = "Let me think"); otherwise the dialogue's own choices.
+   */
   _hankTalk(npc) {
     const H = this.data.hank;
     this.hank.asked++;
-    this._talk(npc, H.ask.slice(), H.choices.slice(), (i) => {
+    const decide = (i) => {
+      if (!this.hankPending) return;             // answered meanwhile (another path, a reload)
       if (i === 0) {
         this.chooseCareer('pro');
         this._talk(npc, H.pro.slice(), null, null, null);
@@ -423,7 +430,36 @@ export class TourSystem {
         this._changed('snooze');
         this._talk(npc, H.think.slice(), null, null, null);
       }
-    });
+    };
+    const ui = this.game.tourUI;
+    if (!ui || typeof ui.showChoice !== 'function') {
+      this._talk(npc, H.ask.slice(), H.choices.slice(), decide);
+      return;
+    }
+    const C = this.data.careers;
+    const choices = [
+      { label: H.choices[0], primary: true,
+        desc: `${C.pro.title}: the Pro Circuit opens (adult fields, prize money, a night stadium), the club pays your entry fees and Jess takes ${Math.round(C.pro.gearDiscount * 100)}% off tennis gear. Your shifts go on.` },
+      { label: H.choices[1], primary: true,
+        desc: `${C.grounds.title}: Hank retires and hands you the keys. Wage ×${C.grounds.wageMul}, groom bonus ×${C.grounds.groomBonusMul}. You can still play the junior events.` },
+      { label: H.choices[2] || 'Let me think', desc: `Hank asks again in ${H.askAgainDays} day${H.askAgainDays === 1 ? '' : 's'}.` },
+    ];
+    const card = () => {
+      try {
+        ui.showChoice({
+          title: 'Your future at Greenbriar', speaker: npc.name, role: 'Head of Grounds',
+          body: H.ask[H.ask.length - 1], choices, cancel: 2,
+        }, (i) => {
+          // After the card has closed and the game has resumed (the follow-up is a dialogue)
+          Promise.resolve().then(() => { try { decide(i); } catch (e) { console.warn('Hank:', e); } });
+        });
+      } catch (e) {
+        console.warn('TourUI.showChoice failed:', e);
+        this._talk(npc, [H.ask[H.ask.length - 1]], H.choices.slice(), decide);
+      }
+    };
+    if (H.ask.length > 1) this._talk(npc, H.ask.slice(0, -1), null, null, card);
+    else card();
   }
 
   _hankRetiredTalk(npc) {
@@ -444,7 +480,7 @@ export class TourSystem {
     const hub = this.getHub();
     const f = hub.featured;
     const lines = [];
-    if (hub.tonight) lines.push(`Tonight: ${hub.tonight.roundLabel} against ${hub.tonight.opponent.name} at ${hub.tonight.venueName}. After your shift, from the report card.`);
+    if (hub.tonight) lines.push(`Tonight: the ${hub.tonight.roundName.toLowerCase()} against ${hub.tonight.opponent.name} at ${hub.tonight.venueName}. After your shift, from the report card.`);
     if (f) {
       const status = f.entered ? (f.status === 'entered' ? 'You are entered.' : f.status === 'inProgress' ? 'You are still in it.' : '')
         : f.canEnter ? `Entry $${f.fee}${f.sponsored ? ' (the club pays)' : ''}, until ${WEEKDAY_NAMES[tourWeekdayOf(f.startDay - 1)]}.` : f.reason;
@@ -585,7 +621,10 @@ export class TourSystem {
    * the set line from the player's side ("6-4 3-6 7-5"; en dashes are fine); retired: the match
    * ended by a retirement (quitting it from the menu = won false, retired true) — it only adds
    * "ret." to the score. stats are accepted and ignored (the results card shows them).
-   * Returns { won, round, roundLabel, title, prize, points, rank, next } or null (no such match).
+   * Returns null (no such match) or { won, round / roundLabel ('QF'), roundName ('Quarterfinal'), final, title,
+   * prize, points (this week's tournament points), rank, next: { day, round, roundLabel, roundName, opponent } | null,
+   * tournamentId, tournamentName, opponent (name), score (your side, + " ret."), champion, prizeGained,
+   * pointsGained, rankDelta (+ = climbed) } — the last group in TourUI.showTournamentResult's words.
    */
   onMatchResult({ tournamentId = null, round = null, won = false, score = '', retired = false, stats = null } = {}) {
     if (!this.available || !this.accepted) return null;
@@ -600,6 +639,8 @@ export class TourSystem {
     const mine = normScore(score);
     const winnerView = win ? mine : flipScore(mine);
     const day = this._day();
+    const ptsBefore = this._provisional().get(ME) || 0;
+    const rankBefore = this.myRank();
     draw.res[pm.idx] = [win ? pm.side : 1 - pm.side, ((winnerView || '') + (retired ? ' ret.' : '')).trim().slice(0, 40), day];
     const opp = this.field.players.get(pm.oppId) || null;
     // Record, head-to-head, history, ratings
@@ -616,7 +657,7 @@ export class TourSystem {
       this._drift(opp.id, K_AI_VS_ME * ((1 - S) - (1 - E)));
     }
     this._pushHistory({
-      week: draw.week, day, tid: t.id, tournament: t.name, venue: this._venueShort(t), round: pm.code, roundLabel: ROUND_LABELS[pm.code] || pm.code,
+      week: draw.week, day, tid: t.id, tournament: t.name, venue: this._venueShort(t), round: pm.code, roundLabel: pm.code, roundName: ROUND_LABELS[pm.code] || pm.code,
       oppId: opp ? opp.id : null, opponent: opp ? opp.name : 'Unknown', won: win, score: (mine + (retired ? ' ret.' : '')).trim(), wo: false,
     });
     let title = false, prize = 0;
@@ -627,10 +668,16 @@ export class TourSystem {
     this._changed('result');
     const next = this._playerPending(draw);
     const nextOpp = next ? this.field.players.get(next.oppId) : null;
+    const points = this._provisional().get(ME) || 0;
+    const rank = this.myRank();
     return {
-      won: win, round: pm.code, roundLabel: ROUND_LABELS[pm.code] || pm.code, title, prize,
-      points: this._provisional().get(ME) || 0, rank: this.myRank(),
-      next: next ? { day: this._roundDay(draw, next.r), round: next.code, roundLabel: ROUND_LABELS[next.code] || next.code, opponent: nextOpp ? nextOpp.name : null } : null,
+      won: win, round: pm.code, roundLabel: pm.code, roundName: ROUND_LABELS[pm.code] || pm.code, final: pm.r === roundsOf(draw.size) - 1,
+      title, prize, points, rank,
+      next: next ? { day: this._roundDay(draw, next.r), round: next.code, roundLabel: next.code, roundName: ROUND_LABELS[next.code] || next.code, opponent: nextOpp ? nextOpp.name : null } : null,
+      // The same, in the result card's words (TourUI.showTournamentResult)
+      tournamentId: t.id, tournamentName: t.name, opponent: opp ? opp.name : 'Unknown', score: (mine + (retired ? ' ret.' : '')).trim(),
+      champion: title, prizeGained: prize, pointsGained: Math.max(0, points - ptsBefore),
+      rankDelta: rankBefore && rank ? rankBefore - rank : 0,
     };
   }
 
@@ -638,17 +685,20 @@ export class TourSystem {
 
   /**
    * Everything the tour hub shows, as plain data (fresh objects; safe to keep).
-   * { available, unlocked, offerPending, hankPending, accepted, career, careerTitle, day, week, weekday,
-   *   wallet, me, featured, calendar, rankings, draw, tonight, nextMatch, scouting, canEnter, reason, entries }
+   * { available, unlocked, offerPending, hankPending, unlock: { need, wins }, accepted, career, careerTitle,
+   *   day, week, weekday, wallet, me, featured, calendar, rankings, draw, tonight, nextMatch, scouting,
+   *   canEnter, reason, entries }
    */
   getHub() {
     const day = this._day();
+    const need = this.data ? this.data.unlock.rafaWins : 3;
     const base = {
       available: this.available, unlocked: this.unlocked, offerPending: this.offerPending, hankPending: false,
+      unlock: { need, wins: Math.min(need, this._profileWins()) },
       accepted: this.accepted, career: this.career, careerTitle: this.careerTitle, day, week: tourWeekOf(day), weekday: tourWeekdayOf(day),
       wallet: Math.floor(this._wallet()),
       me: { name: 'You', rank: null, points: 0, move: 0, rating: Math.round(this.me.rating), prize: this.me.prize,
-        pointsBreakdown: [], record: { w: this.me.w, l: this.me.l }, titles: [], history: [], h2h: {} },
+        pointsBreakdown: [], record: { w: this.me.w, l: this.me.l }, titles: [], history: [], lastMatch: null, h2h: {} },
       featured: null, calendar: [], rankings: [], draw: null, tonight: null, nextMatch: null, scouting: null,
       canEnter: false, reason: this.available ? "Accept Coach Rafa's offer first." : 'The tour is not available.', entries: [],
     };
@@ -663,7 +713,8 @@ export class TourSystem {
     base.me.move = this._move(ME, myRank);
     base.me.pointsBreakdown = this._breakdown();
     base.me.titles = this.me.titles.map(x => ({ ...x }));
-    base.me.history = this.me.history.slice().reverse().map(x => ({ ...x }));
+    base.me.history = this.me.history.map(x => ({ ...x }));            // oldest first (like titles)
+    base.me.lastMatch = base.me.history.length ? base.me.history[base.me.history.length - 1] : null;
     for (const [id, h] of Object.entries(this.me.h2h)) base.me.h2h[id] = { ...h };
 
     // This week's tournament
@@ -692,9 +743,9 @@ export class TourSystem {
       base.featured = {
         id: t.id, name: t.name, venueId: t.venue, venueName: venue ? venue.name : t.venue, venueShort: venue ? venue.short : t.venue,
         surface: t.surface, wind: t.wind, tier: t.tier, tierLabel: tier.label, draw: t.draw, home: !!t.home, circuit: t.circuit,
-        blurb: t.blurb, fee: entered ? this.entry.fee : info.fee, sponsored: info.sponsored,
+        blurb: t.blurb, fee: entered ? this.entry.fee : info.fee, baseFee: tier.fee, sponsored: info.sponsored,
         prize: table(tier.prize), points: table(tier.points), cutoff: tier.cutoff,
-        days: codes.map((c, r) => ({ day: startDay + r, weekday: tourWeekdayOf(startDay + r), round: c, roundLabel: ROUND_LABELS[c] || c, format: tier.formats[c] })),
+        days: codes.map((c, r) => ({ day: startDay + r, weekday: tourWeekdayOf(startDay + r), round: c, roundLabel: c, roundName: ROUND_LABELS[c] || c, format: tier.formats[c] })),
         startDay, closeDay: startDay - 1,
         status, canEnter: info.ok, reason: info.ok ? '' : info.reason, entered: entered || inDraw,
         wildcard: entered ? !!this.entry.wildcard : info.wildcard,
@@ -743,7 +794,7 @@ export class TourSystem {
     let spec = base.tonight;
     if (pm) {
       spec = spec || this._matchSpec(this.draw, pm);
-      base.nextMatch = { day: this._roundDay(this.draw, pm.r), weekday: tourWeekdayOf(this._roundDay(this.draw, pm.r)), round: pm.code, roundLabel: ROUND_LABELS[pm.code] || pm.code, opponent: spec ? spec.opponent : null };
+      base.nextMatch = { day: this._roundDay(this.draw, pm.r), weekday: tourWeekdayOf(this._roundDay(this.draw, pm.r)), round: pm.code, roundLabel: pm.code, roundName: ROUND_LABELS[pm.code] || pm.code, opponent: spec ? spec.opponent : null };
     }
     base.scouting = spec ? this._scouting(spec) : null;
     return base;
@@ -759,13 +810,13 @@ export class TourSystem {
     const out = [];
     const W = this.data.ranking.window;
     const recent = this.me.results.filter(r => r.week > this.curWeek - W && r.week < this.curWeek);
-    for (const r of recent) out.push({ tournament: r.tournament, round: r.round, roundLabel: ROUND_LABELS[r.round] || r.round, points: r.points, week: r.week, provisional: false, counted: false });
+    for (const r of recent) out.push({ tournament: r.tournament, round: r.round, roundLabel: r.round, roundName: ROUND_LABELS[r.round] || r.round, points: r.points, week: r.week, provisional: false, counted: false });
     const prov = this._provisional().get(ME) || 0;
     if (this.draw && this.draw.week === this.curWeek && this.draw.slots.includes(ME)) {
       const t = this.data.tournamentById.get(this.draw.tid);
       const st = this._standing(this.draw).get(ME);
       const code = st ? (st.champion ? 'W' : roundCode(this.draw.size, Math.min(st.r, roundsOf(this.draw.size) - 1))) : '';
-      out.push({ tournament: t ? t.name : this.draw.tid, round: code, roundLabel: ROUND_LABELS[code] || code, points: prov, week: this.curWeek, provisional: true, counted: false });
+      out.push({ tournament: t ? t.name : this.draw.tid, round: code, roundLabel: code, roundName: ROUND_LABELS[code] || code, points: prov, week: this.curWeek, provisional: true, counted: false });
     }
     const order = out.map((x, i) => i).sort((a, b) => out[b].points - out[a].points);
     for (let k = 0; k < order.length && k < this.data.ranking.bestOf; k++) if (out[order[k]].points > 0) out[order[k]].counted = true;
@@ -790,7 +841,7 @@ export class TourSystem {
       for (let i = 0; i < matchesIn(draw.size, r); i++) {
         const [a, b] = drawParticipants(draw, r, i);
         const res = draw.res[matchOffset(draw.size, r) + i];
-        arr.push({ a: who(a), b: who(b), winner: res[0] === 0 ? 'a' : res[0] === 1 ? 'b' : null, score: res[0] >= 0 ? res[1] : '', day: this._roundDay(draw, r), code, roundLabel: ROUND_LABELS[code] || code });
+        arr.push({ a: who(a), b: who(b), winner: res[0] === 0 ? 'a' : res[0] === 1 ? 'b' : null, score: res[0] >= 0 ? res[1] : '', day: this._roundDay(draw, r), code, roundLabel: code, roundName: ROUND_LABELS[code] || code });
       }
       rounds.push(arr);
     }
@@ -838,7 +889,7 @@ export class TourSystem {
       venueId: t.venue, venueName: venue ? venue.name : t.venue, venueShort: venue ? venue.short : t.venue,
       courtLabel: home ? (venue && venue.courtLabel) || 'Centre Court' : (pm.code === 'F' || pm.code === 'SF' ? 'Stadium Court' : 'Court 1'),
       courtId: home && venue ? venue.court || null : null, home,
-      surface: t.surface, wind: t.wind, round: pm.code, roundIndex: pm.r, roundLabel: ROUND_LABELS[pm.code] || pm.code,
+      surface: t.surface, wind: t.wind, round: pm.code, roundIndex: pm.r, roundLabel: pm.code, roundName: ROUND_LABELS[pm.code] || pm.code,
       format: tier.formats[pm.code] || 'set', final: pm.code === 'F', day: this._roundDay(draw, pm.r), week: draw.week, drawSize: draw.size,
       opponent: p ? {
         id: p.id, name: p.name, short: p.short, npcId: p.npcId || null, rating: Math.round(p.rating + (this.rd.get(p.id) || 0)),
@@ -1111,7 +1162,7 @@ export class TourSystem {
     const opp = oppId ? this.field.players.get(oppId) : null;
     const code = roundCode(draw.size, r);
     this._pushHistory({
-      week: draw.week, day: this._roundDay(draw, r), tid: t.id, tournament: t.name, venue: this._venueShort(t), round: code, roundLabel: ROUND_LABELS[code] || code,
+      week: draw.week, day: this._roundDay(draw, r), tid: t.id, tournament: t.name, venue: this._venueShort(t), round: code, roundLabel: code, roundName: ROUND_LABELS[code] || code,
       oppId: opp ? opp.id : null, opponent: opp ? opp.name : 'Unknown', won: false, score: 'W/O', wo: true,
     });
     this._endRun(draw, 'wo', r);
@@ -1415,7 +1466,7 @@ export class TourSystem {
     const [week, day, tid, round, oppId, opponent, won, score, wo] = a;
     const t = this.data.tournamentById.get(tid);
     return {
-      week, day, tid, tournament: t ? t.name : tid, venue: t ? this._venueShort(t) : '', round, roundLabel: ROUND_LABELS[round] || round,
+      week, day, tid, tournament: t ? t.name : tid, venue: t ? this._venueShort(t) : '', round, roundLabel: round, roundName: ROUND_LABELS[round] || round,
       oppId: oppId || null, opponent: opponent || (oppId ? this._nameOf(oppId) : 'Unknown'), won: !!won, score, wo: !!wo,
     };
   }

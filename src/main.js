@@ -804,9 +804,10 @@ class Game {
   }
 
   /**
-   * Play tonight's tour match (the report card hid itself): TennisSession's tour mode. If it can't
-   * start (not available), the report card comes back with the match still on it (a match not
-   * played by Next day is a walkover — never a dead end).
+   * Play tonight's tour match: TennisSession's tour mode. Returns true when it started (the report
+   * card then hides itself) and false when it could not (no beginTour yet, or it refused): a card
+   * that is still open keeps the match on it; one that already hid itself is shown again, so the
+   * evening is never a dead end (a match not played by Next day is a walkover).
    */
   _startTourMatch(spec) {
     let ok = false;
@@ -814,11 +815,13 @@ class Game {
     if (spec && t && typeof t.beginTour === 'function') {
       try { ok = t.beginTour(spec) !== false; } catch (e) { console.error('Tour match could not start:', e); ok = false; }
     }
-    if (ok) return;
-    if (this.shift.phase === 'report' && this.shift.lastReport) {
+    if (ok) return true;
+    const card = this.shiftReport;
+    if (card && !card.isOpen && this.shift.phase === 'report' && this.shift.lastReport) {
       this._setReportTourMatch();
-      this.shiftReport.show(this.shift.lastReport);
+      card.show(this.shift.lastReport);
     }
+    return false;
   }
 
   /** Clock in (clock-in card, or the end of the first-day tutorial). */
