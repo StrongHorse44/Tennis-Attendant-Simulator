@@ -1430,13 +1430,18 @@ export class Court {
     // Clay-court maintenance bits
     if (this.isClay && !this.config.adjacentLeft) this._addLineBroom(-w / 2 + 0.6, -14.2);
     if (this.isClay && !this.config.adjacentRight) this._addHoseReel(w / 2 + 2.5, -13.6);
-    // Grass: the line-marking trolley parked by the back fence
-    if (this.isGrass) this._addLineMarker(-5.2, -13.55);
+    // Grass: the line-marking trolley parked by the back fence. On a show court it stands on the
+    // walkway in the corner past the end boards' west end (the boards stop at |u| 9): after-hours
+    // tennis fades what stands behind the camera's baseline only above 0.28 m, so behind the
+    // baseline its wheels' lower halves stayed solid in view; neither end camera sees this corner.
+    if (this.isGrass) {
+      if (this.isStadium) this._addLineMarker(-10.3, -14.7, SURFACE_Y);
+      else this._addLineMarker(-5.2, -13.55);
+    }
   }
 
-  /** Wheeled chalk line marker (grass courts), handle toward the fence. */
-  _addLineMarker(x, z) {
-    const y = this._surfaceY(x, z);
+  /** Wheeled chalk line marker (grass courts), handle toward the fence; y: its ground (court-local). */
+  _addLineMarker(x, z, y = this._surfaceY(x, z)) {
     const green = COLORS.courtFenceGreen, dark = 0x3a3f3a;
     this._add('matte', roundedBox(0.34, 0.24, 0.46, 0.05), x, y + 0.27, z, 0xe9e5d8);
     this._add('matte', roundedBox(0.36, 0.04, 0.48, 0.015), x, y + 0.4, z, green);
