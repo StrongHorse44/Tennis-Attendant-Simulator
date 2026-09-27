@@ -38,14 +38,15 @@
  *   roundLabel (the short label, = round: 'R16' | 'QF' | 'SF' | 'F'), roundName ('Quarterfinal'),
  *   format ('short' | 'set' | 'bo3'), final, day, week, drawSize, seed (yours | null),
  *   opponent: { id, name, short, npcId | null, rating, effRating, style, styleLabel, age, club, adult,
- *     seed | null, look: { shirtColor, seed }, styleMods, aiMods, note, level }, crowd (0..1) }
+ *     gender ('m' | 'f' | 'x'), pronoun ('he' | 'she' | 'they'), seed | null,
+ *     look: { shirtColor, seed, gender }, styleMods, aiMods, note, level }, crowd (0..1) }
  * Everywhere in the hub, `round` / `roundLabel` are round codes and `roundName` the long name.
  */
 
 import {
   normalizeTourData, generateField, rngFor, gauss, mod, formOf, effectiveRating, serveWinProb, simulateMatch,
   roundsOf, roundCode, matchOffset, matchesIn, buildDrawSlots, drawParticipants, levelLabel,
-  TIER_ORDER, TOUR_SURFACES, ROUND_LABELS, RING, DRAW_SIZES,
+  TIER_ORDER, TOUR_SURFACES, ROUND_LABELS, RING, DRAW_SIZES, PRONOUNS, genderize,
 } from './TourField.js';
 
 export const CAREERS = ['amateur', 'pro', 'grounds'];
@@ -55,7 +56,7 @@ const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 const WIND_WORDS = { calm: 'calm', breeze: 'breezy', gusty: 'gusty' };
 const SURFACE_PLANS = {
   hard: 'Hard court: take the ball early and dictate with your forehand.',
-  clay: 'Clay: build the point with height and angles; the drop shot works when he stands deep.',
+  clay: 'Clay: build the point with height and angles; the drop shot works when {he} stands deep.',
   grass: 'Grass: first strike. Serve well, take the first ball early and keep your slice low.',
 };
 const K_ME = 28, K_AI_VS_ME = 10;
@@ -120,6 +121,7 @@ export class TourSystem {
     this._syncing = false;
     this._lastWins = this._profileWins();
     this._retiredLast = null;
+    this._offerCard = false;      // the offer card is up (TourUI.showOffer), waiting for an answer
     this._hankWas = false;
 
     // Hooks (Game sets them)
@@ -249,17 +251,19 @@ export class TourSystem {
     }
     const ui = g.tourUI;
     if (ui && typeof ui.showOffer === 'function') {
+      if (this._offerCard) return true;          // one card at a time (it is still up)
+      this._offerCard = true;
       // After the current frame's UI (the results card comes up right after the record is written)
       Promise.resolve().then(() => {
-        if (!this.offerPending) return;
+        if (!this.offerPending) { this._offerCard = false; return; }
         try {
           ui.showOffer({
             lines: this.data.rafa.offer.slice(),
             wins: this._profileWins(),
-            onAccept: () => this.accept('ui'),
-            onLater: () => this.decline(),
+            onAccept: () => { this._offerCard = false; this.accept('ui'); },
+            onLater: () => { this._offerCard = false; this.decline(); },
           });
-        } catch (e) { console.warn('TourUI.showOffer failed:', e); }
+        } catch (e) { this._offerCard = false; console.warn('TourUI.showOffer failed:', e); }
       });
       return true;
     }
@@ -600,6 +604,7 @@ export class TourSystem {
   /** Next day (Game.startNextDay) and after a load: walkovers, simulated rounds, week rollover, draws. */
   onNewDay(day = this._day()) {
     if (!this.available) return;
+    this._offerCard = false;
     if (!this.accepted) { this.lastDay = day; this._markersChanged(); return; }
     this._sync(day);
     this._changed('day');
@@ -865,10 +870,11 @@ export class TourSystem {
     if (SURFACE_PLANS[spec.surface]) plan.push(SURFACE_PLANS[spec.surface]);
     if (spec.wind && spec.wind !== 'calm') plan.push(`It is ${WIND_WORDS[spec.wind] || spec.wind} at ${spec.venueShort || spec.venueName}: aim well inside the lines and lob with the wind behind you.`);
     const h = this.me.h2h[o.id];
+    const g = o.gender, gz = (list) => list.map(x => genderize(x, g));
     return {
-      opponent: o, level: levelLabel(o.effRating), strengths, weaknesses, plan,
+      opponent: o, level: levelLabel(o.effRating), strengths: gz(strengths), weaknesses: gz(weaknesses), plan: gz(plan),
       h2h: h ? { w: h.w, l: h.l } : { w: 0, l: 0 },
-      note: o.note || (st ? st.blurb : ''),
+      note: genderize(o.note || (st ? st.blurb : ''), g),
     };
   }
 
@@ -894,9 +900,10 @@ export class TourSystem {
       opponent: p ? {
         id: p.id, name: p.name, short: p.short, npcId: p.npcId || null, rating: Math.round(p.rating + (this.rd.get(p.id) || 0)),
         effRating: Math.round(eff), style: p.style, styleLabel: st ? st.label : p.style, age: p.age, club: p.club,
-        seed: draw.seeds[p.id] || null, look: { shirtColor: p.shirtColor, seed: p.lookSeed },
+        gender: p.gender || 'x', pronoun: (PRONOUNS[p.gender] || PRONOUNS.x).he,
+        seed: draw.seeds[p.id] || null, look: { shirtColor: p.shirtColor, seed: p.lookSeed, gender: p.gender || 'x' },
         styleMods: st ? JSON.parse(JSON.stringify(st.ai)) : null, aiMods: p.ai ? JSON.parse(JSON.stringify(p.ai)) : null,
-        note: p.note || '', level: levelLabel(eff), adult: !!p.adult,
+        note: genderize(p.note || '', p.gender), level: levelLabel(eff), adult: !!p.adult,
       } : null,
       crowd: clamp(crowdBase * roundF * (home ? 1.25 : 1), 0, 1),
       seed: draw.seeds[ME] || null,
@@ -1623,7 +1630,8 @@ export class TourSystem {
       let guard = 0;
       while (this._profileWins() < this.data.unlock.rafaWins && guard++ < 10) p.recordMatch({ won: true, setsWon: 1, setsLost: 0 });
     }
-    this._offer('debug');
+    // The third recorded win usually makes the offer itself (profile 'record'); otherwise make it now
+    if (this.offer.shownDay !== this._day()) this._offer('debug');
     return this.offerPending;
   }
 

@@ -125,8 +125,31 @@ const DEFAULT_STYLE = {
   scout: { strengths: [], weaknesses: [], plan: [] },
 };
 
-const DEFAULT_FIRST = ['Mateo', 'Aarav', 'Sofia', 'Kenji', 'Amara', 'Luca', 'Chloe', 'Noah', 'Zara', 'Diego', 'Ines', 'Kwame'];
+const DEFAULT_FIRST_M = ['Mateo', 'Aarav', 'Kenji', 'Luca', 'Noah', 'Diego', 'Kwame', 'Omar'];
+const DEFAULT_FIRST_F = ['Sofia', 'Amara', 'Chloe', 'Zara', 'Ines', 'Elena', 'Freya', 'Mei'];
 const DEFAULT_LAST = ['Marquez', 'Okonkwo', 'Novak', 'Tanaka', 'Haddad', 'Lindqvist', 'Silva', 'Mensah', 'Petrov', 'Duarte', 'Fischer', 'Rossi'];
+
+// ───────────────────────────── pronouns ─────────────────────────────
+
+/** 'm' | 'f' | 'x' (x: names given without a gender → they / them / their). */
+export const GENDERS = ['m', 'f', 'x'];
+export const PRONOUNS = {
+  m: { he: 'he', him: 'him', his: 'his', "he's": "he's", himself: 'himself' },
+  f: { he: 'she', him: 'her', his: 'her', "he's": "she's", himself: 'herself' },
+  x: { he: 'they', him: 'them', his: 'their', "he's": "they're", himself: 'themself' },
+};
+/** The tokens scouting / note texts may use: {he} {him} {his} {he's} {himself}, capitalised too. */
+export const PRONOUN_TOKEN = /\{(he|him|his|he's|himself|He|Him|His|He's|Himself)\}/g;
+const ANY_TOKEN = /\{[^{}]*\}/g;
+
+/** Fill a text's pronoun tokens for a player's gender ("Bring {him} forward" → "Bring her forward"). */
+export function genderize(text, gender) {
+  const P = PRONOUNS[gender] || PRONOUNS.x;
+  return String(text == null ? '' : text).replace(PRONOUN_TOKEN, (m, k) => {
+    const w = P[k.toLowerCase()];
+    return k[0] === 'H' ? w[0].toUpperCase() + w.slice(1) : w;
+  });
+}
 
 function normPointsTable(v, d) {
   const out = {};
@@ -246,6 +269,7 @@ export function normalizeTourData(raw) {
     ratingMin: Math.min(rmin, rmax), ratingMax: Math.max(rmin, rmax),
     ages,
     formSd: numOr(f.formSd, 35, 0, 300),
+    femaleShare: numOr(f.femaleShare, 0.5, 0, 1),
     prefBonus: numOr(f.prefBonus, 35, 0, 300),
     weakMalus: numOr(f.weakMalus, 30, 0, 300),
     drift: numOr(f.drift, 6, 0, 64),
@@ -313,9 +337,11 @@ export function normalizeTourData(raw) {
   for (const k of STYLE_KEYS) if (!d.styles[k]) d.styles[k] = normStyle({ label: k, weight: 1 });
   d.styleKeys = Object.keys(d.styles);
 
+  // First names by gender (firstM / firstF); a plain `first` list is gender-neutral ('x')
   const nm = isObj(raw.names) ? raw.names : {};
-  const first = lines(nm.first), last = lines(nm.last);
-  d.names = { first: first.length ? first : DEFAULT_FIRST, last: last.length ? last : DEFAULT_LAST };
+  const fm = lines(nm.firstM), ff = lines(nm.firstF), fx = lines(nm.first), last = lines(nm.last);
+  d.names = { m: fm, f: ff, x: fm.length || ff.length ? [] : fx, last: last.length ? last : DEFAULT_LAST };
+  if (!fm.length && !ff.length && !fx.length) { d.names.m = DEFAULT_FIRST_M; d.names.f = DEFAULT_FIRST_F; }
   d.clubs = lines(raw.clubs, ['Riverside Racquet Club']);
   if (!d.clubs.length) d.clubs = ['Riverside Racquet Club'];
   d.shirtColors = lines(raw.shirtColors).filter(c => HEX.test(c));
@@ -328,6 +354,7 @@ export function normalizeTourData(raw) {
     age: intOr(p.age, 16, 5, 60),
     surface: TOUR_SURFACES.includes(p.surface) ? p.surface : null,
     club: strOr(p.club, 'Greenbriar'),
+    gender: GENDERS.includes(p.gender) ? p.gender : 'x',
     note: strOr(p.note, ''),
     ai: isObj(p.ai) ? p.ai : null,
     localOnly: !!p.localOnly,
@@ -362,7 +389,7 @@ const pad2 = (n) => (n < 10 ? '0' + n : String(n));
  * The tour's players, rebuilt from the seed on every load (only dynamic state is saved).
  * npcInfo(id) → { name, shirtColor } | null resolves club members (npcs.json).
  * Returns { players: Map(id → player), juniors: [ids], adults: [ids], clubIds: Set }.
- *   player = { id, name, first, last, short, club, age, rating, style, pref, weak, npcId, adult,
+ *   player = { id, name, first, last, short, gender ('m' | 'f' | 'x'), club, age, rating, style, pref, weak, npcId, adult,
  *              localOnly, wildcardChance, home, shirtColor, lookSeed, ai, note }
  */
 export function generateField(d, seed, npcInfo = () => null) {
@@ -373,17 +400,24 @@ export function generateField(d, seed, npcInfo = () => null) {
   const usedFull = new Set(), usedShort = new Set();
   const f = d.field;
   const styleEntries = d.styleKeys.map(k => [k, d.styles[k].weight]);
+  const N = d.names;
+  const pickGender = () => {
+    if (N.m.length && N.f.length) return rand() < f.femaleShare ? 'f' : 'm';
+    return N.f.length ? 'f' : N.m.length ? 'm' : 'x';
+  };
   const pickName = () => {
+    const gender = pickGender();
+    const pool = gender === 'f' ? N.f : gender === 'm' ? N.m : N.x;
     for (let tries = 0; tries < 400; tries++) {
-      const first = d.names.first[Math.floor(rand() * d.names.first.length)];
-      const last = d.names.last[Math.floor(rand() * d.names.last.length)];
+      const first = pool[Math.floor(rand() * pool.length)];
+      const last = N.last[Math.floor(rand() * N.last.length)];
       const full = `${first} ${last}`, short = `${first[0]}. ${last}`;
-      if (!usedFull.has(full) && !usedShort.has(short)) { usedFull.add(full); usedShort.add(short); return { first, last }; }
+      if (!usedFull.has(full) && !usedShort.has(short)) { usedFull.add(full); usedShort.add(short); return { first, last, gender }; }
     }
     const n = usedFull.size + 1;
-    const first = d.names.first[n % d.names.first.length], last = `${d.names.last[n % d.names.last.length]} ${n}`;
+    const first = pool[n % pool.length], last = `${N.last[n % N.last.length]} ${n}`;
     usedFull.add(`${first} ${last}`); usedShort.add(`${first[0]}. ${last}`);
-    return { first, last };
+    return { first, last, gender };
   };
   const surfacePrefs = () => {
     const x = rand();
@@ -395,6 +429,7 @@ export function generateField(d, seed, npcInfo = () => null) {
   const make = (id, nm, extra) => {
     const p = {
       id, name: `${nm.first} ${nm.last}`, first: nm.first, last: nm.last, short: `${nm.first[0]}. ${nm.last}`,
+      gender: nm.gender || 'x',
       club: d.clubs[Math.floor(rand() * d.clubs.length)],
       age: 16, rating: 1400, style: 'allCourt', pref: null, weak: null, npcId: null, adult: false,
       localOnly: false, wildcardChance: 0, home: false,
@@ -435,7 +470,7 @@ export function generateField(d, seed, npcInfo = () => null) {
     const parts = name.replace(/^(Dr|Mr|Mrs|Ms|Coach)\.?\s+/i, '').split(' ');
     const first = parts[0], last = parts.slice(1).join(' ') || parts[0];
     const others = TOUR_SURFACES.filter(s => s !== cj.surface);
-    const p = make(cj.npc, { first, last }, {
+    const p = make(cj.npc, { first, last, gender: cj.gender }, {
       name, short: `${first[0]}. ${last}`, club: cj.club, age: cj.age, rating: Math.round(cj.rating), style: cj.style,
       pref: cj.surface, weak: cj.surface ? others[Math.floor(rand() * others.length)] : null,
       npcId: cj.npc, adult, localOnly: cj.localOnly, wildcardChance: cj.wildcardChance, home: cj.home,
@@ -889,6 +924,15 @@ export function validateTour(raw, facts = {}) {
       err(`${at}.${k} must be a number, { mul / add / set } or a nested object`);
     }
   };
+  // Texts about a player: pronouns as tokens ({he} {him} {his} {he's} {himself}, capitalised too)
+  const BARE = /\b(he|him|his|himself|she|her|hers|herself)\b/i;
+  const checkTokens = (line, at) => {
+    for (const t of String(line).match(ANY_TOKEN) || []) {
+      if (!t.match(PRONOUN_TOKEN)) err(`${at}: unknown token ${t} in "${line}" (use {he} {him} {his} {he's} {himself})`);
+    }
+    const bare = String(line).replace(ANY_TOKEN, '').match(BARE);
+    if (bare) warn(`${at}: "${bare[0]}" in "${line}" — write {he} / {him} / {his} so it fits every opponent`);
+  };
   for (const [k, s] of Object.entries(styles || {})) {
     const at = `styles.${k}`;
     if (!isObj(s)) { err(`${at} must be an object`); continue; }
@@ -907,18 +951,30 @@ export function validateTour(raw, facts = {}) {
     if (s.ai !== undefined) checkMods(s.ai, `${at}.ai`);
     if (s.scout !== undefined) {
       if (!isObj(s.scout)) err(`${at}.scout must be { strengths, weaknesses, plan }`);
-      else for (const q of ['strengths', 'weaknesses', 'plan']) if (!strs(s.scout[q]) || !s.scout[q].length) err(`${at}.scout.${q} must be a non-empty array of lines`);
+      else {
+        for (const q of ['strengths', 'weaknesses', 'plan']) if (!strs(s.scout[q]) || !s.scout[q].length) err(`${at}.scout.${q} must be a non-empty array of lines`);
+        for (const q of ['strengths', 'weaknesses', 'plan']) for (const line of strs(s.scout[q]) ? s.scout[q] : []) checkTokens(line, `${at}.scout.${q}`);
+      }
     }
   }
 
-  // names, clubs, colours
+  // names (first names by gender: firstM / firstF; a plain `first` list reads as they / them), clubs, colours
   const nm = raw.names;
-  if (!isObj(nm) || !strs(nm.first) || !nm.first.length || !strs(nm.last) || !nm.last.length) err('names must be { first: [...], last: [...] } (non-empty)');
-  else {
-    if (nm.first.length < 20) warn(`names.first has only ${nm.first.length} names (the field needs variety)`);
+  const fm = isObj(nm) && strs(nm.firstM) ? nm.firstM : [], ff = isObj(nm) && strs(nm.firstF) ? nm.firstF : [];
+  const fx = isObj(nm) && strs(nm.first) ? nm.first : [];
+  if (!isObj(nm) || !(fm.length || ff.length || fx.length) || !strs(nm.last) || !nm.last.length) {
+    err('names must be { firstM: [...], firstF: [...], last: [...] } (or a gender-neutral first: [...])');
+  } else {
+    if (isObj(nm) && ((nm.firstM !== undefined && !strs(nm.firstM)) || (nm.firstF !== undefined && !strs(nm.firstF)))) err('names.firstM / firstF must be arrays of names');
+    if (fm.length || ff.length) {
+      if (fm.length < 10 || ff.length < 10) warn(`names: ${fm.length} male / ${ff.length} female first names (the field needs variety in both)`);
+      const both = fm.filter(x => ff.includes(x));
+      if (both.length) warn(`names: ${both.join(', ')} listed as both male and female`);
+    } else if (fx.length < 20) warn(`names.first has only ${fx.length} names (the field needs variety)`);
     if (nm.last.length < 20) warn(`names.last has only ${nm.last.length} names (the field needs variety)`);
     const fieldN = (isObj(raw.field) && Number.isInteger(raw.field.juniors) ? raw.field.juniors : 64) + (isObj(raw.adults) && Number.isInteger(raw.adults.count) ? raw.adults.count : 24);
-    if (nm.first.length * nm.last.length < fieldN * 3) warn('names: few first × last combinations for the field size (names may repeat)');
+    const firsts = fm.length || ff.length ? Math.min(fm.length || Infinity, ff.length || Infinity) * 2 : fx.length;
+    if (firsts * nm.last.length < fieldN * 3) warn('names: few first × last combinations for the field size (names may repeat)');
   }
   if (!strs(raw.clubs) || !raw.clubs.length) err('clubs must be a non-empty array of club names');
   if (raw.shirtColors !== undefined && !(Array.isArray(raw.shirtColors) && raw.shirtColors.length && raw.shirtColors.every(c => HEX.test(c)))) err('shirtColors must be "#RRGGBB" colours');
@@ -928,6 +984,7 @@ export function validateTour(raw, facts = {}) {
   if (isObj(f)) {
     if (!(Number.isInteger(f.juniors) && f.juniors >= 16 && f.juniors <= 160)) err('field.juniors must be 16..160');
     if (fin(f.ratingMin) && fin(f.ratingMax) && f.ratingMin >= f.ratingMax) err('field.ratingMin must be below ratingMax');
+    if (f.femaleShare !== undefined && !(fin(f.femaleShare) && f.femaleShare >= 0 && f.femaleShare <= 1)) err('field.femaleShare must be 0..1');
     if (isObj(f.sim)) {
       if (!(fin(f.sim.serveBase) && f.sim.serveBase > 0.4 && f.sim.serveBase < 0.8)) err('field.sim.serveBase must be 0.4..0.8');
       if (!(fin(f.sim.k) && f.sim.k > 0 && f.sim.k < 0.05)) err('field.sim.k must be 0..0.05');
@@ -963,6 +1020,9 @@ export function validateTour(raw, facts = {}) {
     if (!(fin(p.rating) && p.rating >= 800 && p.rating <= 2300)) err(`${at}.rating must be 800..2300`);
     if (styles && !styles[p.style] && !STYLE_KEYS.includes(p.style)) err(`${at}.style "${p.style}" is not a style`);
     if (p.surface !== undefined && !TOUR_SURFACES.includes(p.surface)) err(`${at}.surface must be ${TOUR_SURFACES.join(' / ')}`);
+    if (p.gender !== undefined && !GENDERS.includes(p.gender)) err(`${at}.gender must be ${GENDERS.join(' / ')}`);
+    else if (p.gender === undefined) warn(`${at}: no gender ('m' / 'f'); scouting will say they / them`);
+    if (typeof p.note === 'string') checkTokens(p.note, `${at}.note`);
     if (p.ai !== undefined) checkMods(p.ai, `${at}.ai`);
     if (p.wildcardChance !== undefined && !(fin(p.wildcardChance) && p.wildcardChance >= 0 && p.wildcardChance <= 1)) err(`${at}.wildcardChance must be 0..1`);
   }

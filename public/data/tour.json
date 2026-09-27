@@ -8,12 +8,13 @@
     "ranking: best `bestOf` weekly results of the last `window` weeks (the current week included); ties by rating; unranked until the first points.",
     "tiers: label; points per finishing round (W = title, F = runner-up, SF/QF/R16/R32 = lost in that round); prize ($ per finishing round, null = none); fee ($ to enter; the club pays it on the pro path); cutoff (the ranking you need to enter, null = open; home events always give the player a wildcard); formats per round ('short' = one set to 4, 'set' = one set to 6, 'bo3' = best of three); draws (draw sizes this tier may use: 8, 16 or 32); careers (who may enter: omit = everyone); juniors (pro tier: how many junior slots its draws keep, the rest are adults).",
     "week: background event sizes per tier (the rest of the field plays these satellite events every week, simulated), backgroundPoints (their share of the tier points table), restChance (a player skips a week), jitter (how loosely players are sorted into events by ranking).",
-    "field: generated juniors (count, rating spread, ages), weekly form spread, the surface preference bonus / weak-surface malus (rating points), rating drift per result (Elo K for the generated field) and the sim (serveBase = serve-point win chance between equal juniors, proServeBase for adults, k = logit per rating point).",
+    "field: generated juniors (count, rating spread, ages), femaleShare (girls in the mixed field), weekly form spread, the surface preference bonus / weak-surface malus (rating points), rating drift per result (Elo K for the generated field) and the sim (serveBase = serve-point win chance between equal juniors, proServeBase for adults, k = logit per rating point).",
     "venues: the six remote clubs (ids are fixed: the venues stream builds each from its `look`). look: court / surround / fenceColor / ground colours; fence 'chainlink' | 'windscreen' | 'hedge'; backdrop 'city' | 'forest' | 'harbor' | 'lawn' | 'campus' | 'night'; stands { rows, sides[], material?, covered? }; clubhouse { style 'shed' | 'lodge' | 'boathouse' | 'pavilion' | 'modern' | 'arena', color, roof, side, clock? }; trees { kind 'pine' | 'maple' | 'oak' | 'none', count, autumn? }; lights (floodlights); scoreboard?; sponsors (banner texts); crowd 0..1.",
     "homeVenue: the club itself (the home event is played on the club's own court, no travel).",
     "tournaments: the weekly rotation. circuit 'amateur' (default) rotates by weekSlot from the week you join the tour; circuit 'pro' events alternate with it once you choose the pro path. home: the club's own event (you always get a wildcard). wind overrides the venue's.",
     "styles: play styles. sim = point-simulation edges (serve / return point chance, rating points per surface); ai = modifiers on Rafa's DIFFICULTY table for a tour opponent (a number adds, { mul } multiplies, { set } replaces; nested objects for serve / ret; arrays change every element); scout = the hub's scouting report.",
-    "names / clubs / shirtColors: pools for the generated players. clubJuniors: members of the club who play the tour (npc = npcs.json id). adults: the Pro Circuit's adult players (named ones are club members) plus `count` generated ones."
+    "names / clubs / shirtColors: pools for the generated players (firstM / firstF: first names by gender; a plain `first` list reads as they / them). clubJuniors: members of the club who play the tour (npc = npcs.json id, gender 'm' | 'f'). adults: the Pro Circuit's adult players (named ones are club members) plus `count` generated ones.",
+    "Texts about a player (scout lines, notes) write pronouns as tokens so they fit every opponent: {he} {him} {his} {he's} {himself} ({He} … at the start of a sentence)."
   ],
   "version": 1,
   "unlock": { "rafaWins": 3 },
@@ -126,6 +127,7 @@
     "ratingMax": 1840,
     "ages": [13, 18],
     "formSd": 35,
+    "femaleShare": 0.5,
     "prefBonus": 35,
     "weakMalus": 30,
     "drift": 6,
@@ -312,8 +314,8 @@
       "ai": { "approach": -0.12, "patience": 0.12, "backDepth": 0.25, "depth": 0.3, "dropVolley": -0.05, "flat": 0.04 },
       "scout": {
         "strengths": ["Deep, heavy groundstrokes", "Rarely misses from the back of the court"],
-        "weaknesses": ["Uncomfortable at the net", "Short balls drag him out of his comfort zone"],
-        "plan": ["Bring him forward: short slices and the odd drop shot", "When he comes in, pass or lob him", "Don't trade twenty-ball rallies from the baseline: change pace"]
+        "weaknesses": ["Uncomfortable at the net", "Short balls drag {him} out of {his} comfort zone"],
+        "plan": ["Bring {him} forward: short slices and the odd drop shot", "When {he} comes in, pass or lob {him}", "Don't trade twenty-ball rallies from the baseline: change pace"]
       }
     },
     "counterpuncher": {
@@ -324,8 +326,8 @@
       "ai": { "speed": { "mul": 1.07 }, "react": { "mul": 0.92 }, "pace": { "mul": 0.94 }, "err": { "mul": 0.82 }, "aggression": -0.18, "patience": 0.3, "lobDefend": 0.15, "approach": -0.15, "backDepth": 0.35 },
       "scout": {
         "strengths": ["Gets everything back", "Excellent defence and lobs"],
-        "weaknesses": ["Little pace of his own", "Can be pushed around by an aggressive first strike"],
-        "plan": ["Be patient: build the point, don't go for the lines too early", "Come forward behind deep approaches, he won't hurt you from far back", "Take his second serve early and attack"]
+        "weaknesses": ["Little pace of {his} own", "Can be pushed around by an aggressive first strike"],
+        "plan": ["Be patient: build the point, don't go for the lines too early", "Come forward behind deep approaches, {he} won't hurt you from far back", "Take {his} second serve early and attack"]
       }
     },
     "bigServer": {
@@ -337,7 +339,7 @@
       "scout": {
         "strengths": ["A huge first serve", "Big forehand on the first ball after the serve"],
         "weaknesses": ["Loose in long rallies", "Slow around the court"],
-        "plan": ["Stand a step back on his first serve and just block it deep", "Make him play one more ball: long rallies are yours", "Move him side to side, he doesn't like running"]
+        "plan": ["Stand a step back on {his} first serve and just block it deep", "Make {him} play one more ball: long rallies are yours", "Move {him} side to side, {he} doesn't like running"]
       }
     },
     "serveVolleyer": {
@@ -348,8 +350,8 @@
       "ai": { "serve": { "serveVolley": 0.5, "slice1": 0.15, "pace": { "mul": 1.04 } }, "approach": 0.3, "netDepth": -0.35, "dropVolley": 0.15, "slice": 0.12, "backDepth": -0.2, "patience": -0.2 },
       "scout": {
         "strengths": ["Serve-and-volley and sharp volleys", "Takes time away from you"],
-        "weaknesses": ["Low returns at his feet", "Lobs over his backhand side"],
-        "plan": ["Return low at his feet, he has to volley up", "Pass him down the line, or lob when he crowds the net", "Get your first serve in: he attacks second serves"]
+        "weaknesses": ["Low returns at {his} feet", "Lobs over {his} backhand side"],
+        "plan": ["Return low at {his} feet, {he} has to volley up", "Pass {him} down the line, or lob when {he} crowds the net", "Get your first serve in: {he} attacks second serves"]
       }
     },
     "moonballer": {
@@ -361,7 +363,7 @@
       "scout": {
         "strengths": ["High, heavy, deep loops", "Almost never misses"],
         "weaknesses": ["No pace to hurt you", "Uncomfortable when you take the ball in the air"],
-        "plan": ["Step in and take the high balls early, or volley them", "Come to the net: he can't pass you with loops", "Be patient, keep your own errors down"]
+        "plan": ["Step in and take the high balls early, or volley them", "Come to the net: {he} can't pass you with loops", "Be patient, keep your own errors down"]
       }
     },
     "allCourt": {
@@ -373,19 +375,22 @@
       "scout": {
         "strengths": ["Adapts to anything", "Good hands at the net"],
         "weaknesses": ["No single big weapon", "Can be pinned deep on the backhand"],
-        "plan": ["Play to the backhand, deep", "Keep him back: deep balls stop his approaches", "Serve wide and go for the open court"]
+        "plan": ["Play to the backhand, deep", "Keep {him} back: deep balls stop {his} approaches", "Serve wide and go for the open court"]
       }
     }
   },
   "names": {
-    "first": [
-      "Mateo", "Aarav", "Sofia", "Kenji", "Amara", "Luca", "Chloe", "Noah", "Zara", "Diego",
-      "Ines", "Kwame", "Yuki", "Elena", "Omar", "Freya", "Tariq", "Mei", "Anya", "Jonah",
-      "Lucia", "Ravi", "Ingrid", "Tomas", "Ayesha", "Felix", "Nia", "Hugo", "Leila", "Oscar",
-      "Ishaan", "Marta", "Kofi", "Hana", "Emil", "Valentina", "Arjun", "Saoirse", "Mateus", "Adaeze",
-      "Sven", "Camila", "Jin", "Olivia", "Dmitri", "Sienna", "Joaquin", "Keala", "Farah", "Lukas",
-      "Imani", "Nikolai", "Aroha", "Bruno", "Yasmin", "Teodor", "Wren", "Malik", "Esme", "Hiro",
-      "Paloma", "Idris", "Clara", "Santiago"
+    "firstM": [
+      "Mateo", "Aarav", "Kenji", "Luca", "Noah", "Diego", "Kwame", "Omar", "Tariq", "Jonah",
+      "Ravi", "Tomas", "Felix", "Hugo", "Oscar", "Ishaan", "Kofi", "Emil", "Arjun", "Mateus",
+      "Sven", "Jin", "Dmitri", "Joaquin", "Lukas", "Nikolai", "Bruno", "Teodor", "Malik", "Hiro",
+      "Idris", "Santiago"
+    ],
+    "firstF": [
+      "Sofia", "Amara", "Chloe", "Zara", "Ines", "Yuki", "Elena", "Freya", "Mei", "Anya",
+      "Lucia", "Ingrid", "Ayesha", "Nia", "Leila", "Marta", "Hana", "Valentina", "Saoirse", "Adaeze",
+      "Camila", "Olivia", "Sienna", "Keala", "Farah", "Imani", "Aroha", "Yasmin", "Wren", "Esme",
+      "Paloma", "Clara"
     ],
     "last": [
       "Marquez", "Okonkwo", "Novak", "Tanaka", "Haddad", "Lindqvist", "O'Brien", "Kowalczyk", "Silva", "Mensah",
@@ -407,9 +412,9 @@
     "#e84393", "#0097a7", "#6d4c41", "#546e7a", "#7cb342", "#5e35b1", "#fdd835", "#ef6c00"
   ],
   "clubJuniors": [
-    { "npc": "theo_wellington", "rating": 1650, "style": "baseliner", "age": 14, "surface": "hard", "club": "Greenbriar",
-      "note": "Flat two-handed backhand and a serve he copied from Nate.", "ai": { "flat": 0.1, "weakWing": 0.1 }, "home": true },
-    { "npc": "lily_santos", "rating": 1050, "style": "counterpuncher", "age": 10, "surface": "clay", "club": "Greenbriar",
+    { "npc": "theo_wellington", "gender": "m", "rating": 1650, "style": "baseliner", "age": 14, "surface": "hard", "club": "Greenbriar",
+      "note": "Flat two-handed backhand and a serve {he} copied from Nate.", "ai": { "flat": 0.1, "weakWing": 0.1 }, "home": true },
+    { "npc": "lily_santos", "gender": "f", "rating": 1050, "style": "counterpuncher", "age": 10, "surface": "clay", "club": "Greenbriar",
       "note": "Ten years old and runs down every ball, occasionally the wrong one.", "localOnly": true, "wildcardChance": 0.75 }
   ],
   "adults": {
@@ -417,7 +422,7 @@
     "ratingRange": [1760, 2020],
     "ages": [19, 31],
     "named": [
-      { "npc": "nate_okafor", "rating": 1905, "style": "bigServer", "age": 20, "surface": "hard", "club": "Greenbriar",
+      { "npc": "nate_okafor", "gender": "m", "rating": 1905, "style": "bigServer", "age": 20, "surface": "hard", "club": "Greenbriar",
         "note": "College captain, home for the summer. First-strike tennis: big serve, forehand, done." }
     ]
   }
