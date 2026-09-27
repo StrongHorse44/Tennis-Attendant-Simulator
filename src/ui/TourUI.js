@@ -148,7 +148,10 @@ const CSS = `
 
 /* This week */
 .ccj-week { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
-.ccj-week > .ccj-tonight { grid-column: 1 / -1; }
+.ccj-week > .ccj-tonight, .ccj-week > .ccj-hank { grid-column: 1 / -1; }
+.ccj-hank { display: flex; align-items: center; gap: 10px; border: 1px solid rgba(217, 164, 65, 0.5); }
+.ccj-hank svg { flex: none; width: 28px; height: 28px; }
+.ccj-hank b { color: #ffe39a; }
 .ccj-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .ccj-tonight { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px;
   background: linear-gradient(135deg, rgba(217, 164, 65, 0.3), rgba(217, 164, 65, 0.08));
@@ -1008,7 +1011,7 @@ export class TourUI {
   }
 
   _htmlLocked(h) {
-    if (!h) {
+    if (!h || h.available === false) {
       return `<div class="ccj-locked">${trophyArt('ccj-lock-art')}<h3>The tour desk is closed</h3>
         <p>${esc(this._hubError ? 'The tour information couldn’t be loaded right now.' : 'There’s no tour information yet.')}</p></div>`;
     }
@@ -1032,7 +1035,9 @@ export class TourUI {
 
   _html_week(h) {
     const f = h.featured && typeof h.featured === 'object' ? h.featured : null;
-    const tonight = h.tonight ? this._tonightHtml(h) : '';
+    // Hank's crossroads is waiting (TourSystem.hankPending): say where to find him
+    const hank = h.hankPending ? `<div class="ccj-next ccj-hank">${trophyArt()}<span><b>Hank Morris wants a word.</b> Find him on the grounds — it’s about your future at the club.</span></div>` : '';
+    const tonight = (h.tonight ? this._tonightHtml(h) : '') + hank;
     if (!f) {
       const next = arr(h.calendar).find(c => isNum(c.week) && isNum(h.week) && c.week > h.week);
       return `<div class="ccj-week">${tonight}<div class="ccj-stack">${this._emptyHtml(ICON.calendar, 'A rest week',
