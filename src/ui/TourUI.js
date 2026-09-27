@@ -172,6 +172,7 @@ const CSS = `
 .ccj-feat__chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .ccj-feat__chips .ccj-chip { background: rgba(0, 0, 0, 0.24); color: #fff; }
 .ccj-feat__in { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.ccj-blurb { font-size: 13px; color: var(--cc-cream); opacity: 0.85; font-style: italic; }
 .ccj-status { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; font-weight: 600; line-height: 1.35; }
 .ccj-status i { width: 10px; height: 10px; border-radius: 50%; background: var(--cc-cream-dim); flex: none; margin-top: 4px; }
 .ccj-status.is-open i { background: var(--cc-ok); box-shadow: 0 0 0 3px rgba(76, 175, 106, 0.25); }
@@ -296,6 +297,12 @@ button.ccj-rkme:focus-visible { outline: 2px solid var(--cc-gold); outline-offse
 .ccj-who b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ccj-who small { display: block; font-size: 11.5px; color: var(--cc-cream-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .ccj-rk tr.ccj-gap td { background: none; padding: 0; text-align: center; color: var(--cc-cream-dim); letter-spacing: 5px; font-size: 13px; line-height: 14px; }
+.ccj-mv { display: block; font: 700 10px var(--cc-font-ui); letter-spacing: 0; margin-top: 1px; }
+.ccj-mv.is-up { color: #8fdca6; }
+.ccj-mv.is-down { color: #ff9f8f; }
+.ccj-table tr.is-nocount td { color: var(--cc-cream-dim); }
+.ccj-table tr.is-nocount td:last-child { text-decoration: line-through; text-decoration-color: rgba(196, 184, 150, 0.5); }
+.ccj-p.is-bye .ccj-p__n { color: var(--cc-cream-dim); font-style: italic; }
 .ccj-rk .ccj-who { max-width: 0; width: 100%; }
 
 /* Calendar */
@@ -1062,6 +1069,8 @@ export class TourUI {
     const chips = [];
     if (surface) chips.push(`<span class="ccj-chip"><i></i>${esc(SURFACE_LABEL[surface])}</span>`);
     if (isNum(f.draw)) chips.push(`<span class="ccj-chip">${f.draw}-player draw</span>`);
+    if (f.home) chips.push('<span class="ccj-chip">Home event</span>');
+    if (WIND_LABEL[f.wind]) chips.push(`<span class="ccj-chip">${esc(WIND_LABEL[f.wind])}</span>`);
     if (f.wildcard) chips.push(`<span class="ccj-chip">★ ${esc(typeof f.wildcard === 'string' ? f.wildcard : 'Wildcard')}</span>`);
     const facts = this._factsHtml(h, f);
     return `<section class="ccj-card ccj-feat ccj-feat--${esc(surface || 'none')}" aria-labelledby="ccj-feat-name">
@@ -1071,6 +1080,7 @@ export class TourUI {
         <div class="ccj-feat__venue">${esc(f.venueName || prettyId(f.venueId))}</div>
         <div class="ccj-feat__chips">${chips.join('')}</div></div>
       <div class="ccj-feat__in">
+        ${f.blurb ? `<div class="ccj-note ccj-blurb">${esc(f.blurb)}</div>` : ''}
         ${this._statusHtml(h, f)}
         ${facts}
         ${this._schedHtml(h, f)}
@@ -1103,9 +1113,9 @@ export class TourUI {
     const status = statusOf(f);
     const days = arr(f.days).filter(d => d && isNum(d.day)).sort((a, b) => a.day - b.day);
     const first = days[0];
-    const closeWd = first ? weekdayOf(first.day - 1) : -1;
-    // entries close (and the draw is made) the evening before round 1
-    const closeWhen = !first ? '' : isNum(h.day) && first.day - 1 === h.day ? 'tonight' : `${WD_LONG[closeWd]} night`;
+    // entries close the day before round 1 (TourSystem sends it as closeDay)
+    const closeDay = isNum(f.closeDay) ? f.closeDay : first ? first.day - 1 : null;
+    const closeWhen = closeDay == null ? '' : isNum(h.day) && closeDay === h.day ? 'tonight' : `${WD_LONG[weekdayOf(closeDay)]} night`;
     const run = this._myRun(h, f);
     let cls = '', text;
     if (status === 'open') {
@@ -1116,7 +1126,8 @@ export class TourUI {
       if (f.entered) cls = 'is-in';
     } else if (status === 'entered') {
       cls = 'is-in';
-      text = closeWhen ? `You’re entered · the draw is made ${closeWhen}` : 'You’re entered · waiting for the draw';
+      const r1 = first ? (isNum(h.day) && first.day === h.day ? 'tonight' : `${WD_LONG[weekdayOf(first.day)]} evening`) : '';
+      text = r1 ? `You’re entered · round 1 is ${r1}` : 'You’re entered · waiting for the draw';
     } else if (status === 'inProgress') {
       if (!f.entered) text = 'In progress — you’re not in this one';
       else if (run.out) { cls = 'is-out'; text = `Out in the ${roundLong(run.lastKey).toLowerCase()} · your points are banked`; }
@@ -1310,12 +1321,14 @@ export class TourUI {
     const done = m.winner === 'a' || m.winner === 'b';
     const mine = (m.a && m.a.isMe) || (m.b && m.b.isMe);
     const clubIds = this._clubIds(h);
-    const pname = (p) => (p ? (p.isMe ? (p.name && !/^you$/i.test(p.name) ? p.name : 'You') : (p.name || 'TBD')) : null);
+    // the bracket shows short names ("S. Marquez"); the aria-label reads the full one
+    const pname = (p) => (p ? (p.isMe ? (p.name && !/^you$/i.test(p.name) ? p.name : 'You') : (p.short || p.name || 'TBD')) : null);
+    const fname = (p) => (p ? (p.isMe ? 'you' : (p.name || p.short || 'to be decided')) : 'to be decided');
     const row = (p, side) => {
       const win = done && m.winner === side, lose = done && !win;
       const name = pname(p);
       const club = p && !p.isMe && (p.isClub || clubIds.has(p.id));
-      const cls = 'ccj-p' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (p && p.isMe ? ' is-me' : '');
+      const cls = 'ccj-p' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (p && p.isMe ? ' is-me' : '') + (p && p.bye ? ' is-bye' : '');
       return `<div class="${cls}"><span class="ccj-seed">${p && isNum(p.seed) ? p.seed : ''}</span>
         <span class="ccj-p__n">${name ? esc(name) : '<i>To be decided</i>'}${p && p.isMe && name !== 'You' ? '<span class="ccj-you">You</span>' : ''}${club ? '<span class="ccj-club" title="Greenbriar junior"></span>' : ''}</span>
         <span class="ccj-p__w" aria-hidden="true">${win ? '✓' : ''}</span></div>`;
@@ -1329,7 +1342,7 @@ export class TourUI {
       const wd = weekdayOf(mDay);
       foot = `<span class="${tonight ? 'is-tonight' : ''}">${tonight ? 'Tonight' : wd >= 0 ? WD_LONG[wd] + ' evening' : 'To be played'}</span><b></b>`;
     }
-    const na = pname(m.a) || 'to be decided', nb = pname(m.b) || 'to be decided';
+    const na = fname(m.a), nb = fname(m.b);
     const w = done ? (m.winner === 'a' ? na : nb) : null;
     const aria = `${roundLong(key)}: ${na} versus ${nb}${w ? `, ${w} won ${m.score || ''}` : ''}`;
     return `<div class="ccj-m${mine ? ' is-me' : ''}" role="group" aria-label="${esc(aria)}">${row(m.a, 'a')}${row(m.b, 'b')}<div class="ccj-m__f">${foot}</div></div>`;
@@ -1394,19 +1407,27 @@ export class TourUI {
       if (!r) { body += '<tr class="ccj-gap" aria-hidden="true"><td colspan="3">···</td></tr>'; continue; }
       const cls = [r.isMe ? 'is-me' : '', r.isClub ? 'is-club' : '', isNum(r.rank) && r.rank <= 3 ? 'is-top' : ''].filter(Boolean).join(' ');
       const nm = r.isMe ? (r.name && !/^you$/i.test(r.name) ? r.name : 'You') : r.name;
-      body += `<tr class="${cls}"${r.isMe ? ' aria-current="true"' : ''}><td>${isNum(r.rank) ? r.rank : '—'}</td>
+      body += `<tr class="${cls}"${r.isMe ? ' aria-current="true"' : ''}><td>${isNum(r.rank) ? r.rank : '—'}${this._moveHtml(r.move)}</td>
         <td class="ccj-who"><b>${esc(nm || '—')}${r.isMe && nm !== 'You' ? '<span class="ccj-you">You</span>' : ''}${r.isClub && !r.isMe ? '<span class="ccj-club" role="img" aria-label="Greenbriar junior"></span>' : ''}</b><small>${esc(r.club || (r.isClub ? 'Greenbriar' : ''))}</small></td>
         <td>${num(r.points)}</td></tr>`;
     }
     const ranked = isNum(me.rank);
     const listed = rows.some(r => r && r.isMe);
+    const mv = isNum(me.move) && me.move ? ` · ${me.move > 0 ? '▲' : '▼'}${Math.abs(me.move)} this week` : '';
     const card = `<div class="ccj-rkme__n">${ranked ? '#' + me.rank : '—'}</div>
-        <div class="ccj-rkme__t"><b>${ranked ? 'Your ranking' : 'Unranked'}</b><br>${num(me.points || 0)} points${listed && ranked && me.rank > 8 ? '<br><span class="ccj-rkme__go">Find me in the list ↓</span>' : ''}</div>`;
+        <div class="ccj-rkme__t"><b>${ranked ? 'Your ranking' : 'Unranked'}</b><br>${num(me.points || 0)} points${esc(mv)}${listed && ranked && me.rank > 8 ? '<br><span class="ccj-rkme__go">Find me in the list ↓</span>' : ''}</div>`;
     return `<div class="ccj-rkhead">${listed && ranked && me.rank > 8
       ? `<button type="button" class="ccj-rkme" data-act="find-me" aria-label="Your ranking: ${me.rank}. Scroll to your row">${card}</button>`
       : `<div class="ccj-rkme">${card}</div>`}
       <div class="ccj-note">${ranked ? '' : 'Win a round at any tournament to get a ranking. '}Best 6 results from the last 8 weeks count; ties go to the higher rating. Green marks a Greenbriar junior.</div></div>
       <table class="ccj-rk"><thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col">Points</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+
+  /** A ranking move since last week: ▲ climbed / ▼ dropped (TourSystem rankings[].move, + = up). */
+  _moveHtml(move) {
+    if (!isNum(move) || !move) return '';
+    const up = move > 0;
+    return `<small class="ccj-mv ${up ? 'is-up' : 'is-down'}" aria-label="${up ? 'up' : 'down'} ${Math.abs(move)}">${up ? '▲' : '▼'}${Math.abs(move)}</small>`;
   }
 
   // ── Calendar
@@ -1480,15 +1501,21 @@ export class TourUI {
     let pts;
     if (pb.length) {
       const total = pb.reduce((s, r) => s + (Number(r.points) || 0), 0);
+      // (TourSystem marks the best 6 `counted` and this week's run `provisional`; without the flags every row counts)
+      const anyFlag = pb.some(r => typeof r.counted === 'boolean');
       pts = `<section class="ccj-card"><table class="ccj-table"><thead><tr><th scope="col">Result</th><th scope="col" class="num">Points</th></tr></thead><tbody>
-        ${pb.map(r => `<tr><td>${esc(r.tournament || '—')}<small>${esc([REACHED[r.round] || r.round, isNum(r.week) ? 'week ' + (r.week + 1) : ''].filter(Boolean).join(' · '))}</small></td><td class="num">${num(r.points)}</td></tr>`).join('')}
+        ${pb.map(r => {
+          const off = anyFlag && r.counted === false && Number(r.points) > 0;
+          const meta = [REACHED[r.round] || r.round, r.provisional ? 'this week, so far' : isNum(r.week) ? 'week ' + (r.week + 1) : '', off ? 'not in your best 6' : ''].filter(Boolean).join(' · ');
+          return `<tr class="${off ? 'is-nocount' : ''}"><td>${esc(r.tournament || '—')}<small>${esc(meta)}</small></td><td class="num">${num(r.points)}</td></tr>`;
+        }).join('')}
         <tr class="is-total"><td>Ranking points</td><td class="num">${num(isNum(me.points) ? me.points : total)}</td></tr></tbody></table></section>`;
     } else pts = '<div class="ccj-note">No ranking points yet. Every round you win at a tournament earns some.</div>';
     const hist = arr(me.history).filter(Boolean).slice(-8).reverse();
     const histHtml = hist.length
       ? `<ol class="ccj-hist">${hist.map(e => `<li><span class="ccj-wl ${e.won ? 'is-w' : 'is-l'}" aria-label="${e.won ? 'Won' : 'Lost'}">${e.won ? 'W' : 'L'}</span>
           <div><b>${esc(roundLong(e.round))} vs ${esc(nameOf(e.opponent, '—'))}</b><small>${esc([e.tournament, isNum(e.week) ? 'week ' + (e.week + 1) : ''].filter(Boolean).join(' · '))}</small></div>
-          <span class="ccj-score">${esc(e.score || '')}</span></li>`).join('')}</ol>`
+          <span class="ccj-score">${esc(e.wo ? 'W/O' : e.score || '')}</span></li>`).join('')}</ol>`
       : '<div class="ccj-note">No tour matches yet.</div>';
     const h2h = Object.entries(h.me && h.me.h2h && typeof h.me.h2h === 'object' ? h.me.h2h : {})
       .map(([id, v]) => ({ id, w: Number(v && v.w) || 0, l: Number(v && v.l) || 0, name: (v && v.name) || prettyId(id) }))
@@ -1532,8 +1559,10 @@ export class TourUI {
       const where = h.tonight ? venueShortOf(h.tonight) : '';
       nextLine = `<div class="ccj-nextline">${esc(roundLong(round))}${when ? ' · ' + esc(when) : ''}${where ? ' · ' + esc(where) : ''}</div>`;
     }
-    const rec = h.me && h.me.h2h && o.id && h.me.h2h[o.id];
+    const rec = (s.h2h && typeof s.h2h === 'object' ? s.h2h : null) || (h.me && h.me.h2h && o.id && h.me.h2h[o.id]);
     const h2h = rec && ((rec.w || 0) + (rec.l || 0)) ? `<span class="ccj-chip ${rec.w >= rec.l ? 'ccj-chip--ok' : 'ccj-chip--bad'}">You ${rec.w || 0}–${rec.l || 0}</span>` : '<span class="ccj-chip">First meeting</span>';
+    const level = s.level ? `<span class="ccj-chip">${esc(s.level)}</span>` : '';
+    const adult = o.adult ? '<span class="ccj-chip">Adult</span>' : '';
     const list = (items, cls) => {
       const a = arr(items).filter(Boolean);
       return a.length ? `<ul class="ccj-list ${cls}">${a.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="ccj-note">Nothing stands out.</div>';
@@ -1543,7 +1572,8 @@ export class TourUI {
       <section class="ccj-card">
         <div class="ccj-opp"><div class="ccj-avatar" style="--ccj-av:${avatarColor(o.id || o.name)}" aria-hidden="true">${esc(initials(o.name || o.short))}</div>
           <div class="ccj-opp__t"><div class="cc-label">Next opponent${isNum(o.seed) ? ` · seed ${o.seed}` : ''}</div><b>${esc(o.name || o.short || 'Unknown')}</b><span>${esc(meta)}</span></div></div>
-        <div class="ccj-opp__chips">${o.styleLabel || o.style ? `<span class="ccj-chip ccj-chip--gold">${esc(o.styleLabel || prettyId(o.style))}</span>` : ''}${starsHtml(o.rating)}${h2h}</div>
+        <div class="ccj-opp__chips">${o.styleLabel || o.style ? `<span class="ccj-chip ccj-chip--gold">${esc(o.styleLabel || prettyId(o.style))}</span>` : ''}${starsHtml(o.rating)}${level}${adult}${h2h}</div>
+        ${s.note || o.note ? `<div class="ccj-note ccj-blurb" style="margin-top:10px">${esc(s.note || o.note)}</div>` : ''}
         ${nextLine}
       </section>
       <section class="ccj-plan" aria-label="Coach Rafa's game plan"><div class="ccj-plan__h">${ICON.clipboard}<b>Rafa’s game plan</b></div>
