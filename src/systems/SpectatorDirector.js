@@ -9,13 +9,15 @@ import { planRoute } from '../world/NavRooms.js';
  *
  * A session runs while the court6 match is live (MatchSystem.isLive), still walking in more than
  * 15 s after its 'start', or shaking hands; never in the rain or when disabled. During a session:
- *  - Recruiting: one member every 4–9 s until the target T = clamp(round(spectatorBase × event
- *    crowd × situation), 2, tier cap) is reached. Candidates are free members (no staff, no
- *    request, not in a mission, not playing or booked within 30 min, within 120 m), weighted by
- *    their relationship to the players (family / spouse ×5 … acquaintance ×1.3), a liking for the
- *    stadium, archetype, distance and whether they watched in the last 20 game minutes. Each takes
- *    the cheapest free reserved stand seat (near the net, low rows, side stands; the Members' Box
- *    for VIPs) and walks in through the aisles (Ground.planLevelRoute → NPC.goSpectate).
+ *  - Recruiting: one member every 4–9 s (1.5–3 s for the first half) until the target
+ *    T = clamp(round(spectatorBase × event crowd × situation), 2, tier cap) is reached.
+ *    Candidates are free members (no staff, no request, not in a mission, not playing or booked
+ *    within 30 min, within 120 m), weighted by their relationship to the players (family /
+ *    spouse ×5 … acquaintance ×1.3), a liking for the stadium, archetype, distance and whether
+ *    they watched in the last 20 game minutes (nobody goes straight back in within a minute of
+ *    leaving). Each takes the cheapest free reserved stand seat (near the net, low rows, side
+ *    stands; the Members' Box for VIPs) and walks in through the aisles (Ground.planLevelRoute →
+ *    NPC.goSpectate).
  *  - Records (a pool of 12) follow each spectator: 'in' (walking to the seat; helped into it after
  *    GAME.spectatorArriveTimeout when the camera is away, or after 150 s), 'seated' (stays 90–240 s
  *    or until the match ends; re-seated after a chat; mission-involved spectators stay) and 'out'
@@ -43,6 +45,7 @@ const TICK = 0.5;                 // bookkeeping tick (s)
 const POOL = 12;                  // spectator records
 const MAX_CANDS = 24;             // weighted candidates per recruit (Float32Array)
 const RECRUIT_MIN = 4, RECRUIT_MAX = 9, RECRUIT_RETRY = 2;
+const BURST_MIN = 1.5, BURST_MAX = 3;   // the first half of the target come quicker (they walk ~1 min)
 const RECRUIT_RADIUS = 120;       // m from the court centre
 const WALKIN_GRACE = 15;          // s after 'start' before a walk-in counts as a session
 const NOT_LIVE_RELEASE = 10;      // s not live (walk-off, …) before everyone leaves
@@ -126,6 +129,7 @@ export class SpectatorDirector {
     this._match = null;
     this._startT = 0;
     this._announced = null;
+    this._held = null;                  // a match releaseAll() ended the visit to
     this._notLiveT = 0;
     this._crowdFrac = -1;
     this._lineT = -INF;
@@ -134,6 +138,8 @@ export class SpectatorDirector {
     /** Why the last releaseAll() happened (debug). */
     this.lastRelease = null;
     this._involved = new Set();
+    this._involvedFresh = false;
+    this._entryFx = 1;                  // × for the entry id (final / exhibition), per match
     this._watched = new Map();          // npc → game hour when they last stopped watching
     this._leftAt = new Map();           // npc → director time when their record ended (cool-off)
     const n = Math.max(MAX_CANDS, this.npcs.length);
@@ -189,8 +195,8 @@ export class SpectatorDirector {
         : rally >= 8 ? (Math.random() < 0.15 ? EMOJI_WOW : null) : null;
       r.lineKey = null;
       this._pendingReact = 1;
-      if (lineDue) {
-        // Speaker: a relative of the winner first, then someone with their own line for it
+      if (lineDue && !(relative && key === 'error')) {
+        // Speaker: a relative of the winner first (not to commiserate), then someone with their own line
         const own = this._ownLines(r.npc, key);
         const score = (relative ? 4 : 0) + (own ? 2 : 0) + Math.random();
         if (score > speakerScore) { speakerScore = score; speaker = r; }
@@ -224,7 +230,10 @@ export class SpectatorDirector {
     }
   }
 
-  /** Everyone leaves now (e.g. after-hours tennis begins); the crowd impostors go at once. */
+  /**
+   * Everyone leaves now (after-hours tennis begins); the crowd impostors go at once, and the
+   * match on court now gets no more spectators (the next one starts afresh).
+   */
   releaseAll(reason = '') {
     for (let i = 0; i < POOL; i++) {
       const r = this.records[i];
@@ -237,6 +246,7 @@ export class SpectatorDirector {
     if (this.stadium) { try { this.stadium.setCrowd(0, true); } catch (e) { /* cosmetic */ } }
     this.session.active = false;
     this._recruitT = RECRUIT_MIN;
+    this._held = this._getMatch();
     this.lastRelease = reason || 'releaseAll';
   }
 
@@ -258,7 +268,8 @@ export class SpectatorDirector {
     }
     const raining = this._raining();
     let active = false;
-    if (this.enabled && m && !raining) {
+    if (this._held && this._held !== m) this._held = null;
+    if (this.enabled && m && !raining && m !== this._held) {
       const ph = m.phase;
       active = this._isLive(m) || ph === 'handshake' || (ph === 'walkIn' && this._t - this._startT > WALKIN_GRACE);
     }
@@ -275,11 +286,7 @@ export class SpectatorDirector {
     if (active) this._notLiveT = 0;
 
     // Records
-    this._involved.clear();
-    const ms = this.missions;
-    if (ms && typeof ms.collectInvolvedNpcIds === 'function') {
-      try { ms.collectInvolvedNpcIds(this._involved); } catch (e) { /* keep going */ }
-    }
+    this._involvedFresh = false;
     let count = 0;
     for (let i = 0; i < POOL; i++) {
       const r = this.records[i];
@@ -288,19 +295,20 @@ export class SpectatorDirector {
       if (r.phase === 'in' || r.phase === 'seated') count++;
     }
 
-    // Recruiting
+    // Recruiting (not while they shake hands: the match is about to end)
     S.target = active ? this._targetCount(m) : 0;
     S.count = count;
-    if (active) {
+    if (active && m.phase !== 'handshake') {
       this._recruitT -= TICK;
       if (this._recruitT <= 0 && count < S.target) {
-        this._recruitT = this._recruit(m) ? rand(RECRUIT_MIN, RECRUIT_MAX) : RECRUIT_RETRY;
+        const burst = count + 1 < Math.ceil(S.target / 2);
+        this._recruitT = this._recruit(m) ? (burst ? rand(BURST_MIN, BURST_MAX) : rand(RECRUIT_MIN, RECRUIT_MAX)) : RECRUIT_RETRY;
       }
     } else if (this._recruitT < 0.5) this._recruitT = 0.5;
 
     // Crowd impostors
     let frac = 0;
-    if (this.enabled && m) {
+    if (this.enabled && m && m !== this._held) {
       if (active) frac = Math.min(1, 0.3 * this._eventCrowd());
       else if (raining) frac = 0.05;
     }
@@ -335,20 +343,21 @@ export class SpectatorDirector {
       if (st === 'talking') return;
       if (st === 'wandering' && npc.spectating === r.seat && npc._seatTarget === r.seat) {
         if (r.t < (GAME.spectatorArriveTimeout ?? 90)) return;
-        if (r.t < ARRIVE_HARD && !this._cameraFar(npc)) return;
+        if (r.t < ARRIVE_HARD && !this._cameraFar(npc, r)) return;
         this._placeInSeat(r);
         return;
       }
-      // Gave up (stuck: idle, held), lost the seat claim or wandered off: help or re-issue
-      if (r.t >= ARRIVE_HARD || this._cameraFar(npc)) this._placeInSeat(r);
-      else this._goSeat(r);
+      // Gave up (stuck: idle, held), lost the seat claim or wandered off: help or re-issue; a
+      // seat that can't be had any more (someone else's now) ends the visit
+      const ok = r.t >= ARRIVE_HARD || this._cameraFar(npc, r) ? this._placeInSeat(r) : this._goSeat(r);
+      if (!ok) this._leave(r);
       return;
     }
 
     // seated
     if (this._isSeated(r)) {
       r.seatedT += TICK;
-      if (r.seatedT >= r.stay && r.releaseAt === INF && !npc.hasRequest && !this._involved.has(npc.id)) {
+      if (r.seatedT >= r.stay && r.releaseAt === INF && !npc.hasRequest && !this._isInvolved(npc)) {
         r.releaseAt = this._t;
       }
       return;
@@ -359,15 +368,13 @@ export class SpectatorDirector {
     this.stats.reseats++;
     r.phase = 'in';
     r.t = 0;
-    this._goSeat(r);
+    if (!this._goSeat(r)) this._leave(r);
   }
 
   // ───────────────────────────── recruiting ─────────────────────────────
 
   _targetCount(m) {
-    let fx = 1;
-    const id = m.entry && typeof m.entry.id === 'string' ? m.entry.id : '';
-    if (/final|exh/i.test(id)) fx *= 1.5;
+    let fx = this._entryFx;
     const w = this._weatherName();
     if (w === 'cloudy' || w === 'windy') fx *= 0.8;
     const tod = this.weather ? Number(this.weather.timeOfDay) : 12;
@@ -449,8 +456,8 @@ export class SpectatorDirector {
     const st = npc.state;
     if (!(st === 'idle' || (st === 'wandering' && !npc._seatTarget))) return false;
     if (npc.hasRequest || npc.playing || npc.spectating || npc._holdSeat) return false;
-    if (this._involved.has(npc.id)) return false;
     for (let i = 0; i < POOL; i++) if (this.records[i].npc === npc) return false;
+    if (this._isInvolved(npc)) return false;
     const left = this._leftAt.get(npc);
     if (left !== undefined && this._t - left < COOL_OFF) return false;
     return !this._bookedSoon(npc.id);
@@ -494,12 +501,15 @@ export class SpectatorDirector {
   /** Helped in: placed on the approach point (the ground model's height) and sat down. */
   _placeInSeat(r) {
     const npc = r.npc;
+    if (r.seat.taken && r.seat.taken !== npc) return false;
+    let ok = false;
     try {
       npc.placeAt(r.ax, r.az, r.seat.yaw, null);
-      npc.goSpectate(r.seat, [{ x: r.ax, z: r.az }]);
-    } catch (e) { /* the next tick tries again */ }
+      ok = !!npc.goSpectate(r.seat, [{ x: r.ax, z: r.az }]);
+    } catch (e) { ok = false; }
     this.stats.placed++;
     r.t = 0;
+    return ok;
   }
 
   // ───────────────────────────── release ─────────────────────────────
@@ -658,6 +668,8 @@ export class SpectatorDirector {
       this._startT = this._t;
       this._notLiveT = 0;
       this._recruitT = Math.min(this._recruitT, 0.5);
+      const id = m.entry && typeof m.entry.id === 'string' ? m.entry.id : '';
+      this._entryFx = /final|exh/i.test(id) ? 1.5 : 1;
       const c = m.frame && m.frame.court && m.frame.court.config;
       if (c && typeof c.label === 'string' && c.label) this._label = c.label;
     }
@@ -693,6 +705,19 @@ export class SpectatorDirector {
     try { return !!ms.isBookedSoon(id, 0.5); } catch (e) { return false; }
   }
 
+  /** In an active mission (MissionSystem.collectInvolvedNpcIds), refreshed at most once per tick. */
+  _isInvolved(npc) {
+    if (!this._involvedFresh) {
+      this._involvedFresh = true;
+      this._involved.clear();
+      const ms = this.missions;
+      if (ms && typeof ms.collectInvolvedNpcIds === 'function') {
+        try { ms.collectInvolvedNpcIds(this._involved); } catch (e) { /* keep going */ }
+      }
+    }
+    return this._involved.has(npc.id);
+  }
+
   _isSeated(r) {
     const npc = r.npc;
     return !!npc && npc.state === 'sitting' && npc._sitSeat === r.seat;
@@ -721,10 +746,11 @@ export class SpectatorDirector {
     return (Number(w.day) || 0) * 24 + (Number(w.timeOfDay) || 0);
   }
 
-  _cameraFar(npc) {
+  /** The camera is at least CAM_FAR from the NPC and from its seat's approach point (a jump there is unseen). */
+  _cameraFar(npc, r) {
     if (!CameraTracker.valid) return true;
     const c = CameraTracker.position, p = npc.body.position;
-    return Math.hypot(c.x - p.x, c.z - p.z) >= CAM_FAR;
+    return Math.hypot(c.x - p.x, c.z - p.z) >= CAM_FAR && Math.hypot(c.x - r.ax, c.z - r.az) >= CAM_FAR;
   }
 
   /** npcs.json relationship type between a and b (a's own entry first), or null. */
