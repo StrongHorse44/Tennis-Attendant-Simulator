@@ -10,6 +10,8 @@ import { injectTheme, THEME } from './theme.js';
  *   onSave() -> boolean,         // manual save
  *   onReset(),                   // confirmed reset
  *   onLocker?(),                 // Locker button (change equipped gear / cosmetics / cart look)
+ *   getTourAvailable?() -> bool, // show the Junior Tour button (the tour has been accepted); read on open
+ *   onTour?(),                   // Junior Tour button: the tour hub opens over the menu (like the Locker)
  *   settings,                    // SettingsStore (volume, muted, cameraSensitivity)
  *   getQuality() -> tier, setQuality(tier),
  *   getSummary() -> { day, time, weatherIcon, weather, missionsCompleted, courtsGroomed, bestGroomRating,
@@ -20,6 +22,8 @@ import { injectTheme, THEME } from './theme.js';
  *
  * Methods: open(), close(), isOpen, handleEscape() -> true if it navigated back instead of closing,
  *          layoutButton(), setButtonVisible(bool), destroy()
+ * PauseMenu.setTourHooks({ getTourAvailable, onTour }) sets the two tour callbacks for menus whose
+ * options don't carry them (Game wires the tour UI before the menu exists).
  */
 
 const CSS = `
@@ -124,7 +128,14 @@ const CSS = `
 .ccp-btn { width: 100%; min-height: 52px; font-size: 16px; display: flex; align-items: center; justify-content: center; gap: 10px; }
 .ccp-btn svg { width: 18px; height: 18px; flex: none; }
 .ccp-btn-row { display: flex; gap: 10px; }
-.ccp-btn-row .ccp-btn { flex: 1; }
+.ccp-btn-row .ccp-btn { flex: 1; min-width: 0; }
+.ccp-btn[hidden], .ccp-btn-row[hidden] { display: none; }
+/* Locker + Junior Tour: side by side when both labels fit, stacked on narrow phones */
+.ccp-btn-row--wrap { flex-wrap: wrap; }
+.ccp-btn-row--wrap .ccp-btn { flex: 1 1 164px; }
+.ccp-btn--tour { border-color: rgba(217, 164, 65, 0.55); color: #ffe39a; background: rgba(217, 164, 65, 0.1); }
+.ccp-btn--tour:hover { background: rgba(217, 164, 65, 0.2); border-color: rgba(217, 164, 65, 0.8); }
+.ccp-btn span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ccp-btn--small { min-height: 44px; font-size: 14px; }
 .ccp-status {
   min-height: 18px; text-align: center; font-size: 13px; color: var(--cc-ok);
@@ -229,6 +240,7 @@ const ICONS = {
   save: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M8 3v5h7V3M8 21v-7h8v7"/></svg>',
   reset: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6M4 3.5v5.1h5.1"/></svg>',
   locker: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3v18M9 8h1M14 8h1M9 11h1M14 11h1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 5.5H5c0 2.8 1.4 4.3 3.3 4.5M16 5.5h3c0 2.8-1.4 4.3-3.3 4.5M12 13v3.5M8.5 20.5h7M9.7 16.5h4.6l.6 4H9.1z"/></g></svg>',
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>',
   warn: '<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="rgba(224,90,71,0.15)" stroke="currentColor" stroke-width="2"/><path d="M24 13v14" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/><circle cx="24" cy="34" r="2.2" fill="currentColor"/></svg>',
 };
@@ -412,10 +424,22 @@ export class PauseMenu {
     row.appendChild(this._button(`${ICONS.gear}<span>Settings</span>`, 'cc-btn ccp-btn', () => this.showView('settings')));
     row.appendChild(this._button(`${ICONS.save}<span>Save</span>`, 'cc-btn ccp-btn', () => this._doSave()));
     actions.appendChild(row);
-    // Locker: change equipped gear / uniform / cart look anywhere (ShopUI in locker mode, on top)
+    // Locker: change equipped gear / uniform / cart look anywhere (ShopUI in locker mode, on top).
+    // Junior Tour: the tour hub (TourUI), also on top; shown once the tour has been accepted.
+    const extra = el('div', 'ccp-btn-row ccp-btn-row--wrap');
     if (this.opts.onLocker) {
-      actions.appendChild(this._button(`${ICONS.locker}<span>Locker</span>`, 'cc-btn ccp-btn', () => this.opts.onLocker()));
+      extra.appendChild(this._button(`${ICONS.locker}<span>Locker</span>`, 'cc-btn ccp-btn', () => this.opts.onLocker()));
     }
+    this.tourBtn = this._button(`${ICONS.trophy}<span>Junior Tour</span>`, 'cc-btn ccp-btn ccp-btn--tour', () => {
+      const f = this._tourHook('onTour');
+      if (f) f();
+    });
+    this.tourBtn.setAttribute('aria-label', 'Junior Tour: tournaments, draw and rankings');
+    this.tourBtn.hidden = true;
+    extra.appendChild(this.tourBtn);
+    extra.hidden = !this.opts.onLocker;
+    this.extraRow = extra;
+    actions.appendChild(extra);
 
     this.statusEl = el('div', 'ccp-status');
     this.statusEl.setAttribute('role', 'status');
@@ -639,6 +663,28 @@ export class PauseMenu {
         ? 'Esc or P to resume · saving is unavailable in this browser'
         : 'Esc or P to resume · progress autosaves';
     }
+    this._refreshTour();
+  }
+
+  /** A tour callback from the options, else from PauseMenu.setTourHooks. */
+  _tourHook(name) {
+    const f = this.opts[name] || (PauseMenu._tourHooks && PauseMenu._tourHooks[name]);
+    return typeof f === 'function' ? f : null;
+  }
+
+  /** Junior Tour button: visible while the tour is accepted (checked every time the menu opens). */
+  _refreshTour() {
+    if (!this.tourBtn) return;
+    const get = this._tourHook('getTourAvailable');
+    let on = false;
+    try { on = !!(get && this._tourHook('onTour') && get()); } catch (e) { on = false; }
+    this.tourBtn.hidden = !on;
+    this.extraRow.hidden = !this.opts.onLocker && !on;
+  }
+
+  /** Tour callbacks for menus built without them in their options. */
+  static setTourHooks(hooks) {
+    PauseMenu._tourHooks = hooks && typeof hooks === 'object' ? hooks : null;
   }
 
   _syncSettings() {
