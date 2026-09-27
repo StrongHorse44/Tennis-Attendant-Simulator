@@ -55,6 +55,16 @@ const ITEM_WORDS = [
   ['water_bottles', /\b(water|drinks?|lemonade|parched|thirsty|running dry)\b/i],
   ['racket', /\bracket\b/i],
 ];
+/**
+ * A request-line pattern for a court whose label has no number ("Centre Court"): the label's
+ * words with any whitespace between them, and "centre" / "center" spelt either way.
+ */
+function courtWordRe(label) {
+  const words = String(label).trim().split(/\s+/).filter(Boolean)
+    .map(w => (/^cent(?:re|er)$/i.test(w) ? 'cent(?:re|er)' : escapeRe(w)));
+  return words.length ? new RegExp(`\\b${words.join('\\s+')}\\b`, 'i') : null;
+}
+
 /** Words in a member request that name a place. */
 const PLACE_WORDS = [
   ['proShop', /pro shop/i], ['patio', /\bpatio\b/i], ['garden', /\bgarden\b/i], ['lockerRoom', /locker/i],
@@ -89,6 +99,15 @@ export class MissionGenerator {
     this.npcList = (isObj(o.npcs) && Array.isArray(o.npcs.npcs) ? o.npcs.npcs : []).filter(n => isObj(n) && n.id);
     this.npcById = new Map(this.npcList.map(n => [n.id, n]));
     this.courts = (isObj(this.map.areas) && Array.isArray(this.map.areas.courts) ? this.map.areas.courts : []).filter(c => isObj(c) && c.id);
+    this._courtIds = new Set(this.courts.map(c => c.id));
+    // Courts named without a number ("Centre Court"): [id, RegExp] pairs for the request classifier
+    this._courtWords = [];
+    for (const c of this.courts) {
+      const label = typeof c.label === 'string' ? c.label.trim() : '';
+      if (!label || /\d/.test(label)) continue;
+      const rx = courtWordRe(label);
+      if (rx) this._courtWords.push([c.id, rx]);
+    }
     this.setSchedule(o.schedule);
   }
 
@@ -166,14 +185,18 @@ export class MissionGenerator {
     return null;
   }
 
-  /** Validator helper: up to `n` distinct missions from `tpl` across varied contexts (ignores gates). */
-  sample(tpl, n = 12, rand = Math.random) {
+  /**
+   * Validator helper: up to `n` distinct missions from `tpl` across varied contexts (ignores gates).
+   * `preset` { role: id } pins roles (e.g. { court: 'court6' }: is the template valid on that court?).
+   */
+  sample(tpl, n = 12, rand = Math.random, preset = null) {
     const out = [];
     const seen = new Set();
     const src = asArr(tpl.sources || ['taskBoard'])[0];
+    const opts = preset ? { preset } : {};
     for (let i = 0; i < n * 4 && out.length < n; i++) {
       const ctx = { day: 99, rankIndex: 9, hour: 12, weather: 'sunny', hoursSinceRain: 0, rand, sampleAnyMatch: true, eventId: asArr(tpl.events)[0] };
-      const m = tpl.builder === 'request' ? this._buildRequest(tpl, src, ctx, {}) : this._build(tpl, src, ctx, {});
+      const m = tpl.builder === 'request' ? this._buildRequest(tpl, src, ctx, {}) : this._build(tpl, src, ctx, opts);
       if (!m || seen.has(m.sig)) continue;
       seen.add(m.sig);
       out.push(m);
@@ -392,7 +415,7 @@ export class MissionGenerator {
 
   _build(tpl, source, ctx, opts) {
     const rand = ctx.rand || Math.random;
-    const preset = {};
+    const preset = isObj(opts.preset) ? { ...opts.preset } : {};
     if (opts.trigger && tpl.trigger) preset[tpl.trigger] = opts.trigger;
     const fills = this._resolveRoles(tpl, ctx, preset);
     if (!fills) return null;
@@ -504,7 +527,12 @@ export class MissionGenerator {
     return m;
   }
 
-  /** Turn a request line into { kind: 'fetch'|'relay'|'check'|'groom', item, from, to, other }. */
+  /**
+   * Turn a request line into { kind: 'fetch'|'relay'|'check'|'groom', item, from, to, other }.
+   * Courts are named "Court N" or by a label without a number ("Centre Court" / "center court");
+   * a bare "court" means the member's own court. Keep "sweep" / "groom" / "drag" out of lines
+   * that aren't about grooming the clay (they make a groom job).
+   */
   classifyRequest(n, line, rand = Math.random) {
     const text = String(line || '');
     const home = this._npcAreas(n);
@@ -518,12 +546,17 @@ export class MissionGenerator {
       const id = `court${mm[1]}`;
       if (this._isArea(id)) found.push({ id, at: mm.index });
     }
+    // Courts named by their label ("Centre Court"); a court found here suppresses the generic "court"
+    for (const [id, rx] of this._courtWords) {
+      const r = rx.exec(text);
+      if (r && this._isArea(id)) found.push({ id, at: r.index });
+    }
     for (const [id, rx] of PLACE_WORDS) {
       const r = rx.exec(text);
       if (r && this._isArea(id)) found.push({ id, at: r.index });
     }
     const generic = /\bcourt\b(?!\s*\d)/i.exec(text);
-    if (generic && !found.some(f => /^court/.test(f.id))) {
+    if (generic && !found.some(f => this._courtIds.has(f.id))) {
       const c = home.find(a => /^court/.test(a));
       if (c) found.push({ id: c, at: generic.index });
     }
@@ -593,6 +626,11 @@ export class MissionGenerator {
   }
 
   _matchWord(id, text) {
+    const cw = this._courtWords.find(w => w[0] === id);
+    if (cw) {
+      const r = cw[1].exec(text);
+      return r ? r[0] : this._areaLabel(id);
+    }
     const c = /^court(\d)$/.exec(id);
     if (c) return `court ${c[1]}`;
     const w = PLACE_WORDS.find(p => p[0] === id);

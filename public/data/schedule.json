@@ -1,6 +1,6 @@
 {
-  "_comment": "Court reservations for member matches (MatchSystem). Times are in-game hours (8.5 or \"8:30\"). 'court' is one court id or a list of alternatives (first free one wins). 'players' are npcs.json ids; \"any\" picks a free member from 'pool'. A match starts once its window opens and the court, weather and players allow it, and ends when someone reaches format.gamesToWin games or the window closes (after the point in play). A booked member who is busy (needed for a mission step, talking to you, already playing) is substituted from the pool after ~12 game minutes. exclude = never scheduled. 'note' is for humans.",
-  "maxConcurrent": 3,
+  "_comment": "Court reservations for member matches (MatchSystem). Times are in-game hours (8.5 or \"8:30\"). 'court' is one court id or a list of alternatives (first free one wins). 'players' are npcs.json ids; \"any\" picks a free member from 'pool'. A match starts once its window opens and the court, weather and players allow it, and ends when someone reaches format.gamesToWin games or the window closes (after the point in play). A booked member who is busy (needed for a mission step, talking to you, already playing) is substituted from the pool after ~12 game minutes. exclude = never scheduled. 'note' is for humans. Centre Court (court6, the sunken grass show court) has three feature bookings (cc-*) and is free from 16:15 so evening event matches can take it.",
+  "maxConcurrent": 4,
   "format": {"gamesToWin": 2, "noAd": true, "warmupSeconds": 10},
   "lateStartHours": 1.0,
   "pool": ["chad_blake", "tommy_chen", "priya_sharma", "diane_ross", "mrs_wellington", "bob_hendricks", "maria_santos", "kevin_park", "rafa_ibarra", "theo_wellington", "lily_santos", "nate_okafor", "babs_hendricks", "gloria_castellano", "frank_deluca", "leo_brandt", "harper_brandt", "vik_rao"],
@@ -17,6 +17,9 @@
     {"id": "pm-1", "court": "court2", "start": "15:30", "end": "18:30", "players": ["leo_brandt", "harper_brandt"], "note": "couples grudge match: bring a line judge"},
     {"id": "pm-2", "court": ["court3", "court4", "court5"], "start": "16:00", "end": "18:45", "players": ["babs_hendricks", "diane_ross"], "note": "the flower-bed feud, by other means"},
     {"id": "pm-3", "court": "court1", "start": "17:00", "end": "19:00", "players": ["chad_blake", "nate_okafor"], "note": "Chad's rivalry, Nate's warm-up"},
-    {"id": "pm-4", "court": ["court4", "court3", "court5"], "start": "17:15", "end": "19:00", "players": ["rafa_ibarra", "theo_wellington"], "note": "coach and protege under the lights"}
+    {"id": "pm-4", "court": ["court4", "court3", "court5"], "start": "17:15", "end": "19:00", "players": ["rafa_ibarra", "theo_wellington"], "note": "coach and protege under the lights"},
+    {"id": "cc-am", "court": "court6", "start": "8:30", "end": "11:15", "players": ["nate_okafor", "leo_brandt"], "note": "Centre Court feature: Leo's tenth try"},
+    {"id": "cc-mid", "court": "court6", "start": "11:45", "end": "14:15", "players": ["harper_brandt", "babs_hendricks"], "note": "mixer partners, no mercy on grass"},
+    {"id": "cc-pm", "court": "court6", "start": "14:30", "end": "16:15", "players": ["mrs_wellington", "frank_deluca"], "note": "the bylaws committee takes Centre Court"}
   ]
 }

@@ -11,8 +11,11 @@
  * (validateTemplatesShape) plus sampled fills from every template through MissionGenerator,
  * each checked with validateMission. events.json: schema, boosts that name real templates /
  * missions, each event's merged schedule (validateEvents). shop.json: validateShop (ShopSystem.js).
- * map.json courts: unique ids, `type` hard / clay / grass, shared-surround flags. Exits 1 on
- * any error (warnings don't fail).
+ * map.json courts: unique ids, `type` hard / clay / grass, shared-surround flags. map.json
+ * `bounds` and the sunken stadium court (validateGround): validateStadiumMap (StadiumLayout.js:
+ * config ranges + the selfCheck invariants), court heights, paths / waypoints / item spots /
+ * staff posts against the bowl's cut and footprint, the stadium court's own waypoints, preferred
+ * areas that only name spots inside the bowl. Exits 1 on any error (warnings don't fail).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +25,7 @@ import { ITEMS } from '../src/systems/InventorySystem.js';
 import { MissionGenerator, validateTemplatesShape, COURT_SURFACES } from '../src/systems/MissionGenerator.js';
 import { validateEvents } from '../src/systems/EventSystem.js';
 import { validateShop } from '../src/systems/ShopSystem.js';
+import { validateStadiumMap, findStadiumCourt, computeStadiumLayout } from '../src/world/StadiumLayout.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -123,6 +127,173 @@ function validateNpcs(npcs, map) {
   return out;
 }
 
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const fin = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/** True when segment a→b touches the closed rect r (Liang–Barsky). */
+function segHitsRect(ax, az, bx, bz, r) {
+  let t0 = 0, t1 = 1;
+  const dx = bx - ax, dz = bz - az;
+  const clip = (p, q) => {
+    if (p === 0) return q >= 0;
+    const t = q / p;
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    return true;
+  };
+  return clip(-dx, ax - r.x0) && clip(dx, r.x1 - ax) && clip(-dz, az - r.z0) && clip(dz, r.z1 - az);
+}
+
+/** Distance from segment a→b to the rect r (0 when they touch). */
+function segRectDist(ax, az, bx, bz, r) {
+  if (segHitsRect(ax, az, bx, bz, r)) return 0;
+  const toRect = (x, z) => Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
+  const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+  const toSeg = (px, pz) => {
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2)) : 0;
+    return Math.hypot(ax + t * dx - px, az + t * dz - pz);
+  };
+  return Math.min(toRect(ax, az), toRect(bx, bz), toSeg(r.x0, r.z0), toSeg(r.x1, r.z0), toSeg(r.x0, r.z1), toSeg(r.x1, r.z1));
+}
+
+/** Path ribbons (half width + this) must stay clear of a bowl's cut: the edging and end discs. */
+const PATH_EDGE_EXTRA = 0.21;
+
+/**
+ * map.json `bounds` and the sunken stadium court (StadiumLayout): validateStadiumMap (config
+ * ranges + selfCheck), court heights, then everything in map.json / npcs.json that has to agree
+ * with the bowl: paths stay out of the footprint and their ribbons out of the cut; waypoints and
+ * item spots inside the cut sit on its ground (groundAt), those outside at y ≈ 0; the stadium
+ * court has `<id>_center` on the pit floor and `<id>_exit` outside the footprint (and ideally a
+ * `<id>_bench`); staff posts / patrols stay out of the footprint; a preferred area that only
+ * names spots inside the bowl leaves its member wandering anywhere. Without a stadium only the
+ * flat-club checks run (bounds, court heights, waypoint heights).
+ */
+function validateGround(map, npcs) {
+  const out = [];
+  const err = (msg, file = 'map.json') => out.push({ level: 'error', msg: `${file} ${msg}` });
+  const warn = (msg, file = 'map.json') => out.push({ level: 'warn', msg: `${file} ${msg}` });
+
+  // bounds: { minX, maxX, minZ, maxZ } (World fence lines ± 5), or the legacy { width, depth }
+  const b = map.bounds;
+  const BK = ['minX', 'maxX', 'minZ', 'maxZ'];
+  let fence = null;
+  if (b === undefined) warn('bounds: missing (the club falls back to the old ±mapWidth/2 × ±mapDepth/2 fence)');
+  else if (!isObj(b)) err('bounds must be { minX, maxX, minZ, maxZ }');
+  else if (BK.some(k => b[k] !== undefined)) {
+    if (!BK.every(k => fin(b[k]))) err('bounds: minX, maxX, minZ and maxZ must all be numbers');
+    else if (!(b.minX < b.maxX && b.minZ < b.maxZ)) err('bounds: needs minX < maxX and minZ < maxZ');
+    else fence = { x0: b.minX - 5, x1: b.maxX + 5, z0: b.minZ - 5, z1: b.maxZ + 5 };
+  } else if (b.width !== undefined || b.depth !== undefined) {
+    if (!(fin(b.width) && b.width > 0 && fin(b.depth) && b.depth > 0)) err('bounds: the legacy { width, depth } must be positive numbers');
+    else fence = { x0: -b.width / 2 - 5, x1: b.width / 2 + 5, z0: -b.depth / 2 - 5, z1: b.depth / 2 + 5 };
+  } else err('bounds must be { minX, maxX, minZ, maxZ } (or the legacy { width, depth })');
+
+  // court heights: center.y sinks only a stadium court
+  const courts = isObj(map.areas) && Array.isArray(map.areas.courts) ? map.areas.courts : [];
+  for (const c of courts) {
+    if (!isObj(c) || !c.id || !isObj(c.center) || c.center.y === undefined) continue;
+    const y = c.center.y;
+    if (!fin(y)) { err(`courts (${c.id}): center.y must be a number`); continue; }
+    if (y < -6 || y > 0.5) err(`courts (${c.id}): center.y ${y} is outside -6..0.5`);
+    else if (y < -0.5 && !isObj(c.stadium)) err(`courts (${c.id}): center.y ${y} sinks the court, which needs a "stadium" block (seats, aisles and the bowl around it)`);
+  }
+
+  // the stadium block itself (one stadium court, rotation 0, config ranges, selfCheck invariants)
+  const st = validateStadiumMap(map);
+  for (const m of st.errors) err(m);
+  for (const m of st.warnings) warn(m);
+  const sc = findStadiumCourt(map);
+  let L = null;
+  if (sc) { try { L = computeStadiumLayout(sc); } catch (e) { L = null; /* reported by validateStadiumMap */ } }
+  const groundAt = (x, z) => (L ? L.groundAt(x, z) : 0);
+  const inCut = (x, z) => !!L && L.inCut(x, z);
+  const inFoot = (x, z) => !!L && L.inFootprint(x, z, 0);
+  const wanderable = (x, z) => (L ? L.isWanderable(x, z) : fin(x) && fin(z));
+  const wps = isObj(map.waypoints) ? map.waypoints : {};
+  const wpOk = (w) => isObj(w) && fin(w.x) && fin(w.z);
+
+  // waypoints: on the bowl's ground inside the cut, at y ≈ 0 outside
+  for (const [k, w] of Object.entries(wps)) {
+    if (!wpOk(w)) continue;
+    const y = fin(w.y) ? w.y : 0;
+    if (inCut(w.x, w.z)) {
+      const g = groundAt(w.x, w.z);
+      if (Math.abs(y - g) > 0.05) err(`waypoint "${k}" at (${w.x}, ${w.z}) is inside the ${L.id} bowl: y must be the ground there (${g.toFixed(3)}), is ${y}`);
+    } else if (Math.abs(y) > 0.2) warn(`waypoint "${k}" at (${w.x}, ${w.z}) has y ${y} (the ground outside the bowl is 0)`);
+  }
+
+  // item spots inside the cut: on the pit / stand ground, at most counter height above it
+  const spots = isObj(map.itemSpots) ? map.itemSpots : {};
+  for (const [k, s] of Object.entries(spots)) {
+    if (!isObj(s) || !fin(s.x) || !fin(s.z) || !inCut(s.x, s.z)) continue;
+    if (s.y === undefined) continue; // ItemProps finds the surface itself
+    const g = groundAt(s.x, s.z);
+    if (!fin(s.y) || s.y < g - 0.01 || s.y > g + 1.6) err(`itemSpots.${k}: inside the ${L.id} bowl y must be ${g.toFixed(2)}..${(g + 1.6).toFixed(2)} (the ground there + 1.6), is ${s.y}`);
+  }
+
+  if (!L) return out;
+  const id = L.id;
+
+  // the stadium court's own waypoints
+  const center = wps[`${id}_center`], exit = wps[`${id}_exit`];
+  if (!wpOk(center)) err(`waypoint "${id}_center" is required for the stadium court (markers, minimap pin, walk-ons)`);
+  else if (!(fin(center.y) && Math.abs(center.y - L.surfY) <= 0.05)) err(`waypoint "${id}_center" must sit on the court (y ${L.surfY}), is y ${center.y}`);
+  if (!wpOk(exit)) err(`waypoint "${id}_exit" is required for the stadium court (after-hours tennis leaves the player there)`);
+  else {
+    if (inFoot(exit.x, exit.z)) err(`waypoint "${id}_exit" at (${exit.x}, ${exit.z}) must be outside the bowl's footprint`);
+    if (!(Math.abs(fin(exit.y) ? exit.y : 0) <= 0.05)) err(`waypoint "${id}_exit" must be on the lawn (y 0), is y ${exit.y}`);
+  }
+  if (!wpOk(wps[`${id}_bench`])) warn(`waypoint "${id}_bench" is missing (a rim spot for the stadium court)`);
+
+  // spawns and paths: nothing to drive into the bowl
+  for (const k of ['spawnPoint', 'cartSpawnPoint']) {
+    const p = map[k];
+    if (isObj(p) && fin(p.x) && fin(p.z) && inFoot(p.x, p.z)) err(`${k} (${p.x}, ${p.z}) is inside the ${id} bowl's footprint`);
+  }
+  for (const [i, p] of (Array.isArray(map.paths) ? map.paths : []).entries()) {
+    if (!isObj(p) || !Array.isArray(p.points)) continue;
+    const at = `paths[${i}]${p.id ? ` (${p.id})` : ''}`;
+    const pts = p.points.filter(q => isObj(q) && fin(q.x) && fin(q.z));
+    const r = (fin(p.width) && p.width > 0 ? p.width : 3) / 2 + PATH_EDGE_EXTRA;
+    for (const q of pts) if (inFoot(q.x, q.z)) err(`${at}: point (${q.x}, ${q.z}) is inside the ${id} bowl's footprint`);
+    for (let j = 0; j < pts.length; j++) {
+      const a = pts[j], c = pts[Math.min(j + 1, pts.length - 1)];
+      const d = segRectDist(a.x, a.z, c.x, c.z, L.cut);
+      if (d < r) { err(`${at}: the ribbon from (${a.x}, ${a.z}) to (${c.x}, ${c.z}) comes within ${d.toFixed(2)} m of the ${id} cut (needs ≥ ${r.toFixed(2)}: half width + ${PATH_EDGE_EXTRA} edging)`); break; }
+    }
+  }
+  if (fence) {
+    const ring = L.concourse + 1.5;
+    if (L.cut.x0 - ring < fence.x0 || L.cut.x1 + ring > fence.x1 || L.cut.z0 - ring < fence.z0 || L.cut.z1 + ring > fence.z1) {
+      warn(`the ${id} concourse (cut + ${ring} m) reaches past the fence lines (bounds ± 5)`);
+    }
+  }
+
+  // staff posts / patrols (NPC.js parseDuty) and wandering members (preferredAreas → waypoints)
+  const list = isObj(npcs) && Array.isArray(npcs.npcs) ? npcs.npcs.filter(n => isObj(n) && n.id) : [];
+  const spotKey = (ref) => (typeof ref === 'string' ? ref : isObj(ref) ? ref.spot : null);
+  for (const n of list) {
+    const refs = [];
+    if (isObj(n.post)) {
+      refs.push(['post', n.post.spot]);
+      for (const k of ['roam', 'breaks']) for (const r of Array.isArray(n.post[k]) ? n.post[k] : []) refs.push([`post.${k}`, spotKey(r)]);
+    }
+    if (isObj(n.patrol)) for (const r of Array.isArray(n.patrol.route) ? n.patrol.route : []) refs.push(['patrol.route', spotKey(r)]);
+    for (const [where, key] of refs) {
+      const w = key && wps[key];
+      if (wpOk(w) && inFoot(w.x, w.z)) err(`${n.id}: ${where} spot "${key}" is inside the ${id} bowl's footprint (staff walk straight to their spots)`, 'npcs.json');
+    }
+    for (const a of Array.isArray(n.preferredAreas) ? n.preferredAreas : []) {
+      const al = String(a).toLowerCase();
+      const hits = Object.entries(wps).filter(([k, w]) => k.toLowerCase().includes(al) && wpOk(w));
+      if (hits.length && hits.every(([, w]) => !wanderable(w.x, w.z))) {
+        warn(`${n.id}: preferred area "${a}" only matches waypoints inside the ${id} bowl (${hits.map(([k]) => k).join(', ')}): members never wander there`, 'npcs.json');
+      }
+    }
+  }
+  return out;
+}
+
 const errors = [];
 const warnings = [];
 
@@ -160,6 +331,8 @@ if (map) {
       if (!n) warnings.push(`${at}: ${flag} but no court on that side has ${other}`);
     }
   }
+  // bounds + the sunken stadium court and everything that must agree with its bowl
+  for (const p of validateGround(map, npcs || {})) (p.level === 'error' ? errors : warnings).push(p.msg);
 }
 
 if (map && npcs && missions) {
@@ -257,6 +430,8 @@ if (map && npcs && schedule) {
 
 // missions.json → templates (MissionGenerator): shape, then sampled fills must all be valid missions
 let nTemplates = 0, nSamples = 0;
+const stadiumTemplates = new Set();
+let stadiumId = null;
 if (map && npcs && missions && missions.templates !== undefined) {
   for (const p of validateTemplatesShape(missions.templates, { taskTypes: missions.taskTypes })) {
     (p.level === 'error' ? errors : warnings).push(`missions.json ${p.msg}`);
@@ -265,20 +440,36 @@ if (map && npcs && missions && missions.templates !== undefined) {
   const gen = new MissionGenerator({ templates: missions.templates, npcs, map, schedule, items: ITEMS, facts });
   let seed = 12345;
   const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const checkSample = (t, m) => {
+    nSamples++;
+    for (const p of validateMission(m, facts, missions.taskTypes)) {
+      if (p.level === 'error') errors.push(`missions.json template ${t.id} (${m.sig}): ${p.msg}`);
+    }
+    const leftover = JSON.stringify(m).match(/\{[A-Za-z]+(\.[a-z]+)?\}/);
+    if (leftover) errors.push(`missions.json template ${t.id} (${m.sig}): unfilled placeholder ${leftover[0]}`);
+    for (const [i, s] of m.steps.entries()) {
+      const tgt = s.action === 'goTo' || s.action === 'groom' ? s.target : (s.action === 'pickup' || s.action === 'deliver') ? s.location : null;
+      if (tgt && !hasMarkerPoint(map, tgt)) warnings.push(`missions.json template ${t.id} step ${i}: "${tgt}" has no minimap pin`);
+    }
+  };
   for (const t of gen.list) {
     nTemplates++;
     const samples = gen.sample(t, 16, rand);
     if (!samples.length) { warnings.push(`missions.json template ${t.id}: produced no mission from the current data (never offered)`); continue; }
-    for (const m of samples) {
-      nSamples++;
-      for (const p of validateMission(m, facts, missions.taskTypes)) {
-        if (p.level === 'error') errors.push(`missions.json template ${t.id} (${m.sig}): ${p.msg}`);
-      }
-      const leftover = JSON.stringify(m).match(/\{[A-Za-z]+(\.[a-z]+)?\}/);
-      if (leftover) errors.push(`missions.json template ${t.id} (${m.sig}): unfilled placeholder ${leftover[0]}`);
-      for (const [i, s] of m.steps.entries()) {
-        const tgt = s.action === 'goTo' || s.action === 'groom' ? s.target : (s.action === 'pickup' || s.action === 'deliver') ? s.location : null;
-        if (tgt && !hasMarkerPoint(map, tgt)) warnings.push(`missions.json template ${t.id} step ${i}: "${tgt}" has no minimap pin`);
+    for (const m of samples) checkSample(t, m);
+  }
+  // The stadium court: every template with an area role that can land on it is also sampled with
+  // that role pinned to it, so a sunken-court mission is always checked (random fills may miss it).
+  const sc = findStadiumCourt(map);
+  if (sc && facts.areaIds.has(sc.id)) {
+    stadiumId = sc.id;
+    for (const t of gen.list) {
+      if (t.builder === 'request') continue;
+      for (const [role, spec] of Object.entries(t.roles && typeof t.roles === 'object' ? t.roles : {})) {
+        if (!spec || typeof spec !== 'object' || spec.area === undefined) continue;
+        const pinned = gen.sample(t, 2, rand, { [role]: sc.id });
+        if (pinned.length) stadiumTemplates.add(t.id);
+        for (const m of pinned) checkSample(t, m);
       }
     }
   }
@@ -313,7 +504,7 @@ if (shop && npcs) {
 }
 
 for (const w of warnings) console.warn('warn  ' + w);
-console.log(`validate-data: ${nTemplates} mission templates (${nSamples} sampled missions), ${nEvents} events checked`);
+console.log(`validate-data: ${nTemplates} mission templates (${nSamples} sampled missions${stadiumId ? `; ${stadiumTemplates.size} can target ${stadiumId}: ${[...stadiumTemplates].join(', ')}` : ''}), ${nEvents} events checked`);
 for (const e of errors) console.error('ERROR ' + e);
 const n = map && missions && Array.isArray(missions.missions) ? missions.missions.length : 0;
 console.log(`validate-data: ${n} missions, ${nMatches} scheduled matches, ${nShop} shop items checked, ${errors.length} error(s), ${warnings.length} warning(s)`);
