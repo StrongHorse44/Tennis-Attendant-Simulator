@@ -798,7 +798,7 @@ class Game {
       onTourMatch: (spec) => this.startTourMatch(spec),
       getTourMatch: () => this.tour?.getTonight?.(this.weather.day) ?? null,
       onTourHub: () => this.openTourHub({ tab: 'week' }),
-      getTourAvailable: () => !!this.tour?.accepted,
+      getTourAvailable: () => !!(this.tour?.available && this.tour.accepted),
     });
 
     // ── Tour UI wiring ──────────────────────────────────────────────────────────────────────
@@ -833,7 +833,7 @@ class Game {
       });
       // (openTourHub(opts) and startTourMatch(spec) are Game methods, in the Junior Tour section)
       PauseMenu.setTourHooks({
-        getTourAvailable: () => !!this.tour?.accepted,
+        getTourAvailable: () => !!(this.tour?.available && this.tour.accepted),
         onTour: () => this.openTourHub({ tab: 'week' }),
       });
     }
@@ -1724,7 +1724,9 @@ class Game {
     // Update input
     this.input.update(dt);
     // A Junior Tour venue in view: its flags, water, crowd and umpire (the session steps the rest)
-    if (this.venues && this.venues.active) this.venues.update(dt);
+    if (this.venues && this.venues.active) {
+      try { this.venues.update(dt); } catch (err) { this._reportLoopError('venues', err); }
+    }
     // After-hours tennis owns the whole frame while it runs (TennisSession steps the world)
     const tennisOn = !!(this.tennis && this.tennis.active);
     if (tennisOn !== !!this._tennisWasActive) { this._tennisWasActive = tennisOn; this._onTennisActive(tennisOn); }

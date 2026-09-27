@@ -107,6 +107,7 @@ const EXIT_NEAR = 12;                   // m: a Centre Court walk-off ends withi
 const EXIT_CLEAR = 2;                   // m: …but not on the head itself (the next players come down that way)
 const WALKER_R = SIZES.npcRadius ?? 0.35;
 const PLAN_BUDGET = 2;                  // shot plans (makeShot) per frame across every court (more only when due)
+const PLAN_MS = 1.5;                    // …and no more once this many ms went into planning this frame (a plan costs 0.3–6 ms)
 const HOP_T = 0.28;                     // s: a hop into a high ball (a dip to a low one) over this either side of contact
 const DIP_MAX = 0.2;                    // m: the deepest dip (bent knees) to a low ball
 const MOVE_EPS = 0.08;                  // NPC.moveTo stops this short of its goal (the glide aims past it)
@@ -1385,10 +1386,12 @@ export class MatchSystem {
 
   /**
    * Run queued shot plans: the most urgent (nearest contact) first, at most PLAN_BUDGET a frame
-   * across all courts — a plan whose contact is due within ~two frames runs regardless (and the
+   * across all courts and none once PLAN_MS went into it — a plan whose contact is due within ~two
+   * frames runs regardless (and the
    * contact itself runs a missing plan at once), so a contact is never late.
    */
   _servicePlans(dt) {
+    const t0 = performance.now();
     for (let pass = 0; pass < 8; pass++) {
       let bm = null, bp = null, slack = INF;
       for (let i = 0; i < this.matches.length; i++) {
@@ -1402,7 +1405,7 @@ export class MatchSystem {
         }
       }
       if (!bm) return;
-      if (this._framePlans >= PLAN_BUDGET && slack > 2.2 * dt + 0.01) return;
+      if ((this._framePlans >= PLAN_BUDGET || performance.now() - t0 > PLAN_MS) && slack > 2.2 * dt + 0.01) return;
       try { this._runPlan(bm, bp); } catch (err) {
         console.error('MatchSystem: shot planning error, ending the match', err);
         this._finish(bm);

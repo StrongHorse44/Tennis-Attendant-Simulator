@@ -40,6 +40,7 @@ const NO_LIGHTS_START = 15.25;   // a venue without floodlights: an earlier star
 const NO_LIGHTS_END = 19.1;      // …and the clock stops before sunset (WeatherSystem SUNSET 19.3)
 const COACH_V = 3.4;             // home: Rafa's seat, this far into the player's starting half
 const INTRO_DELAY = 0.7;         // s of session time before the game-plan card (the venue renders first)
+const STAND_IN = { hard: 'court1', clay: 'court5', grass: 'court6' };   // the club's court when a venue can't be built
 
 const HAIR_F = ['ponytail', 'ponytail', 'bun', 'bob', 'long'];
 const HAIR_M = ['short', 'swept', 'short', 'swept', 'short'];
@@ -226,8 +227,9 @@ export class TourMatch {
     this.reported = false;
     this.home = !!(spec.home || spec.courtId);
     let court = null, info = null;
+    const courts = (g.world && g.world.courts) || [];
+    this.standIn = false;
     if (this.home) {
-      const courts = (g.world && g.world.courts) || [];
       court = courts.find(c => c.id === (spec.courtId || 'court6')) || null;
     } else {
       const vs = g.venues;
@@ -235,6 +237,15 @@ export class TourMatch {
         try { info = vs.enter(spec.venueId); } catch (e) { console.error('TourMatch: venue', e); info = null; }
       }
       court = info && info.court ? info.court : null;
+      if (!court) {
+        // The venue could not be built: the club's own court of that surface stands in (the
+        // match is still played — no forced walkover)
+        this._exitVenue();
+        info = null;
+        const want = STAND_IN[spec.surface] || STAND_IN.hard;
+        court = courts.find(c => c.id === want) || courts.find(c => c.config && c.config.type === spec.surface) || null;
+        if (court) { this.standIn = true; console.warn(`TourMatch: venue "${spec.venueId}" unavailable — played on ${court.id}`); }
+      }
     }
     if (!court) { this._exitVenue(); this.spec = null; return false; }
     this.court = court;
@@ -356,7 +367,7 @@ export class TourMatch {
   /** "Harbor Point Open · Quarterfinal · Stadium Court" */
   infoLine() {
     const sp = this.spec || {};
-    return [sp.tournamentName, sp.roundName, sp.courtLabel].filter(Boolean).join(' · ');
+    return [sp.tournamentName, sp.roundName, this.standIn ? 'at Greenbriar' : sp.courtLabel].filter(Boolean).join(' · ');
   }
 
   /** Rafa sits courtside: the venue's coach seat, or a front-row seat in Centre Court's west stand. */
@@ -367,7 +378,7 @@ export class TourMatch {
     const cs = this.info && this.info.coachSpot;
     if (cs && Number.isFinite(cs.x) && Number.isFinite(cs.z)) {
       seat = { id: 'tour:coach', x: cs.x, y: Number.isFinite(cs.y) ? cs.y : 0.46, z: cs.z, yaw: Number.isFinite(cs.yaw) ? cs.yaw : 0, taken: null, reserved: true, approach: 0.45 };
-    } else if (this.home && s.frame) {
+    } else if (s.frame && s.frame.court && s.frame.court.isStadium) {
       seat = this._homeCoachSeat(s.frame, rafa);
     }
     try {
@@ -376,7 +387,7 @@ export class TourMatch {
       if (seat) {
         const ap = seat.approach ?? 0.45;
         const ax = seat.x + Math.sin(seat.yaw) * ap, az = seat.z + Math.cos(seat.yaw) * ap;
-        const floor = this.home ? groundAt(ax, az) : Math.max(0, seat.y - 0.46);
+        const floor = this.info ? Math.max(0, seat.y - 0.46) : groundAt(ax, az);
         rafa.placeAt(ax, az, seat.yaw, floor);
         claimSeat(seat, rafa, true);
         rafa._sitDown(seat);
@@ -610,6 +621,8 @@ export class TourMatch {
         : null;
     } catch (e) { console.error('TourMatch: result', e); res = null; }
     this.result = res;
+    // (refused — the tour no longer has this match: not reported, so end() doesn't count it played)
+    if (!res) this.reported = false;
     try { g.saveGame(); } catch (e) { /* ignore */ }
     return res;
   }
@@ -619,7 +632,8 @@ export class TourMatch {
     const g = this.game, ui = g.tourUI, res = this.result;
     const finish = () => { try { if (done) done(); } catch (e) { console.error('TourMatch: after result', e); } };
     if (res && ui && typeof ui.showTournamentResult === 'function') {
-      try { ui.showTournamentResult(res, { onClose: finish, hubButton: true }); return; } catch (e) { console.warn('TourMatch: result card', e); }
+      // (after a final the week rolls over as the session ends and its draw is gone: no "View draw")
+      try { ui.showTournamentResult(res, { onClose: finish, hubButton: !(res.final || res.champion) }); return; } catch (e) { console.warn('TourMatch: result card', e); }
     }
     finish();
   }
@@ -677,6 +691,9 @@ export class TourMatch {
     this._onStart = null;
     this.call(null);
     this._clearBoard();
+    // Centre Court's crowd figures leave with the home match (the spectator director only
+    // re-issues its own crowd on a change, and it was released to 0)
+    if (this.home) { try { const st = g.world && g.world.stadium; if (st && st.setCrowd) st.setCrowd(0, true); } catch (e) { /* cosmetic */ } }
     // Rafa
     const rafa = s.coachNpc;
     if (rafa) {

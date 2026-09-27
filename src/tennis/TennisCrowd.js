@@ -95,6 +95,10 @@ const DEFAULT_LINES = {
   ace: ['What a serve!', 'Ace!'],
   rally: ['What a rally!', 'Ooh!'],
   rafa: ['Nice one, Rafa.', 'Wow.'],
+  // Junior Tour matches (someone else across the net, Rafa in the stand)
+  opp: ['Good shot.', 'Tough one.', 'Hm.'],
+  tourWin: ['You did it!', 'What a win!'],
+  tourLose: ['Good fight!', 'Next time!'],
   error: ['Shake it off!', 'Next one!'],
   game: ['Game! Nice!', 'Keep going!'],
   matchWin: ['You did it!', 'Bravo!'],
@@ -185,6 +189,8 @@ export class TennisCrowd {
     this._lastSpeaker = null;
     this._arrived = false;
     this._sndT.fill(Infinity);
+    // A Junior Tour match: the opponent's shots are not Rafa's (opp / tourWin / tourLose lines)
+    this.tourMode = !!session.tour;
     // The NPC across the net (Rafa, or a Junior Tour opponent: session.oppNpc) and anyone else the
     // session keeps (session.crowdKeep: the tour's courtside Rafa and a club-member opponent)
     const coach = session.oppNpc || session.coachNpc || null;
@@ -631,7 +637,7 @@ export class TennisCrowd {
     switch (kind) {
       case 'ace':
         if (you) { P.act = P.act2 = 'cheer'; P.emoji = E.fire; P.emojis = 2; P.line = 'ace'; P.lineChance = 0.7; P.applause = 0.8; P.voice = 'whoop'; P.voiceK = 0.8; P.prio = 4; }
-        else { P.n = 1; P.emoji = E.wow; P.line = 'rafa'; P.lineChance = 0.35; P.applause = 0.2; P.voice = 'gasp'; P.voiceK = 0.35; P.prio = 2; P.minor = true; P.chance = 0.85; }
+        else { P.n = 1; P.emoji = E.wow; P.line = this.tourMode ? 'opp' : 'rafa'; P.lineChance = 0.35; P.applause = 0.2; P.voice = 'gasp'; P.voiceK = 0.35; P.prio = 2; P.minor = true; P.chance = 0.85; }
         return true;
       case 'smash':
       case 'winner':
@@ -647,7 +653,7 @@ export class TennisCrowd {
           P.prio = smash ? 4 : 3;
         } else {
           P.n = 1; P.act = rnd() < 0.5 ? 'clap' : null; P.emoji = E.wow;
-          P.line = 'rafa'; P.lineChance = 0.3;
+          P.line = this.tourMode ? 'opp' : 'rafa'; P.lineChance = 0.3;
           P.applause = P.act ? 0.18 : 0; P.voice = kind === 'smash' ? 'ooh' : 'gasp'; P.voiceK = 0.35; P.voiceChance = 0.6;
           P.prio = 2; P.minor = true; P.chance = 0.8;
         }
@@ -699,8 +705,8 @@ export class TennisCrowd {
         else { P.n = 2; P.act = P.act2 = 'clap'; P.line = 'error'; P.lineChance = 0.5; P.applause = 0.3; P.prio = 3; }
         return true;
       case 'match':
-        if (you) { P.act = P.act2 = 'cheer'; P.emoji = E.party; P.emojis = 4; P.line = 'matchWin'; P.speakers = 2; P.applause = 1; P.voice = 'whoop'; P.voiceK = 1; P.prio = 6; }
-        else { P.act = P.act2 = 'clap'; P.line = 'matchLose'; P.speakers = 2; P.applause = 0.45; P.voice = 'aww'; P.voiceK = 0.25; P.voiceChance = 0.5; P.prio = 6; }
+        if (you) { P.act = P.act2 = 'cheer'; P.emoji = E.party; P.emojis = 4; P.line = this.tourMode ? 'tourWin' : 'matchWin'; P.speakers = 2; P.applause = 1; P.voice = 'whoop'; P.voiceK = 1; P.prio = 6; }
+        else { P.act = P.act2 = 'clap'; P.line = this.tourMode ? 'tourLose' : 'matchLose'; P.speakers = 2; P.applause = 0.45; P.voice = 'aww'; P.voiceK = 0.25; P.voiceChance = 0.5; P.prio = 6; }
         return true;
       case 'drillTarget':
         if (!you) return false;

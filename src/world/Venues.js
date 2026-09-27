@@ -161,7 +161,13 @@ export function sanitizeVenue(raw, base = null) {
   const style = oneOf(clubR.style, ENUMS.style, surface === 'grass' ? 'pavilion' : 'lodge');
   const fence = oneOf(pick('fence'), ENUMS.fence, 'chainlink');
   const backdrop = oneOf(pick('backdrop'), ENUMS.backdrop, 'lawn');
-  const standStyle = oneOf(standsR.style, ENUMS.standStyle,
+  // (tour.json may describe stands by material / covered instead of style; its word wins over the fixture's)
+  const rs = rl.stands && typeof rl.stands === 'object' ? rl.stands : {};
+  const matStyle = rs.style !== undefined ? rs.style
+    : rs.covered === true ? 'covered'
+      : rs.material === 'metal' || rs.material === 'aluminium' ? (rows >= 6 ? 'concrete' : 'bleacher')
+        : rs.material === 'wood' ? 'wood' : rs.material === 'concrete' ? 'concrete' : undefined;
+  const standStyle = oneOf(matStyle !== undefined ? matStyle : standsR.style, ENUMS.standStyle,
     style === 'arena' || rows >= 6 ? 'concrete' : style === 'shed' ? 'bleacher' : style === 'pavilion' ? 'covered' : style === 'lodge' ? 'wood' : 'concrete');
   const rig = oneOf(pick('rig'), ENUMS.rig, style === 'arena' ? 'rigs' : rows >= 4 && sides.length >= 2 ? 'masts' : 'poles');
   const look = {
@@ -550,6 +556,12 @@ export class Venues {
     g.player.body.position.copy(s.player);
     g.player.mesh.position.set(s.player.x, 0, s.player.z);
     if (typeof g.player.snapToGround === 'function') g.player.snapToGround(0);
+    // (debugView put Rafa on the venue court: back to his post)
+    const rafa = (g.npcs || []).find(n => n.id === 'rafa_ibarra');
+    if (rafa && rafa.body && Math.abs(rafa.body.position.x - this.origin.x) < 200) {
+      const home = rafa.duty && rafa.duty.post;
+      if (home && typeof rafa.placeAt === 'function') rafa.placeAt(home.x, home.z, Number.isFinite(home.face) ? home.face : null, Number.isFinite(home.y) ? home.y : null);
+    }
     this._dbg = null;
     g.paused = false;
     g.pauseReason = null;

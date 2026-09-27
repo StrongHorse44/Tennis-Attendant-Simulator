@@ -358,6 +358,14 @@ export class BallFlight {
       }
       t = te;
     }
+    // Cut at MAX_T (or the buffer) before it came to rest — typically still bouncing off a fence:
+    // it drops to the court and rests there, so nothing ever hangs in mid-air
+    if (this.n && (this.nEvents === 0 || this.events[this.nEvents - 1].type !== 'rest') && this.n < this.cap) {
+      const drop = Math.max(0, s.y - ballY);
+      const tf = t + (drop > 1e-3 ? Math.sqrt(2 * drop / G) : 1e-3);
+      this._push(tf, s.x, ballY, s.z, 0, 0, 0, 0, 0, 0);
+      this._event('rest', tf, s.x, ballY, s.z, 0, 0, 0, fr ? luOf(fr, s.x, s.z) : 0, fr ? lvOf(fr, s.x, s.z) : 0, ballY, -1);
+    }
     this.tEnd = this.n ? this.s[(this.n - 1) * ST] : t0;
     this.valid = this.n > 0;
     return this;

@@ -42,7 +42,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9a-f]{6}$/i;
 const POOL_KEYS = new Set(['satisfied', 'neutral', 'unsatisfied', 'idle', 'morning', 'afternoon', 'evening', 'sunny', 'cloudy', 'rainy', 'windy', 'tips', 'hints']);
 const TIMES = new Set(['morning', 'midday', 'afternoon', 'evening']);
-const COURTSIDE_KEYS = new Set(['arrive', 'winner', 'ace', 'rally', 'rafa', 'error', 'game', 'matchWin', 'matchLose', 'drill', 'closeIn', 'closeOut']);
+const COURTSIDE_KEYS = new Set(['arrive', 'winner', 'ace', 'rally', 'rafa', 'error', 'game', 'matchWin', 'matchLose', 'drill', 'closeIn', 'closeOut', 'opp', 'tourWin', 'tourLose']);
 const REL_TYPES = new Set(['family', 'spouse', 'friend', 'rival', 'mentor', 'student', 'colleague', 'acquaintance']);
 
 /** Member data (npcs.json): ids, colours, small-talk pools, relationships, tennis, match / courtside lines. */

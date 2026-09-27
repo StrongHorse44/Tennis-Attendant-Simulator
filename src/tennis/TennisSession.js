@@ -614,6 +614,8 @@ export class TennisSession {
     const g = this.game;
     if (g.dialogueSystem && g.dialogueSystem.isActive()) g.dialogueSystem.forceEnd();
     if (!tm.prepare(spec)) return false;
+    // (where you are at the club: out of the cart first — the body stays where you got in)
+    if (g.player.isInCart) { g.player.exitCart(); g.sound.stopCartEngine && g.sound.stopCartEngine(); g.wasInCart = false; }
     tm.saveClubSide();
     this._clubSide = { frame: this.frame, surface: this.surface, windKey: this.windKey };
     this.frame = new CourtFrame(tm.court);
@@ -629,68 +631,76 @@ export class TennisSession {
     else this.ai.setDifficulty('medium', surf);
     this.crowdKeep = tm.clubOpp ? [this.coachNpc, opp] : [this.coachNpc];
     this.crowdStaff = tm.home;            // the staff come to watch at home only
-    this.from = 'tour';
-    this._tourErrors = 0;
-    this._tourErrT = -INF;
-    this.active = true;
-    this.phase = 'intro';
-    this.mode = null;
-    this.t = 0;
-    this._stopPlay();                     // (a clean slate on the new clock: no stale swing / point timers)
+    try {
+      this.from = 'tour';
+      this._tourErrors = 0;
+      this._tourErrT = -INF;
+      this.active = true;
+      this.phase = 'intro';
+      this.mode = null;
+      this.t = 0;
+      this._stopPlay();                     // (a clean slate on the new clock: no stale swing / point timers)
 
-    if (g.shiftReport && g.shiftReport.isOpen) g.shiftReport.hide();
-    if (g.paused && g.pauseReason === 'report') g.resume();
-    if (g.player.isInCart) { g.player.exitCart(); g.sound.stopCartEngine && g.sound.stopCartEngine(); g.wasInCart = false; }
-    if (g.hud && g.hud.isRadioCardVisible && g.hud.isRadioCardVisible()) g.hud.hideRadioDispatch();
+      if (g.shiftReport && g.shiftReport.isOpen) g.shiftReport.hide();
+      if (g.paused && g.pauseReason === 'report') g.resume();
+      if (g.player.isInCart) { g.player.exitCart(); g.sound.stopCartEngine && g.sound.stopCartEngine(); g.wasInCart = false; }
+      if (g.hud && g.hud.isRadioCardVisible && g.hud.isRadioCardVisible()) g.hud.hideRadioDispatch();
 
-    // An evening match: into the dusk and under the lights where the venue has them (else an
-    // earlier start, and daylight to the end); the day's wind; the weather held
-    const w = g.weather;
-    this._saved = { frozen: w.clockFrozen, weatherTimer: w.weatherTimer, matches: g.matches ? g.matches.enabled : true, time: w.timeOfDay };
-    w.timeOfDay = tm.dayStart;
-    w.clockFrozen = true;
-    w.stadium = tm.lights ? 1 : 0;
-    const sky = spec.wind === 'gusty' ? 'windy' : 'sunny';
-    if (w.getWeather() !== sky) w.setWeather(sky, true);
-    if (g.matches) {
-      g.matches.enabled = false;
-      for (const m of g.matches.matches.slice()) { try { g.matches._finish(m); } catch (e) { /* ignore */ } }
+      // An evening match: into the dusk and under the lights where the venue has them (else an
+      // earlier start, and daylight to the end); the day's wind; the weather held
+      const w = g.weather;
+      this._saved = { frozen: w.clockFrozen, weatherTimer: w.weatherTimer, matches: g.matches ? g.matches.enabled : true, time: w.timeOfDay };
+      w.timeOfDay = tm.dayStart;
+      w.clockFrozen = true;
+      w.stadium = tm.lights ? 1 : 0;
+      const sky = spec.wind === 'gusty' ? 'windy' : 'sunny';
+      if (w.getWeather() !== sky) w.setWeather(sky, true);
+      if (g.matches) {
+        g.matches.enabled = false;
+        for (const m of g.matches.matches.slice()) { try { g.matches._finish(m); } catch (e) { /* ignore */ } }
+      }
+      try { g.spectators?.releaseAll?.('tennis'); } catch (e) { /* ignore */ }
+      if (!tm.home) { try { g.world?.stadium?.setCrowd?.(0, true); } catch (e) { /* ignore */ } }
+      NPC.setAreaBusy(this.frame.id, true);
+
+      const p = g.player;
+      p.body.velocity.set(0, 0, 0);
+      p.character.setRacketVisible(true);
+      p.character.anim.autoIdleVariants = false;
+      if (opp.state === 'talking') opp.stopTalking();
+      if (opp.playing) opp.stopPlaying();
+      // (a full reset onto the court first: a member may have been sitting, spectating or walking
+      // at the club — no seat blend or walk carries over to the venue)
+      opp.placeAt(this.frame.wx(0, -BASE_V), this.frame.wz(0, -BASE_V), null, SURF);
+      opp.startPlaying(this.frame.id, 'north');
+      opp.fullRateAnim = true;
+      opp.character.setBallVisible(false);
+
+      this.sides[0] = 1; this.sides[1] = -1;
+      this._setSurfaceKey(surf);
+      this.setWind(WINDS[spec.wind] ? spec.wind : 'calm');
+      this._placePlayer(0, BASE_V);
+      this.ai.place(0, -BASE_V);
+      this.ball.hide();
+      this.fx.hideAll();
+      this.cam.snap(this);
+      try { this.occ.begin(this); } catch (err) { console.error('TennisOcclusion', err); }
+      document.body.classList.add('cc-tennis');
+      this.hud.show();
+      this.hud.hideMenu();
+      this.hud.hideResults();
+      this.hud.setPlayUi(false);
+      this.audio.start();
+      tm.begin(() => this._startTourPlay());  // Rafa courtside, names, the crowd; the game-plan card shortly
+      this._crowd('begin', this);             // (after Rafa has his seat: the staff sit elsewhere)
+      this._resetCtl();
+    } catch (err) {
+      // Half-started: put everything back (end() without a result → the report card, the match still waiting)
+      console.error('Tour match could not start:', err);
+      if (this.active) { try { this.end(); } catch (e) { console.error('TennisSession.end', e); } }
+      else { try { tm.teardown(); } catch (e) { /* ignore */ } this.tour = null; this.oppNpc = this.coachNpc; }
+      return false;
     }
-    try { g.spectators?.releaseAll?.('tennis'); } catch (e) { /* ignore */ }
-    if (!tm.home) { try { g.world?.stadium?.setCrowd?.(0, true); } catch (e) { /* ignore */ } }
-    NPC.setAreaBusy(this.frame.id, true);
-
-    const p = g.player;
-    p.body.velocity.set(0, 0, 0);
-    p.character.setRacketVisible(true);
-    p.character.anim.autoIdleVariants = false;
-    if (opp.state === 'talking') opp.stopTalking();
-    if (opp.playing) opp.stopPlaying();
-    // (a full reset onto the court first: a member may have been sitting, spectating or walking
-    // at the club — no seat blend or walk carries over to the venue)
-    opp.placeAt(this.frame.wx(0, -BASE_V), this.frame.wz(0, -BASE_V), null, SURF);
-    opp.startPlaying(this.frame.id, 'north');
-    opp.fullRateAnim = true;
-    opp.character.setBallVisible(false);
-
-    this.sides[0] = 1; this.sides[1] = -1;
-    this._setSurfaceKey(surf);
-    this.setWind(WINDS[spec.wind] ? spec.wind : 'calm');
-    this._placePlayer(0, BASE_V);
-    this.ai.place(0, -BASE_V);
-    this.ball.hide();
-    this.fx.hideAll();
-    this.cam.snap(this);
-    try { this.occ.begin(this); } catch (err) { console.error('TennisOcclusion', err); }
-    document.body.classList.add('cc-tennis');
-    this.hud.show();
-    this.hud.hideMenu();
-    this.hud.hideResults();
-    this.hud.setPlayUi(false);
-    this.audio.start();
-    tm.begin(() => this._startTourPlay());  // Rafa courtside, names, the crowd; the game-plan card shortly
-    this._crowd('begin', this);             // (after Rafa has his seat: the staff sit elsewhere)
-    this._resetCtl();
     return true;
   }
 
@@ -2983,6 +2993,11 @@ export class TennisSession {
     for (const k in s.xp) s.xp[k] *= mul;
     const ups = this._applyPendingXp();
     if (this.tour) { this._finishTour(won, ups); return; }   // (not a match against Rafa: no record)
+    // A win against Rafa, by difficulty (the Junior Tour's starting rating reads them); before the
+    // record, whose 'record' event is what makes Rafa's offer
+    if (won && this.game.tour && typeof this.game.tour.onSessionWin === 'function') {
+      try { this.game.tour.onSessionWin(this.lastMatch.diff); } catch (e) { console.warn('Tour onSessionWin:', e); }
+    }
     const prof = this.game.profile;
     if (prof) prof.recordMatch({ won, setsWon: sc.setsWon[0], setsLost: sc.setsWon[1] });
     try { this.game.saveGame(); } catch (e) { /* ignore */ }

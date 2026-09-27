@@ -871,7 +871,9 @@ export class VenueBuild {
       const p = this._standXZ(st, dBack, a);
       this._box('metal', 0.05, 1.3 + topY, 0.05, p.x, (1.3 + topY) / 2, p.z, 0x5c646b);
     }
-    if (style === 'covered') this._standRoof(st, dBack, topY);
+    // (never over an end stand: the tennis camera sits right above it at either end — a roof
+    // there would hide the court)
+    if (style === 'covered' && !st.endStand) this._standRoof(st, dBack, topY);
     // front: boards on low posts
     this._frontBoards(st, st.front - 0.35, 0.12, 0.55);
   }
@@ -930,8 +932,9 @@ export class VenueBuild {
   _buildCrowd() {
     const L = this.look;
     if (!this.stands.length) return;
-    // spectator + coach spots: front row seats near the net (the coach in the east stand, the
-    // player's half), taken out of the crowd
+    // coach + spectator spots: front row seats near the net (the coach in the east stand, the
+    // player's half). Only the coach's seat is taken out of the crowd; the spectator spots stay
+    // in it (nobody else sits there during a match: empty seats by the net looked odd)
     const reserved = new Set();
     const front = [];
     for (const st of this.stands) {
@@ -949,7 +952,6 @@ export class VenueBuild {
       if (reserved.has(f.s) || this.spots.spectators.length >= 16) continue;
       if (hashU(Math.round(f.s.a * 10), f.st.side.length) < 0.3) continue;   // spread them out
       this.spots.spectators.push({ x: f.s.x, y: f.s.y, z: f.s.z, yaw: f.s.yaw, seated: true });
-      reserved.add(f.s);
     }
     // impostor spots, row-major (front rows first, a few gaps), then the strip rows
     const spots = [];
@@ -1067,8 +1069,8 @@ export class VenueBuild {
     fn.call(this, ch);
   }
 
-  /** Clubhouse frame: centred at (x, z), its front toward the court. */
-  _clubFrame(ch, depth, xOff = 0) {
+  /** Clubhouse frame: centred at (x, z), its front toward the court (width: its footprint across, roof included). */
+  _clubFrame(ch, depth, xOff = 0, width = 0) {
     const side = ch.side || 'north';
     const lay = this.lay;
     const gap = ch.gap ?? 11;
@@ -1082,7 +1084,7 @@ export class VenueBuild {
       yaw = side === 'east' ? -HALF_PI : HALF_PI;
     }
     const base = makeMatrix(x, 0, z, yaw);
-    this._club = { x, z, yaw, depth };
+    this._club = { x, z, yaw, depth, width };
     return (lx, ly, lz, ry = 0, s = 1, rx = 0, rz = 0) => base.clone().multiply(makeMatrix(lx, ly, lz, ry, s, rx, rz));
   }
 
@@ -1116,7 +1118,7 @@ export class VenueBuild {
 
   _shed(ch) {
     const W = 10, D = 5.6, H = 3.2;
-    const F = this._clubFrame(ch, D, -12);
+    const F = this._clubFrame(ch, D, -12, W + 1);
     this._wallBox(F, W, H, D, 0, H / 2, 0, 2.4);
     // flat roof with an overhang + fascia
     this._bucketParts('prop').push({ geometry: boxGeo(W + 1.2, 0.22, D + 1.6), matrix: F(0, H + 0.11, 0.3), color: 0x4a4f55 });
@@ -1152,7 +1154,7 @@ export class VenueBuild {
 
   _lodge(ch) {
     const W = 18, D = 10, H = 4.2;
-    const F = this._clubFrame(ch, D + 3, 0);
+    const F = this._clubFrame(ch, D + 3, 0, W + 1);
     const trim = 0xf7f3ea, green = this.pal.roof;
     this._wallBox(F, W, H, D, 0, H / 2, -1.2, 3);
     // stone plinth
@@ -1200,7 +1202,7 @@ export class VenueBuild {
   _boathouse(ch) {
     const W = 14, D = 11, H = 5;
     // on the quay: its boat doors open onto the water (the shore is at z −44)
-    const F = this._clubFrame({ ...ch, gap: -(this._shoreZ() + D / 2) - FENCE_Z - (D + 2) / 2 }, D + 2, -19);
+    const F = this._clubFrame({ ...ch, gap: -(this._shoreZ() + D / 2) - FENCE_Z - (D + 2) / 2 }, D + 2, -19, W + 1);
     const trim = 0xf7f3ea;
     this._wallBox(F, W, H, D, 0, H / 2, 0, 3);
     this._bucketParts('prop').push({ geometry: boxGeo(W + 0.1, 0.45, D + 0.1), matrix: F(0, 0.22, 0), color: 0x7e776e });
@@ -1231,7 +1233,7 @@ export class VenueBuild {
 
   _pavilion(ch) {
     const W = 22, D = 9, H1 = 3.6, H2 = 7;
-    const F = this._clubFrame(ch, D + 3, 0);
+    const F = this._clubFrame(ch, D + 3, 0, W + 1.2);
     const trim = 0xf7f3ea, green = this.pal.roof;
     this._wallBox(F, W, H2, D, 0, H2 / 2, -1, 3);
     this._bucketParts('prop').push({ geometry: boxGeo(W + 0.1, 0.45, D + 0.1), matrix: F(0, 0.22, -1), color: 0xb5ab9a });
@@ -1288,7 +1290,7 @@ export class VenueBuild {
 
   _modern(ch) {
     const W = 30, D = 13, H = 8.4;
-    const F = this._clubFrame({ ...ch, gap: 21 }, D, 0);
+    const F = this._clubFrame({ ...ch, gap: 21 }, D, 0, W + 4);
     this._facadeMaterial('campus');
     // white volume with a glazed front (facade), a cantilevered roof slab, columns
     this._wallBox(F, W, H, D, 0, H / 2, 0, 3);
@@ -1555,6 +1557,8 @@ export class VenueBuild {
       const c = this._club, r = Math.max(16, c.depth + 6);
       rects.push({ x0: c.x - r, x1: c.x + r, z0: c.z - r * 0.8, z1: c.z + r * 0.8 });
     }
+    const sbs = this._scoreboardSpots();
+    if (sbs) for (const b of sbs.spots) rects.push({ x0: b.x - sbs.w / 2 - 2, x1: b.x + sbs.w / 2 + 2, z0: b.z - 2.5, z1: b.z + 2.5 });
     if (L.backdrop === 'harbor') rects.push({ x0: -500, x1: 500, z0: -500, z1: this._shoreZ() + 4 });
     if (this._extraKeepOut) rects.push(...this._extraKeepOut);
     return rects;
@@ -1958,7 +1962,10 @@ export class VenueBuild {
     mesh.name = 'VenueFlags';
     mesh.castShadow = !!Quality.settings.shadows;
     mesh.userData.dynamic = true;
-    mesh.frustumCulled = false;
+    // Culled like anything else, against a sphere padded for the wave (the positions move, the
+    // sphere doesn't: three.js only computes it when it is missing)
+    merged.computeBoundingSphere();
+    merged.boundingSphere.radius += 0.5;
     this.local.add(mesh);
     this._flags = { mesh, base, poles: geoms.map(f => ({ x: f.x, phase: f.phase })), W };
   }
@@ -1986,23 +1993,21 @@ export class VenueBuild {
 
   // ─────────────── scoreboards ───────────────
 
-  _buildScoreboards() {
+  /**
+   * Where the scoreboards stand (court-local): one behind each end, or null. A board that would
+   * stand in the clubhouse (Ashford's pavilion is 25.5 m out) goes beside it instead, on the
+   * side away from the flags.
+   */
+  _scoreboardSpots() {
     const L = this.look;
     const style = L.clubhouse.style;
-    if (!(L.scoreboard ?? (style === 'modern' || style === 'arena'))) return;
-    const sb = scoreboardCanvas();
-    this._owned.textures.push(sb.tex);
-    drawScoreIdle(sb, this.def, this.pal);
-    const m = new THREE.MeshStandardMaterial({ map: sb.tex, emissive: 0xffffff, emissiveMap: sb.tex, emissiveIntensity: 0.12, roughness: 0.6 });
-    m.name = 'venue-scoreFace';
-    this._owned.materials.push(m);
-    this._glow.push({ m, min: 0.12, max: 0.55 });
+    if (!(L.scoreboard ?? (style === 'modern' || style === 'arena'))) return null;
     const big = style === 'arena';
     const w = big ? 12 : 7.2, h = w / 2;
-    const parts = [];
     const lay = this.lay, rows = L.stands.rows;
+    const spots = [];
     for (const sz of [-1, 1]) {
-      let z, bottom;
+      let x = 0, z, bottom;
       if (big) {
         const endDepth = lay.endFront + rows * lay.rowD;
         z = sz * (endDepth + 1.2);
@@ -2012,13 +2017,41 @@ export class VenueBuild {
         // over the far fence, the near one is behind the camera
         z = sz * 29.5;
         bottom = 5.6;
+        const c = this._club;
+        if (c && c.width > 0 && Math.abs(Math.sin(c.yaw)) < 0.5
+          && Math.abs(z - c.z) < c.depth / 2 + 1 && Math.abs(x - c.x) < (c.width + w) / 2 + 1) {
+          const off = (c.width + w) / 2 + 1.8;
+          const west = c.x - off, east = c.x + off;
+          const flagsEast = (L.flags ?? 3) > 0 && (L.flagX ?? 1) >= 0;
+          x = Math.abs(Math.abs(west) - Math.abs(east)) > 0.01
+            ? (Math.abs(west) < Math.abs(east) ? west : east)
+            : (flagsEast ? west : east);
+        }
       }
+      spots.push({ x, z, bottom, sz });
+    }
+    return { big, w, h, spots };
+  }
+
+  _buildScoreboards() {
+    const S = this._scoreboardSpots();
+    if (!S) return;
+    const sb = scoreboardCanvas();
+    this._owned.textures.push(sb.tex);
+    drawScoreIdle(sb, this.def, this.pal);
+    const m = new THREE.MeshStandardMaterial({ map: sb.tex, emissive: 0xffffff, emissiveMap: sb.tex, emissiveIntensity: 0.12, roughness: 0.6 });
+    m.name = 'venue-scoreFace';
+    this._owned.materials.push(m);
+    this._glow.push({ m, min: 0.12, max: 0.55 });
+    const { big, w, h } = S;
+    const parts = [];
+    for (const { x, z, bottom, sz } of S.spots) {
       const yaw = sz > 0 ? Math.PI : 0;
       const fz = -sz * 0.27;
-      parts.push({ geometry: new THREE.PlaneGeometry(w - 0.6, h - 0.5), matrix: makeMatrix(0, bottom + h / 2, z + fz, yaw) });
-      this._box('metal', w, h, 0.5, 0, bottom + h / 2, z, 0x121a24);
-      this._box('metal', w + 0.12, 0.1, 0.56, 0, bottom + h + 0.05, z, this.pal.accent);
-      if (!big) for (const sx of [-2.4, 2.4]) this._box('metal', 0.35, bottom, 0.35, sx, bottom / 2, z, 0x2b3440);
+      parts.push({ geometry: new THREE.PlaneGeometry(w - 0.6, h - 0.5), matrix: makeMatrix(x, bottom + h / 2, z + fz, yaw) });
+      this._box('metal', w, h, 0.5, x, bottom + h / 2, z, 0x121a24);
+      this._box('metal', w + 0.12, 0.1, 0.56, x, bottom + h + 0.05, z, this.pal.accent);
+      if (!big) for (const sx of [-2.4, 2.4]) this._box('metal', 0.35, bottom, 0.35, x + sx, bottom / 2, z, 0x2b3440);
     }
     const g = mergeParts(parts);
     for (const p of parts) p.geometry.dispose();

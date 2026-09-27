@@ -1273,7 +1273,7 @@ export class TourUI {
     const f = h.featured;
     if (!h.draw || !Array.isArray(h.draw.rounds) || !h.draw.rounds.length) {
       return this._emptyHtml(ICON.draw, 'No draw yet', f && f.name
-        ? `The ${f.name} draw is made when entries close, the evening before round 1.${f.entered ? ' You’re in it — check back then.' : ''}`
+        ? `The ${f.name} draw is made when entries close, on the morning of round 1.${f.entered ? ' You’re in it — check back then.' : ''}`
         : 'Enter a tournament and its draw shows up here once entries close.',
       '<button type="button" class="cc-btn" data-act="tab" data-tab="week">This week’s tournament</button>');
     }

@@ -835,6 +835,11 @@ export function validateTour(raw, facts = {}) {
     const st = L.stands;
     if (!isObj(st) || !(Number.isInteger(st.rows) && st.rows >= 0 && st.rows <= 20) || !(Array.isArray(st.sides) && st.sides.every(s => LOOK_SIDES.includes(s)))) {
       err(`${at}.look.stands must be { rows: 0..20, sides: [${LOOK_SIDES.join(', ')}] }`);
+    } else {
+      if (st.style !== undefined && !['bleacher', 'wood', 'covered', 'concrete'].includes(st.style)) err(`${at}.look.stands.style must be bleacher / wood / covered / concrete`);
+      if (st.material !== undefined && !['metal', 'aluminium', 'wood', 'concrete'].includes(st.material)) err(`${at}.look.stands.material must be metal / aluminium / wood / concrete`);
+      const covered = st.style === 'covered' || (st.style === undefined && st.covered === true);
+      if (covered && st.sides.some(sd => sd === 'north' || sd === 'south')) warn(`${at}.look.stands: an end stand (north / south) is built without its roof — the tennis camera sits right above it`);
     }
     const ch = L.clubhouse;
     if (!isObj(ch) || !LOOK_CLUBHOUSES.includes(ch.style) || !HEX.test(ch.color || '') || !HEX.test(ch.roof || '') || !LOOK_SIDES.includes(ch.side)) {

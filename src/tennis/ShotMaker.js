@@ -38,6 +38,24 @@ const _C = { x: 0, y: 0, z: 0 };
 const _B = { x: 0, z: 0 };
 const _opts = { speed: 0, pace: 0, margin: 0, minT: 0, gravityOnly: false };
 
+// makeShot's spin / speed search state (module scratch: no closure per shot)
+const _try = { p0: null, intent: null, env: null, eA: 0, spinScale: 1, speedScale: 1, tries: 0 };
+
+/** Plan the shot with the spin scaled by k (and the speed by _try.speedScale); can the racket make it? */
+function tryScale(k) {
+  const T = _try, p0 = T.p0, intent = T.intent;
+  T.spinScale = k;
+  _prof.top = p0.top * k; _prof.side = p0.side * k; _prof.gyro = p0.gyro * k;
+  _opts.speed = intent.speed ? intent.speed * T.speedScale : 0;
+  _opts.pace = intent.pace ? intent.pace * T.speedScale : 0;
+  planShot(_plan, _C, _B, _prof, _opts, T.env);
+  _pv.x = _plan.vx; _pv.y = _plan.vy; _pv.z = _plan.vz;
+  _pw.x = _plan.wx; _pw.y = _plan.wy; _pw.z = _plan.wz;
+  impactInverse(_bv, _bw, _pv, _pw, T.eA, _sol);
+  T.tries++;
+  return _sol.ok;
+}
+
 /**
  * Make a shot.
  *  ball   { x, y, z, vx, vy, vz, wx, wy, wz } — the ball at the moment of contact (BallFlight.at)
@@ -70,26 +88,17 @@ export function makeShot(res, ball, intent, exec, env) {
   _opts.speed = intent.speed || 0; _opts.pace = intent.pace || 0;
   _opts.margin = Number.isFinite(intent.margin) ? intent.margin : 0.4;
   _opts.minT = intent.minT || 0; _opts.gravityOnly = false;
-  let spinScale = 1, speedScale = 1, ok = false;
+  let ok = false;
   // The stroke must be one a racket can make: too fast → ask for less speed; too much brush /
   // slip (e.g. topspin off a heavy topspin ball) → bisect the spin down to the most it allows
   // (a few plans at most; the last feasible one is kept)
-  let lo = -1, hi = 1, tries = 0;
-  const tryScale = (k) => {
-    spinScale = k;
-    _prof.top = p0.top * k; _prof.side = p0.side * k; _prof.gyro = p0.gyro * k;
-    _opts.speed = intent.speed ? intent.speed * speedScale : 0;
-    _opts.pace = intent.pace ? intent.pace * speedScale : 0;
-    planShot(_plan, _C, _B, _prof, _opts, env);
-    _pv.x = _plan.vx; _pv.y = _plan.vy; _pv.z = _plan.vz;
-    _pw.x = _plan.wx; _pw.y = _plan.wy; _pw.z = _plan.wz;
-    impactInverse(_bv, _bw, _pv, _pw, eAplan, _sol);
-    tries++;
-    return _sol.ok;
-  };
-  while (tries < 8) {
+  const T = _try;
+  T.p0 = p0; T.intent = intent; T.env = env; T.eA = eAplan;
+  T.spinScale = 1; T.speedScale = 1; T.tries = 0;
+  let lo = -1, hi = 1;
+  while (T.tries < 8) {
     if (tryScale(hi)) { ok = true; break; }
-    if (_sol.why === 'speed' && speedScale > 0.55) { speedScale *= 0.88; continue; }
+    if (_sol.why === 'speed' && T.speedScale > 0.55) { T.speedScale *= 0.88; continue; }
     // (spin: bisect between the last feasible scale lo and the failed hi)
     const next = lo < 0 ? (hi > 0.5 ? 0.5 : 0) : 0.5 * (lo + hi);
     if (lo < 0 && hi === 0) break;                 // even no spin fails: keep the attempt
@@ -97,6 +106,8 @@ export function makeShot(res, ball, intent, exec, env) {
     if (tryScale(next)) { lo = next; ok = true; if (hi - next < 0.2) break; hi = 0.5 * (next + hi); if (tryScale(hi)) break; tryScale(lo); break; }
     hi = next;
   }
+  const spinScale = T.spinScale, speedScale = T.speedScale;
+  T.p0 = null; T.intent = null; T.env = null;
   // Execution
   let dYaw = 0, dPitch = 0, speedK = 1;
   if (!green) {

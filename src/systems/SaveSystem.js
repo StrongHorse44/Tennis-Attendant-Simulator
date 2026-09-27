@@ -421,7 +421,10 @@ export function captureSaveData(game) {
   const { weather, player, cart, missionSystem, inventory, courtMaintenance } = game;
   const w = weather.getState ? weather.getState() : { timeOfDay: weather.timeOfDay, day: 1, weather: weather.weather };
   const cm = courtMaintenance ? courtMaintenance.getState() : { courts: {}, tutorialCompleted: false };
-  const pb = player.body.position;
+  // (during a Junior Tour match the player may be at another club, x ≈ 1800: save their club spot)
+  const tm = game.tennis && game.tennis.active && game.tennis.tour ? game.tennis.tour : null;
+  const spot = tm && typeof tm.clubSpot === 'function' ? tm.clubSpot() : null;
+  const pb = spot ? { x: spot.x, y: spot.y + 0.5, z: spot.z } : player.body.position;
   const cb = cart.body.position;
   const flags = { ...createDefaultFlags(), ...(game.flags || {}) };
   flags.groomTutorialSeen = !!(cm.tutorialCompleted || flags.groomTutorialSeen);
@@ -462,7 +465,8 @@ export function captureSaveData(game) {
 /** The Junior Tour's dynamic state (the field itself is rebuilt from its seed). */
 function captureTour(game) {
   const t = game.tour;
-  if (!t || !t.available || typeof t.getState !== 'function') return null;
+  // (an unavailable tour — tour.json failed to load — hands back the section it was loaded with)
+  if (!t || typeof t.getState !== 'function') return null;
   try { return t.getState(); } catch (e) { console.warn('[SaveSystem] tour state skipped:', e); return null; }
 }
 

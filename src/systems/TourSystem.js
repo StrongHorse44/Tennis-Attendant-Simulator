@@ -50,6 +50,11 @@ import {
 } from './TourField.js';
 
 export const CAREERS = ['amateur', 'pro', 'grounds'];
+/** The careers when tour.json is missing (TourField's defaults), so a chosen career survives a failed load. */
+const FALLBACK_CAREERS = Object.freeze({
+  pro: Object.freeze({ title: 'Touring Pro', gearDiscount: 0.25, sponsoredFees: true }),
+  grounds: Object.freeze({ title: 'Head Groundskeeper', wageMul: 1.25, groomBonusMul: 1.5 }),
+});
 export const ME = 'me';
 const HISTORY_MAX = 60, TITLES_MAX = 40, H2H_MAX = 80, RESULTS_MAX = 16;
 const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -161,15 +166,22 @@ export class TourSystem {
   }
 
   get careerTitle() {
-    if (!this.available) return null;
-    if (this.career === 'pro') return this.data.careers.pro.title;
-    if (this.career === 'grounds') return this.data.careers.grounds.title;
+    const c = this._careers();
+    if (!c) return null;
+    if (this.career === 'pro') return c.pro.title;
+    if (this.career === 'grounds') return c.grounds.title;
     return null;
+  }
+
+  /** The careers' numbers: tour.json's, or the built-in ones when it could not be loaded (a chosen career keeps working). */
+  _careers() {
+    if (this.available) return this.data.careers;
+    return this.career === 'pro' || this.career === 'grounds' ? FALLBACK_CAREERS : null;
   }
 
   /** What the chosen career changes: { career, title, wageMul, groomBonusMul, gearDiscount, sponsoredFees }. */
   careerEffects() {
-    const c = this.available ? this.data.careers : null;
+    const c = this._careers();
     const pro = this.career === 'pro', gr = this.career === 'grounds';
     return {
       career: this.career,
@@ -1529,6 +1541,7 @@ export class TourSystem {
   // ───────────────────────────── save / load ─────────────────────────────
 
   getState() {
+    if (!this.available) return this._heldState || null;   // (see setState: never wipe a career)
     const ring = {};
     for (const [id, arr] of this.ring) if (arr.some(x => x > 0)) ring[id] = arr.slice();
     const rd = {};
@@ -1589,7 +1602,14 @@ export class TourSystem {
     this.prevRanks = s.prev ? { ...s.prev } : null;
     this._rankCache = null;
     this._lastWins = this._profileWins();
-    if (!this.available) return;
+    // tour.json missing (a failed fetch): keep the saved section exactly as it was, so the next
+    // autosave writes it back and nothing of the career is lost when the data loads again
+    this._heldState = this.available ? null : JSON.parse(JSON.stringify(s));
+    if (!this.available) {
+      // (the career still applies: wage / groom multipliers and the gear discount, FALLBACK_CAREERS)
+      if (this.onCareer) { try { this.onCareer(this.career, { chosen: false }); } catch (e) { console.warn(e); } }
+      return;
+    }
     this._ensureField();
     const known = (id) => id === ME || this.field.players.has(id);
     for (const [id, arr] of Object.entries(s.ring || {})) if (this.field.players.has(id)) this.ring.set(id, arr.slice(0, RING).concat(new Array(Math.max(0, RING - arr.length)).fill(0)));
