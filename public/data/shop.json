@@ -182,7 +182,7 @@
       "comments": ["The flowers at the entrance! First thing you see. Very classy.", "Those new planters by the gate make the whole club look five-star.", "My wife asked who did the entrance flowers. I said the staff chipped in. She was impressed."] },
     { "id": "project_scoreboard", "name": "Court 1 Scoreboard", "cost": 2400, "place": "the far end of Court 1",
       "desc": "A green club scoreboard behind Court 1 showing the live match score.",
-      "comments": ["The scoreboard on Court 1 is fantastic. Now everyone can see me winning.", "A real scoreboard! Court 1 feels like a stadium now.", "I lost 6-2 on Court 1 and the scoreboard told the whole club. Thanks for that."] },
+      "comments": ["The scoreboard on Court 1 is fantastic. Now everyone can see me winning.", "A real scoreboard on Court 1! Almost as grand as Centre Court's.", "I lost 6-2 on Court 1 and the scoreboard told the whole club. Thanks for that."] },
     { "id": "project_patio", "name": "Patio Heaters & Lanterns", "cost": 2800, "place": "the clubhouse patio",
       "desc": "Two tall patio heaters and a row of lanterns under the colonnade for cool evenings.",
       "comments": ["The string lights on the patio in the evening are just lovely.", "Those patio heaters mean I can stay for one more drink. Dangerous.", "The patio looks like a wedding every night now. I love it."] },
