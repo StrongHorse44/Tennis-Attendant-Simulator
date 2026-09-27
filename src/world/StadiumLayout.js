@@ -136,9 +136,10 @@ export function computeStadiumLayout(courtCfg) {
 
 /**
  * { errors, warnings } for the stadium block of a map (npm run validate): the block parses, the
- * config stays in its tested ranges (rows 6–9, tread ≥ 0.85, riser 0.40–0.58 so an aisle half-step
- * ≤ 0.29 is climbable and a row front is not, cut edges on even metres, the pad + 0.8 inside the
- * floor, aisles ≥ 1.2 wide inside their stand without overlaps and clear of the camera wells,
+ * config stays in its tested ranges (rows 6–9, tread ≥ 0.85, riser 0.40–0.50 so an aisle
+ * half-step ≤ 0.25 is climbable — selfCheck I6's limit — and a row front is not, cut edges on even
+ * metres, the pad + 0.8 inside the floor, aisles ≥ 1.2 wide inside their stand without overlaps
+ * and clear of the camera wells,
  * every rail gap 0.9 ≤ gap < 1.2, masts and scoreboards outside the wells and the footprint, a
  * players' aisle, an aisle on every stand), then every selfCheck() invariant.
  */
@@ -160,8 +161,10 @@ export function validateStadiumMap(map) {
   const N = L.N, E = 1e-9;
   if (N < 6 || N > 9) errors.push(`${tag}: rows ${N} outside 6..9`);
   if (L.T < 0.85 - E) errors.push(`${tag}: tread ${L.T} m is under 0.85`);
-  if (L.R < 0.40 - E || L.R > 0.58 + E) errors.push(`${tag}: riser ${L.R.toFixed(3)} m outside 0.40..0.58 (it is -(center.y + ${SURFACE_Y}) / (rows - 1))`);
-  if (L.R / 2 > 0.29 + E) errors.push(`${tag}: aisle half-step ${(L.R / 2).toFixed(3)} m is over 0.29 (walkers could not climb it)`);
+  // R ≤ 0.50: every aisle step is R / 2, and selfCheck I6 allows 0.25 at most; R ≥ 0.40 keeps row fronts unclimbable
+  if (L.R < 0.40 - E || L.R > 0.50 + E) {
+    errors.push(`${tag}: riser ${L.R.toFixed(3)} m outside 0.40..0.50 (it is -(center.y + ${SURFACE_Y}) / (rows - 1); an aisle half-step R / 2 must stay ≤ 0.25, a row front ≥ 0.40)`);
+  }
   for (const k of ['x0', 'x1', 'z0', 'z1']) {
     const v = L.cut[k];
     if (Math.abs(v / 2 - Math.round(v / 2)) > 1e-6) errors.push(`${tag}: cut edge ${k} = ${v} is not on even metres (floorHalf + rows × tread from the centre)`);
