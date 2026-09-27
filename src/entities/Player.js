@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { COLORS, SIZES, GAME } from '../utils/Constants.js';
-import { Character, BlobShadows, SKIN_TONES, HAIR_COLORS } from './CharacterModel.js';
+import {
+  Character, BlobShadows, SKIN_TONES, HAIR_COLORS, followGroundY, resetGroundY, blobGroundY,
+} from './CharacterModel.js';
+import { groundAt, inFootprint, pushOutOfFootprint } from '../world/Ground.js';
 
 // Seated placement inside the cart (cart-local, unscaled cart units). The driver sits on the
 // left seat (steering wheel side), facing the cart's front (-Z).
@@ -34,6 +37,13 @@ const OUTFIT_KEYS = ['shirt', 'collar', 'sleeveTrim', 'bottom', 'bottomColor', '
   'wristband', 'hat', 'hatColor', 'hatBrim', 'hatLogo', 'hatBand', 'sunglasses', 'racket', 'racketStrings'];
 
 const _offset = new THREE.Vector3();
+const _push = { x: 0, z: 0 };
+
+// Where exitCart() tries to put the player (cart-local, unscaled metres; the cart's front is -Z):
+// right, left, behind, in front. The first spot outside the Centre Court footprint (+0.3) wins,
+// so near the bowl the player never lands on the rail or in the stands; elsewhere it is always
+// the first (today's spot).
+const EXIT_SPOTS = [[2, 0], [-2, 0], [0, 2.5], [0, -2.5]];
 
 // Gait: model units travelled per cycle by the walk / run clips (see CLIP_DEFS stride)
 const WALK_STRIDE = 1.45;
@@ -59,8 +69,15 @@ export class Player {
     this._blobs = BlobShadows.get(scene);
     this._blobSlot = this._blobs.alloc();
 
+    // Mesh feet height over the ground model (followGroundY; eased only inside the bowl)
+    this._meshY = 0;
+    this._easingY = false;
+    this._groundPX = NaN;
+    this._groundPZ = NaN;
+
     this._createMesh(position);
     this._createPhysics(position);
+    resetGroundY(this, position.x, Math.max(groundAt(position.x, position.z), position.y || 0), position.z);
   }
 
   _createMesh(pos) {
@@ -138,12 +155,25 @@ export class Player {
   exitCart() {
     if (!this.cart) return;
     const cartPos = this.cart.mesh.position;
-    _offset.set(2, 0, 0).applyQuaternion(this.cart.mesh.quaternion);
+    const q = this.cart.mesh.quaternion;
+    // First exit spot (EXIT_SPOTS) clear of the Centre Court footprint; none: pushed out of it
+    let found = false;
+    for (let i = 0; i < EXIT_SPOTS.length && !found; i++) {
+      _offset.set(EXIT_SPOTS[i][0], 0, EXIT_SPOTS[i][1]).applyQuaternion(q);
+      found = !inFootprint(cartPos.x + _offset.x, cartPos.z + _offset.z, 0.3);
+    }
+    if (!found) _offset.set(EXIT_SPOTS[0][0], 0, EXIT_SPOTS[0][1]).applyQuaternion(q);
+    let x = cartPos.x + _offset.x, z = cartPos.z + _offset.z;
+    if (!found) {
+      pushOutOfFootprint(x, z, 0.5, _push);
+      x = _push.x; z = _push.z;
+    }
+    const gy = groundAt(x, z);
 
     this.body.position.set(
-      cartPos.x + _offset.x,
-      SIZES.playerRadius * SIZES.playerScale, // straight onto the ground, no hover
-      cartPos.z + _offset.z
+      x,
+      gy + SIZES.playerRadius * SIZES.playerScale, // straight onto the ground, no hover
+      z
     );
     this.body.velocity.set(0, 0, 0);
     this.body.collisionResponse = true;
@@ -157,7 +187,8 @@ export class Player {
     this.mesh.scale.set(s, s, s);
     this.mesh.rotation.set(0, Math.atan2(_offset.x, _offset.z), 0);
     this.facing.set(_offset.x, 0, _offset.z).normalize();
-    this.mesh.position.set(this.body.position.x, 0, this.body.position.z);
+    this.mesh.position.set(this.body.position.x, gy, this.body.position.z);
+    resetGroundY(this, x, gy, z);
     this.mesh.visible = true;
     this.isInCart = false;
     this.cart = null;
@@ -202,17 +233,15 @@ export class Player {
 
     // Sync mesh to physics (feet on the ground: sphere centre minus its radius)
     const r = SIZES.playerRadius * SIZES.playerScale;
+    const bp = this.body.position;
     // Briefly after spawning / leaving the cart, pull a hovering body down briskly
     // (linearDamping also damps gravity, so it would otherwise float for seconds)
     if (this._settleTime > 0) {
       this._settleTime -= dt;
-      if (this.body.position.y > r + 0.02) this.body.velocity.y = Math.min(this.body.velocity.y, -6);
+      if (bp.y > groundAt(bp.x, bp.z) + r + 0.02) this.body.velocity.y = Math.min(this.body.velocity.y, -6);
     }
-    this.mesh.position.set(
-      this.body.position.x,
-      Math.max(0, this.body.position.y - r),
-      this.body.position.z
-    );
+    // Feet on the ground model: today's max(0, feet) outside the bowl, eased over its steps
+    this.mesh.position.set(bp.x, followGroundY(this, bp.x, bp.z, bp.y - r, dt), bp.z);
 
     // Smoothly rotate to face the movement direction
     if (inputLen > 0.1) {
@@ -222,8 +251,21 @@ export class Player {
       this.mesh.rotation.y += d * Math.min(1, dt * 16);
     }
 
-    // y: on raised surfaces (court pads 0.15, patio 0.10, lot 0.06) the blob must sit on top
-    this._blobs.set(this._blobSlot, this.mesh.position.x, this.mesh.position.z, 0.85, 0.85, 0, Math.max(this.mesh.position.y + 0.02, 0.065));
+    // y: on raised surfaces (court pads 0.15, patio 0.10, lot 0.06) the blob must sit on top;
+    // in the bowl it follows the ground under it (never above the feet + 0.02)
+    const mp = this.mesh.position;
+    this._blobs.set(this._blobSlot, mp.x, mp.z, 0.85, 0.85, 0, blobGroundY(mp.x, mp.z, mp.y));
+  }
+
+  /**
+   * Snap the mesh's ground-follow state after another system teleported the body (the eased
+   * mesh y would otherwise glide from the old height). `y` = feet height (default: the ground).
+   */
+  snapToGround(y = null) {
+    const p = this.body.position;
+    const gy = Number.isFinite(y) ? y : groundAt(p.x, p.z);
+    resetGroundY(this, p.x, gy, p.z);
+    if (!this.isInCart) this.mesh.position.y = gy;
   }
 
   /**
