@@ -638,6 +638,8 @@ export class GolfCart {
       }
     }
 
+    if (!Number.isFinite(this.currentSpeed)) this.currentSpeed = 0;
+
     // Drive: track speed internally so ground friction can't eat our velocity
     if (forward < -0.1) {
       // Accelerate forward

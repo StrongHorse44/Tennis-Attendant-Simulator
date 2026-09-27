@@ -66,6 +66,8 @@ const SINGLES_W = 4.65;                 // singles sideline (court-local u)
 const SERVICE_L = 6.62;                 // service line
 const NET_H0 = 0.9, NET_H1 = 1.02, NET_POST = 7.8;
 const FENCE_V = 14.2;                   // ball stops at the back fence
+const BOARD_CAP = 0.06;                 // show court: end-board cap above the board height
+const STAND_STEP = 0.02;                // s: show court, sampling a flight against the stands
 const BASE_V = 12.9;                    // baseline stand
 const MAX_STAND_V = 13.8;               // deepest stand (fence at 14.5)
 const RUN_SPEED = 5.4;
@@ -230,9 +232,15 @@ export class MatchSystem {
     // touching the pad. The sunken Centre Court (stadium) sits at its map.json center.y.
     const y0 = Number(court.baseY) || 0;
     const surf = Number.isFinite(court.surfaceY) ? court.surfaceY : y0 + SURF_REL;
+    // Back wall: the flat courts' fence stops every ball at FENCE_V; a show court's end boards
+    // (map.json stadium.endBoards) stop only a ball below their cap and between their ends.
+    const eb = court.isStadium ? (cfg.stadium?.endBoards || {}) : null;
     return {
       court, id: court.id, isClay: clay, surface,
       y0, surf, ballY: surf + BALL_RADIUS, stadium: !!court.isStadium,
+      fenceV: eb ? (Number(eb.v0) || 14.3) - BALL_RADIUS : FENCE_V,
+      boardTop: eb ? surf + (Number(eb.height) || 1) + BOARD_CAP : INF,
+      boardHalfU: eb ? (Number(eb.halfU) || 9) : INF,
       bounceE: BOUNCE[surface].e, bounceKh: BOUNCE[surface].kh,
       cx: cfg.center?.x ?? 0, cz: cfg.center?.z ?? 0, r, c: Math.cos(r), s: Math.sin(r),
       halfPadL: SIZES.courtWidth / 2 + (cfg.adjacentLeft ? 0 : buf),
@@ -922,8 +930,14 @@ export class MatchSystem {
       if (b.active) {
         if (b.rolling) {
           b.stepRoll(dt);
-          const v = this._lv(m.frame, b.pos.x, b.pos.z);
-          if (Math.abs(v) > FENCE_V) { b.v0.x = 0; b.v0.z = 0; }
+          const f = m.frame;
+          const v = this._lv(f, b.pos.x, b.pos.z);
+          if (!f.stadium) {
+            if (Math.abs(v) > FENCE_V) { b.v0.x = 0; b.v0.z = 0; }
+          } else if ((Math.abs(v) > f.fenceV && Math.abs(this._lu(f, b.pos.x, b.pos.z)) < f.boardHalfU)
+            || groundAt(b.pos.x, b.pos.z) > f.surf + 0.05) {
+            b.v0.x = 0; b.v0.z = 0;                    // the end boards' face, or the first riser
+          }
         } else b.at(m.t);
         let vis = true;
         if (CameraTracker.valid) {
@@ -1265,6 +1279,7 @@ export class MatchSystem {
           // Swing and a miss: the ball flies on
           m.segType = 'bounce';
           m.segEnd = b.timeToHeight(f.ballY);
+          if (f.stadium) this._showCourtSeg(m, t);
           if (!m.resolved) this._resolve(m, sh.hitter === sh.receiver ? -1 : sh.hitter, 1.4);
           return;
         }
@@ -1317,6 +1332,17 @@ export class MatchSystem {
         if (!m.resolved) this._resolve(m, sh.hitter, 1.2);
         return;
       }
+      case 'stands': {
+        // Show court: over the end boards (or past their open corners) into the stands — a dead
+        // ball, resting where it came down.
+        b.roll(t, 0, 0);
+        b.p0.y = groundAt(pos.x, pos.z) + BALL_RADIUS;
+        b.pos.copy(b.p0);
+        m.segType = 'none'; m.segEnd = INF;
+        m.bounces = Math.max(m.bounces, 2);
+        if (!m.resolved) this._resolve(m, sh.hitter, 1.2);
+        return;
+      }
       default:
         m.segType = 'none'; m.segEnd = INF;
     }
@@ -1334,12 +1360,63 @@ export class MatchSystem {
     }
     b.launch(t, pos.x, f.ballY, pos.z, nvx, nvy, nvz);
     let tEnd = t + 2 * nvy / G, type = 'bounce';
+    if (f.stadium) {
+      m.segType = type; m.segEnd = tEnd;
+      this._showCourtSeg(m, t);
+      return;
+    }
     const v0 = this._lv(f, pos.x, pos.z), vv = nvx * f.s + nvz * f.c;
     if (Math.abs(vv) > 1e-3) {
       const tf = (Math.sign(vv) * FENCE_V - v0) / vv;
       if (tf > 0.01 && t + tf < tEnd) { tEnd = t + tf; type = 'fence'; }
     }
     m.segType = type; m.segEnd = tEnd;
+  }
+
+  /**
+   * Show court: cut the current flight segment (from time t to m.segEnd) at the end boards — only
+   * where the ball is below their cap and between their ends, from any distance — or where it
+   * comes down on the stand treads or the lawn beyond them ('stands'). The walkway round the pad
+   * is at court level, so a landing there stays an ordinary bounce.
+   */
+  _showCourtSeg(m, t) {
+    const b = m.ball, f = m.frame;
+    const tEnd = m.segEnd;
+    const vv = b.v0.x * f.s + b.v0.z * f.c;
+    if (Math.abs(vv) > 1e-3) {
+      const lv = this._lv(f, b.p0.x, b.p0.z);
+      let d = (Math.sign(vv) * f.fenceV - lv) / vv;
+      // Already at the boards' face at t (a bounce right in front of them): meets them at once
+      if (b.t0 + d <= t && Math.abs(lv + vv * (t - b.t0)) < f.fenceV + 0.2) d = t - b.t0 + 1e-3;
+      const tc = b.t0 + d;
+      if (tc > t && tc < tEnd) {
+        const y = b.p0.y + b.v0.y * d - 0.5 * G * d * d;
+        const u = this._lu(f, b.p0.x + b.v0.x * d, b.p0.z + b.v0.z * d);
+        if (y - BALL_RADIUS < f.boardTop && Math.abs(u) < f.boardHalfU) {
+          m.segType = 'fence'; m.segEnd = tc;
+          return;
+        }
+      }
+    }
+    // Over the boards or wide: find where it meets the stands (sampled, then bisected).
+    const lim = Math.min(tEnd, t + 4);
+    for (let s1 = t + STAND_STEP; s1 < lim; s1 += STAND_STEP) {
+      if (!this._belowStands(b, s1)) continue;
+      let lo = s1 - STAND_STEP, hi = s1;
+      for (let k = 0; k < 6; k++) {
+        const mid = 0.5 * (lo + hi);
+        if (this._belowStands(b, mid)) hi = mid; else lo = mid;
+      }
+      m.segType = 'stands'; m.segEnd = hi;
+      return;
+    }
+  }
+
+  /** Is the ball (current segment, time s) touching or under the ground there? */
+  _belowStands(b, s) {
+    const d = s - b.t0;
+    const y = b.p0.y + b.v0.y * d - 0.5 * G * d * d;
+    return y - BALL_RADIUS < groundAt(b.p0.x + b.v0.x * d, b.p0.z + b.v0.z * d);
   }
 
   _resolve(m, winner, delay) {
