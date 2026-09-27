@@ -4,7 +4,7 @@ import { COLORS, SIZES, GAME } from '../utils/Constants.js';
 import {
   Character, BlobShadows, SKIN_TONES, HAIR_COLORS, followGroundY, resetGroundY, blobGroundY,
 } from './CharacterModel.js';
-import { groundAt, inFootprint, pushOutOfFootprint } from '../world/Ground.js';
+import { groundAt, inCut, inFootprint, pushOutOfFootprint } from '../world/Ground.js';
 
 // Seated placement inside the cart (cart-local, unscaled cart units). The driver sits on the
 // left seat (steering wheel side), facing the cart's front (-Z).
@@ -49,6 +49,88 @@ const EXIT_SPOTS = [[2, 0], [-2, 0], [0, 2.5], [0, -2.5]];
 const WALK_STRIDE = 1.45;
 const RUN_STRIDE = 2.4;
 const MAX_CYCLES = 2.6; // cap the leg cadence at top speed so the sprint stays readable
+
+// Perched on a nosing (slideOffNosing: the player's Player.update and every NPC's NPC.update)
+export const PERCH_EPS = 0.03;   // m: centre this far above ground + r = hovering over its tread
+const PERCH_EDGE = 0.05;         // m: ground this much higher within r = a step's edge (else level)
+const PERCH_TOUCH = 0.02;        // m: the sphere's bottom below that step's top (+ this) = on its edge
+const PERCH_SLIDE = 1.5;         // m/s: pushed off the edge
+const PERCH_SIDE = 0.05;         // a support normal's horizontal part must exceed this (else: flat)
+const PERCH_DIRS = [1, 0, -1, 0, 0, 1, 0, -1, Math.SQRT1_2, Math.SQRT1_2, Math.SQRT1_2, -Math.SQRT1_2,
+  -Math.SQRT1_2, Math.SQRT1_2, -Math.SQRT1_2, -Math.SQRT1_2];   // 8 unit directions (x, z)
+const _support = { x: 0, z: 0 };  // supportPush result
+
+/**
+ * Inside the Centre Court cut, a body (sphere of radius r) that stops on the nosing of a riser or
+ * an aisle step (or on the corner where an aisle step meets a row) rests on that edge with its
+ * centre over the lower tread, up to a riser above the ground there. Contacts are frictionless and
+ * a standing body's horizontal velocity is zeroed, so it used to creep off the corner for seconds
+ * with its feet in the air. Instead it is pushed away from the higher ground within r (groundAt in
+ * 8 directions, weighted by the rise) at PERCH_SLIDE until it drops onto the tread (≤ 0.2 s off
+ * the corner). Only while its bottom is below that higher ground's top (resting on / sliding off
+ * its edge) and the edge is within r, so it never slides on down the stand. A hovering body that
+ * stands on someone's shoulder (two people who met on the steps) is pushed away from them too
+ * (supportPush; both at once, so it never ping-pongs between an edge and a shoulder), and one in
+ * flight has no contact and just falls. Returns true when it set the x / z velocity; outside the
+ * cut it is always false and touches nothing. Shared by Player.update and NPC.update.
+ */
+export function slideOffNosing(body, r) {
+  const p = body.position;
+  if (!inCut(p.x, p.z)) return false;
+  const gc = groundAt(p.x, p.z);
+  if (!(p.y > gc + r + PERCH_EPS)) return false;
+  let px = 0, pz = 0, top = gc;
+  for (let i = 0; i < PERCH_DIRS.length; i += 2) {
+    const dx = PERCH_DIRS[i], dz = PERCH_DIRS[i + 1];
+    const up = groundAt(p.x + dx * r, p.z + dz * r) - gc;
+    if (!(up > PERCH_EDGE)) continue;
+    px -= dx * up;
+    pz -= dz * up;
+    if (gc + up > top) top = gc + up;
+  }
+  // Away from a step's edge it rests on (none when it is clear of the steps' tops) …
+  let len = Math.sqrt(px * px + pz * pz);
+  if (top !== gc && p.y - r <= top + PERCH_TOUCH && len > 1e-6) { px /= len; pz /= len; } else { px = 0; pz = 0; }
+  // … and away from whatever else holds it up (someone's shoulder), so it never ping-pongs
+  // between the two; in flight there is no contact and it just falls
+  supportPush(body);
+  px += _support.x;
+  pz += _support.z;
+  len = Math.sqrt(px * px + pz * pz);
+  if (!(len > 1e-6)) return false;                                   // wedged: nowhere to go
+  body.velocity.x = (px / len) * PERCH_SLIDE;
+  body.velocity.z = (pz / len) * PERCH_SLIDE;
+  return true;
+}
+
+/**
+ * Unit horizontal direction away from what holds `body` up, into _support (0, 0 when nothing does):
+ * the sum of the horizontal parts of the last physics step's contact normals that support it
+ * from below (body.world.contacts; a flat floor or a flat top adds nothing). Only reached for a
+ * hovering, standing body inside the cut, so the scan is rare.
+ */
+function supportPush(body) {
+  _support.x = 0;
+  _support.z = 0;
+  const list = body.world ? body.world.contacts : null;
+  if (!list) return;
+  let px = 0, pz = 0;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    let s = 0;                                                       // sign: normal toward this body
+    if (c.bi === body) s = -1;
+    else if (c.bj === body) s = 1;
+    else continue;
+    const n = c.ni;
+    if (!(n.y * s > 0)) continue;                                    // not holding it up
+    const hx = n.x * s, hz = n.z * s;
+    if (hx * hx + hz * hz < PERCH_SIDE * PERCH_SIDE) continue;       // flat support: it stands there
+    px += hx;
+    pz += hz;
+  }
+  const len = Math.sqrt(px * px + pz * pz);
+  if (len > 1e-6) { _support.x = px / len; _support.z = pz / len; }
+}
 
 /**
  * Player - attendant character with walking/driving states
@@ -214,8 +296,9 @@ export class Player {
       // Face the movement direction
       this.facing.set(Math.sin(worldAngle), 0, Math.cos(worldAngle));
       this.animTime += dt * inputLen * 8;
-    } else {
-      // Contacts are frictionless, so stop explicitly when the stick is released
+    } else if (!slideOffNosing(this.body, SIZES.playerRadius * SIZES.playerScale)) {
+      // Contacts are frictionless, so stop explicitly when the stick is released (off a step's
+      // edge in the bowl first: slideOffNosing)
       this.body.velocity.x = 0;
       this.body.velocity.z = 0;
     }
