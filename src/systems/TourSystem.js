@@ -581,8 +581,10 @@ export class TourSystem {
   }
 
   /**
-   * The player's tournament match is over (TennisSession tour mode). score: the set line from
-   * the player's side ("6-4 3-6 7-5"; en dashes are fine). retired: the player quit (a loss).
+   * The player's tournament match is over (TennisSession tour mode). won: the player won; score:
+   * the set line from the player's side ("6-4 3-6 7-5"; en dashes are fine); retired: the match
+   * ended by a retirement (quitting it from the menu = won false, retired true) — it only adds
+   * "ret." to the score. stats are accepted and ignored (the results card shows them).
    * Returns { won, round, roundLabel, title, prize, points, rank, next } or null (no such match).
    */
   onMatchResult({ tournamentId = null, round = null, won = false, score = '', retired = false, stats = null } = {}) {
@@ -594,7 +596,7 @@ export class TourSystem {
     if (!pm) return null;
     if (round !== null && round !== undefined && round !== pm.code && round !== pm.r) return null;
     const t = this.data.tournamentById.get(draw.tid);
-    const win = !!won && !retired;
+    const win = !!won;
     const mine = normScore(score);
     const winnerView = win ? mine : flipScore(mine);
     const day = this._day();
@@ -617,7 +619,6 @@ export class TourSystem {
       week: draw.week, day, tid: t.id, tournament: t.name, venue: this._venueShort(t), round: pm.code, roundLabel: ROUND_LABELS[pm.code] || pm.code,
       oppId: opp ? opp.id : null, opponent: opp ? opp.name : 'Unknown', won: win, score: (mine + (retired ? ' ret.' : '')).trim(), wo: false,
     });
-    this.lastStats = isObj(stats) ? stats : null;   // (the session's match stats: not saved, the results card has them)
     let title = false, prize = 0;
     if (!win) prize = this._endRun(draw, 'lost', pm.r);
     else if (pm.r === roundsOf(draw.size) - 1) { title = true; prize = this._endRun(draw, 'title', pm.r + 1); }
@@ -1212,7 +1213,11 @@ export class TourSystem {
       if (!(this.lastDay >= 1)) this.lastDay = day;
       if (day > this.lastDay) {
         const stop = Math.min(day, this.lastDay + CATCHUP_MAX_DAYS);
-        for (let d = this.lastDay + 1; d <= stop; d++) this._advanceDay(d);
+        const quiet = this._quiet;
+        try {
+          // A catch-up over several days only announces the last one (no burst of stale toasts)
+          for (let d = this.lastDay + 1; d <= stop; d++) { this._quiet = quiet || d < day; this._advanceDay(d); }
+        } finally { this._quiet = quiet; }
         if (stop < day) { this.curWeek = tourWeekOf(day); this.draw = null; }
         this.lastDay = day;
       }
