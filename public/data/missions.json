@@ -702,7 +702,7 @@
         },
         "client": "owner",
         "key": ["owner", "item"],
-        "title": ["Lost & found: {item}", "Whose {item.label}?", "Return {owner.first}'s things"],
+        "title": ["Lost & found: {item}", "Unclaimed: {item}", "Return {owner.first}'s things"],
         "description": ["{finder} spotted {item} left at {from}. The tag says {owner}."],
         "steps": [
           {
@@ -1022,6 +1022,7 @@
         "cooldownDays": 2,
         "minDay": 2,
         "hours": [8, 17],
+        "weather": ["sunny", "cloudy", "windy"],
         "roles": {
           "gate": { "npc": "staff", "ids": ["otis_grant"] },
           "guest": { "text": ["the county tennis board chair", "Mr. Okonjo and his daughters", "two sponsors from Harlan Motors", "Dame Evelyn Price"] },
@@ -1192,13 +1193,13 @@
         "client": "host",
         "key": ["guest"],
         "title": ["Escort {guest}", "VIP tour for {host.first}'s guest"],
-        "description": ["{Guest} is at the gate as a guest of {host}. Give them the tour."],
+        "description": ["{Host} has a guest at the gate: {guest}. Give them the tour."],
         "steps": [
           {
             "action": "dialogue",
             "npc": "gate",
             "prompt": "Meet Otis at the gate.",
-            "lines": [{ "*": "Report: {guest} is here. Guest of {host}. Looks important. I straightened my badge." }]
+            "lines": [{ "*": "Report: a guest for {host} at the gate. {Guest}. Looks important. I straightened my badge." }]
           },
           {
             "action": "goTo",
