@@ -36,7 +36,6 @@ const _prof = { top: 0, side: 0, gyro: 0 };
 const _C = { x: 0, y: 0, z: 0 };
 const _B = { x: 0, z: 0 };
 const _opts = { speed: 0, pace: 0, margin: 0, minT: 0, gravityOnly: false };
-const SPIN_STEPS = [1, 0.8, 0.62, 0.45, 0.3, 0.15, 0];
 
 /**
  * Make a shot.
@@ -71,20 +70,31 @@ export function makeShot(res, ball, intent, exec, env) {
   _opts.margin = Number.isFinite(intent.margin) ? intent.margin : 0.4;
   _opts.minT = intent.minT || 0; _opts.gravityOnly = false;
   let spinScale = 1, speedScale = 1, ok = false;
-  // Ask for less spin until the stroke is one a racket can make (too much brush / slip), and for
-  // less speed when the racket would have to be too fast
-  for (let si = 0, tries = 0; si < SPIN_STEPS.length && tries < 12; tries++) {
-    spinScale = SPIN_STEPS[si];
-    _prof.top = p0.top * spinScale; _prof.side = p0.side * spinScale; _prof.gyro = p0.gyro * spinScale;
+  // The stroke must be one a racket can make: too fast → ask for less speed; too much brush /
+  // slip (e.g. topspin off a heavy topspin ball) → bisect the spin down to the most it allows
+  // (a few plans at most; the last feasible one is kept)
+  let lo = -1, hi = 1, tries = 0;
+  const tryScale = (k) => {
+    spinScale = k;
+    _prof.top = p0.top * k; _prof.side = p0.side * k; _prof.gyro = p0.gyro * k;
     _opts.speed = intent.speed ? intent.speed * speedScale : 0;
     _opts.pace = intent.pace ? intent.pace * speedScale : 0;
     planShot(_plan, _C, _B, _prof, _opts, env);
     _pv.x = _plan.vx; _pv.y = _plan.vy; _pv.z = _plan.vz;
     _pw.x = _plan.wx; _pw.y = _plan.wy; _pw.z = _plan.wz;
     impactInverse(_bv, _bw, _pv, _pw, eAplan, _sol);
-    if (_sol.ok) { ok = true; break; }
-    if (_sol.why === 'speed' && speedScale > 0.55) speedScale *= 0.9;
-    else si++;
+    tries++;
+    return _sol.ok;
+  };
+  while (tries < 8) {
+    if (tryScale(hi)) { ok = true; break; }
+    if (_sol.why === 'speed' && speedScale > 0.55) { speedScale *= 0.88; continue; }
+    // (spin: bisect between the last feasible scale lo and the failed hi)
+    const next = lo < 0 ? (hi > 0.5 ? 0.5 : 0) : 0.5 * (lo + hi);
+    if (lo < 0 && hi === 0) break;                 // even no spin fails: keep the attempt
+    if (lo >= 0 && hi - lo < 0.12) { tryScale(lo); ok = _sol.ok; break; }
+    if (tryScale(next)) { lo = next; ok = true; if (hi - next < 0.2) break; hi = 0.5 * (next + hi); if (tryScale(hi)) break; tryScale(lo); break; }
+    hi = next;
   }
   // Execution
   let dYaw = 0, dPitch = 0, speedK = 1;
