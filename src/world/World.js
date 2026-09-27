@@ -1833,6 +1833,7 @@ export class World {
     for (const seg of this._segs) if (seg.ext) verge(r2, seg);
     for (const r of this._rects) if (r.layout) rectEdge(r2, r);
     for (const [x, z] of this._extTrees || []) trunk(r2, x, z, true);
+    this._legacyTrees = this._extTrees = null;   // build-time only
   }
 
   _inGarden(x, z) {
