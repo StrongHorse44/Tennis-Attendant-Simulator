@@ -314,14 +314,16 @@ export class TennisAI {
    * A ball is on its way to Rafa (after the player's contact, a serve, or a net cord).
    * willBeIn: the session's in/out read — he leaves balls that are going out.
    */
-  onIncoming(t, willBeIn) {
+  onIncoming(t, willBeIn, reread = false) {
     const s = this.s, npc = this.npc, d = this.diff, f = s.frame, b = s.ball;
     this.tSplit = this.tMove = this.tSwing = this.tRecover = this.tFaceNet = INF;
     this.plan.ok = false;
     const ret = s.fl.kind === 'serve';
     this.inPace = s.fl.pace || 15;   // average pace to the bounce (the ball slows in the air)
-    // Scouting: which wing hit it, did it go in, and the serve pace
-    if (ret) { if (!s.fl.let) this.tactics.scout.onServe(this.inPace); }
+    // Scouting: which wing hit it, did it go in, and the serve pace (once per shot: not again
+    // when a net cord makes him read the same ball twice)
+    if (reread) { /* already scouted */ }
+    else if (ret) { if (!s.fl.let) this.tactics.scout.onServe(this.inPace); }
     else if (s.swing && s.fl.hitter === 0) this.tactics.scout.onShot(s.swing.clip, willBeIn, s.pl.v * s.sides[0], s.pl.u);
     const bx = npc.body.position.x, bz = npc.body.position.z;
     if (!willBeIn) {

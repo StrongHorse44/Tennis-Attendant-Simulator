@@ -499,6 +499,9 @@ export class TennisSession {
     const g = this.game;
     this._applyPendingXp();
     this._clearStadiumBoard();
+    // Absolute session-clock times (swingFree, tPointOver, the drawn ball's offset …) must not
+    // outlive the session: the next one starts its clock at 0
+    this._stopPlay();
     this.active = false;
     this.phase = 'off';
     this.mode = null;
@@ -628,10 +631,12 @@ export class TennisSession {
     this.crowdStaff = tm.home;            // the staff come to watch at home only
     this.from = 'tour';
     this._tourErrors = 0;
+    this._tourErrT = -INF;
     this.active = true;
     this.phase = 'intro';
     this.mode = null;
     this.t = 0;
+    this._stopPlay();                     // (a clean slate on the new clock: no stale swing / point timers)
 
     if (g.shiftReport && g.shiftReport.isOpen) g.shiftReport.hide();
     if (g.paused && g.pauseReason === 'report') g.resume();
@@ -1777,7 +1782,7 @@ export class TennisSession {
         const o = this._popts, tg = this._tgt;
         o.speed = intent.speed || 0; o.pace = intent.pace || 0; o.margin = intent.margin; o.minT = intent.minT || 0;
         tg.x = intent.tx; tg.z = intent.tz;
-        const P = planShot(this._pln, st, tg, prof, o, env);
+        const P = planShot(this._pln, st, tg, prof, o, this._env);   // (in the real wind: exact)
         res.vx = P.vx; res.vy = P.vy; res.vz = P.vz; res.wx = P.wx; res.wy = P.wy; res.wz = P.wz;
       }
       b.fly(tc, st.x, st.y, st.z, res.vx, res.vy, res.vz, res.wx, res.wy, res.wz, this._env);
@@ -1917,7 +1922,7 @@ export class TennisSession {
   _onFlight(netCord = false) {
     const fl = this.fl;
     if (fl.receiver === 1) {
-      if (this.mode === 'match' || this._rallyDrill()) this.ai.onIncoming(this.t, fl.willBeIn);
+      if (this.mode === 'match' || this._rallyDrill()) this.ai.onIncoming(this.t, fl.willBeIn, netCord);
       this.fx.hideMarker();
       this.pl.aValid = false;
       // After your shot: drift back to the middle
@@ -2090,7 +2095,9 @@ export class TennisSession {
     if (fl.kind === 'serve') fl.let = true;
     else if (this.tour) this.tour.netCord(fl.hitter);
     this.hud.pop('Net cord!', 'call');
-    this._onFlight(true);   // the receiver reads it again
+    // The receiver reads it again — unless already committed to a stroke (the flight, net cord
+    // and all, was known from the launch: re-arming a released swing would double it)
+    if (fl.contactBy < 0 && !(fl.receiver === 0 && this.pl.swung)) this._onFlight(true);
   }
 
   /**
@@ -2886,6 +2893,7 @@ export class TennisSession {
     this.fl.active = false; this.fl.resolved = false;
     this.ball.hide();
     this.ai.reset();
+    this._lastShotQ = 0;          // (your last groundstroke's quality belongs to the point it was hit in)
     this.srv.second = !!second;
     if (!second) this._resetPointInfo();
     this._beginServe(sc.currentServer, sc.isDeuceSide(), !!second);

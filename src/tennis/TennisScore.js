@@ -23,6 +23,7 @@ export const FORMATS = {
 };
 
 const WORDS = ['0', '15', '30', '40'];
+const BIG = ['match', 'set'];     // pressure(): the kinds, biggest first (no array per call)
 
 export class TennisScore {
   constructor({ format = 'set', firstServer = 0 } = {}) {
@@ -174,7 +175,7 @@ export class TennisScore {
    */
   pressure() {
     if (this.done) return null;
-    for (const k of ['match', 'set']) {
+    for (const k of BIG) {
       for (let i = 0; i < 2; i++) {
         if (k === 'match' ? this.matchPointFor(i) : this.setPointFor(i)) return this._pr(k, i);
       }
